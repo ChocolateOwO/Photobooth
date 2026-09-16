@@ -9,10 +9,13 @@ from photobooth import API_VERSION, __version__
 from photobooth.core.config import AppSettings
 from photobooth.core.db import create_sqlite_engine
 from photobooth.core.kiosk_pairing import (
+    LAUNCHER_TOKEN_FILENAME,
     Clock,
     DeviceCredentialRegistry,
     FilePairingCodeStore,
+    LauncherCredential,
     PairingService,
+    RuntimeSecretFile,
 )
 from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
 from photobooth.modules.kiosk.service import KioskPairingService
@@ -45,15 +48,20 @@ class Container:
         self.pairing_store.clear()  # a code from a previous process is never valid
         self.pairing = PairingService(self.pairing_store, self.device_credentials, clock=clock)
         self.kiosk_pairing_service = KioskPairingService(self.pairing)
+        self.launcher = LauncherCredential(
+            RuntimeSecretFile(settings.runtime_dir, LAUNCHER_TOKEN_FILENAME)
+        )
 
         self.registry = ServiceRegistry()
         self.registry.register(SystemService, self.system_service)
         self.registry.register(KioskPairingService, self.kiosk_pairing_service)
         self.registry.register(DeviceCredentialRegistry, self.device_credentials)
+        self.registry.register(LauncherCredential, self.launcher)
         self.registry.register(
             DeviceCookieSettings, DeviceCookieSettings(settings.device_cookie_name)
         )
 
     def close(self) -> None:
         self.pairing.shutdown()
+        self.launcher.clear()
         self.engine.dispose()

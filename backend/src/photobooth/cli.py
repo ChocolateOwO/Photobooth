@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import sqlite3
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -13,7 +14,7 @@ from pathlib import Path
 from photobooth.container import Container
 from photobooth.core.config import AppSettings
 from photobooth.core.db import create_sqlite_engine
-from photobooth.core.errors import PhotoboothError
+from photobooth.core.errors import InstanceGuardError, PhotoboothError
 from photobooth.core.instance_guard import PORT_TABLE, InstanceGuard, InstanceLock
 from photobooth.core.listeners import build_server, listener_specs, serve_together
 from photobooth.core.logging import configure_logging
@@ -71,9 +72,41 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def read_existing_stamp(db_path: Path) -> str | None:
+    """Read `app_meta.instance` without creating or migrating the database (read-only)."""
+    if not db_path.is_file():
+        return None
+    conn = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        has_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_meta'"
+        ).fetchone()
+        if not has_table:
+            return None
+        row = conn.execute("SELECT value FROM app_meta WHERE key='instance'").fetchone()
+        return None if row is None else str(row[0])
+    finally:
+        conn.close()
+
+
+def _refuse_foreign_database(settings: AppSettings, require_stamp: bool) -> None:
+    """Validate the stamp BEFORE any schema change in either direction."""
+    stamp = read_existing_stamp(settings.db_path)
+    if stamp is not None and stamp != settings.instance:
+        raise InstanceGuardError(
+            "database", f"database belongs to instance '{stamp}', not '{settings.instance}'"
+        )
+    if require_stamp and stamp is None:
+        raise InstanceGuardError(
+            "database", "refusing to downgrade a database without this instance's stamp"
+        )
+
+
 def cmd_db_upgrade(args: argparse.Namespace) -> int:
     settings, _guard = _load(args.env_file)
     with InstanceLock(settings.lock_path):
+        # Unstamped (fresh) databases are initialized and stamped; foreign ones are never touched.
+        _refuse_foreign_database(settings, require_stamp=False)
         Migrator(settings.db_path).upgrade(args.revision)
         container = Container(settings)
         try:
@@ -87,6 +120,7 @@ def cmd_db_upgrade(args: argparse.Namespace) -> int:
 def cmd_db_downgrade(args: argparse.Namespace) -> int:
     settings, _guard = _load(args.env_file)
     with InstanceLock(settings.lock_path):
+        _refuse_foreign_database(settings, require_stamp=True)
         Migrator(settings.db_path).downgrade(args.revision)
     print(json.dumps({"db": str(settings.db_path), "revision": args.revision}))
     return 0

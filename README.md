@@ -45,4 +45,7 @@ Dummy\
 - Delivery listener exposes only delivery routes (Phase 1: `/d/_alive`); everything else is a uniform 404.
 - Every `/api/booth/*` and `/api/admin/*` route requires the kiosk device cookie, obtained by consuming a
   single-use 60-second pairing code from `config\runtime\pairing.code`.
+- Pairing-code rotation is launcher-only: the caller sends `X-Photobooth-Launcher` with the per-process
+  token from `config\runtime\launcher.token` (both runtime files are cleared when the backend stops).
+- `db-upgrade` / `db-downgrade` refuse a database stamped for another instance before any schema change.
 - Logs redact delivery tokens, pairing codes, device cookies and secret assignments.

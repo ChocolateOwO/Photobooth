@@ -8,21 +8,44 @@ from photobooth.container import Container
 from photobooth.main import KioskAppOptions, create_kiosk_app
 
 
+def _launcher(container: Container) -> dict[str, str]:
+    token = container.launcher.path.read_text(encoding="utf-8")
+    return {"X-Photobooth-Launcher": token}
+
+
 def _rotate_and_read(client: TestClient, container: Container) -> str:
-    assert client.post("/kiosk/pairing-code/rotate").status_code == 204
+    response = client.post("/kiosk/pairing-code/rotate", headers=_launcher(container))
+    assert response.status_code == 204
     return container.pairing_store.path.read_text(encoding="utf-8")
 
 
+def test_rotate_requires_launcher_credential(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    assert kiosk_client.post("/kiosk/pairing-code/rotate").status_code == 401
+    wrong = {"X-Photobooth-Launcher": "forged"}
+    assert kiosk_client.post("/kiosk/pairing-code/rotate", headers=wrong).status_code == 401
+    assert not container.pairing_store.path.exists()
+
+
+def test_launcher_token_published_to_runtime_and_cleared_on_close(container: Container) -> None:
+    path = container.settings.runtime_dir / "launcher.token"
+    assert len(path.read_text(encoding="utf-8")) >= 40
+    container.close()
+    assert not path.exists()
+
+
 def test_rotate_does_not_return_code(kiosk_client: TestClient, container: Container) -> None:
-    response = kiosk_client.post("/kiosk/pairing-code/rotate")
+    response = kiosk_client.post("/kiosk/pairing-code/rotate", headers=_launcher(container))
     assert response.status_code == 204
     assert response.content == b""
     assert container.pairing_store.path.is_file()
 
 
-def test_rotate_is_rate_limited(kiosk_client: TestClient) -> None:
-    assert kiosk_client.post("/kiosk/pairing-code/rotate").status_code == 204
-    assert kiosk_client.post("/kiosk/pairing-code/rotate").status_code == 429
+def test_rotate_is_rate_limited(kiosk_client: TestClient, container: Container) -> None:
+    headers = _launcher(container)
+    assert kiosk_client.post("/kiosk/pairing-code/rotate", headers=headers).status_code == 204
+    assert kiosk_client.post("/kiosk/pairing-code/rotate", headers=headers).status_code == 429
 
 
 def test_pairing_sets_strict_httponly_cookie_and_is_single_use(
@@ -43,8 +66,10 @@ def test_pairing_sets_strict_httponly_cookie_and_is_single_use(
     assert "set-cookie" not in reuse.headers
 
 
-def test_pairing_rejects_missing_or_wrong_code(kiosk_client: TestClient) -> None:
-    kiosk_client.post("/kiosk/pairing-code/rotate")
+def test_pairing_rejects_missing_or_wrong_code(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    _rotate_and_read(kiosk_client, container)
     assert kiosk_client.get("/kiosk/pair", follow_redirects=False).status_code == 403
     assert kiosk_client.get("/kiosk/pair?code=guess", follow_redirects=False).status_code == 403
 

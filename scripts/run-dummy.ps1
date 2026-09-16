@@ -17,12 +17,15 @@ $pidFile = Join-Path $runDir 'dummy-processes.json'
 $logsDir = Join-Path $script:InstanceRoot 'data\logs'
 $envFile = Join-Path $script:InstanceRoot 'config\photobooth.env'
 $pairingFile = Join-Path $script:InstanceRoot 'config\runtime\pairing.code'
+$launcherFile = Join-Path $script:InstanceRoot 'config\runtime\launcher.token'
 
 function Open-Pairing {
     $rotated = $false
     for ($i = 0; $i -lt 5 -and -not $rotated; $i++) {
         try {
-            Invoke-WebRequest -Uri "http://127.0.0.1:$kioskPort/kiosk/pairing-code/rotate" -Method Post -UseBasicParsing | Out-Null
+            $launcher = [System.IO.File]::ReadAllText($launcherFile).Trim()
+            Invoke-WebRequest -Uri "http://127.0.0.1:$kioskPort/kiosk/pairing-code/rotate" -Method Post `
+                -Headers @{ 'X-Photobooth-Launcher' = $launcher } -UseBasicParsing | Out-Null
             $rotated = $true
         }
         catch {

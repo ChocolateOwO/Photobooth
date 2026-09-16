@@ -4,8 +4,9 @@ Modes
   --dry-run   refusals + artifacts + restore drill in a temp dir; no tag, nothing published
   (default)   annotated tag, build in patches/.staging-NNN-slug, restore drill, atomic publish
   --resume    tag must already exist at the approved commit; regenerate missing artifacts only
+  --repair-index  published folder exists: validate checksums/manifest/tag, append missing index row
 
-Test-only failure injection: env PHOTOBOOTH_MAKE_PATCH_FAIL_AT in {bundle, drill, manifest}.
+Test-only failure injection: env PHOTOBOOTH_MAKE_PATCH_FAIL_AT in {bundle, drill, manifest, index}.
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ class Request:
     approval: str
     dry_run: bool
     resume: bool
+    repair_index: bool = False
 
     @property
     def name(self) -> str:
@@ -147,7 +149,8 @@ def _check_verify_record(req: Request, commit: str) -> None:
         raise PatchError("verify record required (scripts\\verify.ps1 writes one per commit)")
     if not req.verify_record.is_file():
         raise PatchError(f"verify record missing: {req.verify_record}")
-    record = json.loads(req.verify_record.read_text(encoding="utf-8"))
+    # utf-8-sig: Windows PowerShell 5.1 writers may prepend a BOM.
+    record = json.loads(req.verify_record.read_text(encoding="utf-8-sig"))
     if record.get("commit") != commit or record.get("result") != "passed":
         raise PatchError("verify record does not show a passing run for the approved commit")
 
@@ -204,7 +207,7 @@ def build_artifacts(
     files = _files_changed(req.repo, base_commit, commit)
     verify = {}
     if req.verify_record and req.verify_record.is_file():
-        verify = json.loads(req.verify_record.read_text(encoding="utf-8"))
+        verify = json.loads(req.verify_record.read_text(encoding="utf-8-sig"))
     manifest: dict[str, object] = {
         "patch_number": req.number,
         "name": req.name,
@@ -324,7 +327,33 @@ def _append_index(index: Path, manifest: dict[str, object]) -> None:
     index.write_text(existing + row, encoding="utf-8")
 
 
+def repair_index(req: Request) -> dict[str, object]:
+    """Validate an already-published milestone and append its index row if missing."""
+    folder = req.patches_dir / req.name
+    if not folder.is_dir():
+        raise PatchError(f"--repair-index requires published folder {folder}")
+    commit = git(req.repo, "rev-parse", "--verify", f"{req.commit}^{{commit}}", check=False)
+    if not commit:
+        raise PatchError(f"approved commit not found: {req.commit}")
+    if not _tag_exists(req.repo, req.name) or git(req.repo, "cat-file", "-t", req.name) != "tag":
+        raise PatchError(f"annotated tag {req.name} not found")
+    if git(req.repo, "rev-parse", f"{req.name}^{{commit}}") != commit:
+        raise PatchError(f"tag {req.name} does not point to approved commit {commit}")
+    for line in (folder / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines():
+        digest, name = line.split("  ", 1)
+        if _sha256(folder / name) != digest:
+            raise PatchError(f"checksum mismatch for {name}")
+    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    if manifest.get("resulting_commit") != commit or manifest.get("tag") != req.name:
+        raise PatchError("published manifest does not match the approved commit/tag")
+    git(req.repo, "bundle", "verify", str(folder / f"{req.name}.bundle"))
+    _append_index(req.index_file, manifest)
+    return manifest
+
+
 def run(req: Request) -> dict[str, object]:
+    if req.repair_index:
+        return repair_index(req)
     commit, base_tag = validate(req)
 
     if req.dry_run:
@@ -351,6 +380,7 @@ def run(req: Request) -> dict[str, object]:
     except BaseException:
         _force_rmtree(staging)
         raise
+    _inject("index")
     _append_index(req.index_file, manifest)
     return manifest
 
@@ -373,6 +403,7 @@ def parse(argv: list[str] | None) -> Request:
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--resume", action="store_true")
+    mode.add_argument("--repair-index", action="store_true")
     a = p.parse_args(argv)
     if not a.dry_run and not a.approval.startswith("approved "):
         p.error("--approval 'approved YYYY-MM-DD' is required unless --dry-run")
@@ -390,6 +421,7 @@ def parse(argv: list[str] | None) -> Request:
         approval=a.approval,
         dry_run=a.dry_run,
         resume=a.resume,
+        repair_index=a.repair_index,
     )
 
 

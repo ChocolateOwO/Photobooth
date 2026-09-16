@@ -1,7 +1,8 @@
 """Kiosk routes.
 
 - GET  /kiosk/pair?code=...          consume one-time code, set device cookie, redirect to /
-- POST /kiosk/pairing-code/rotate    publish a new code to the runtime file (code not returned)
+- POST /kiosk/pairing-code/rotate    launcher-only (X-Photobooth-Launcher); publish a new code to
+                                     the runtime file (code not returned)
 - GET  /api/kiosk/status             {"paired": bool} (read-only)
 - POST /api/booth/ping               device-authenticated mutation stub (route-matrix groundwork)
 """
@@ -14,7 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from photobooth.core.web import DeviceCookieSettings, is_device_paired, provide, require_device
+from photobooth.core.web import (
+    DeviceCookieSettings,
+    is_device_paired,
+    provide,
+    require_device,
+    require_launcher,
+)
 from photobooth.modules.kiosk.domain import PairingOutcome, RotationRejectedError
 from photobooth.modules.kiosk.service import KioskPairingService
 
@@ -58,7 +65,11 @@ def pair(
     return response
 
 
-@pairing_router.post("/kiosk/pairing-code/rotate", status_code=status.HTTP_204_NO_CONTENT)
+@pairing_router.post(
+    "/kiosk/pairing-code/rotate",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_launcher)],
+)
 def rotate_pairing_code(service: Service) -> None:
     try:
         service.rotate_code()

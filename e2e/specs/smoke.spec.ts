@@ -5,14 +5,21 @@ import { expect, request, test } from '@playwright/test'
 
 const instanceRoot = process.env.PHOTOBOOTH_E2E_INSTANCE_ROOT ?? ''
 
+function runtimeSecret(name: string): string {
+  return readFileSync(join(instanceRoot, 'config', 'runtime', name), 'utf-8')
+}
+
 async function freshPairingCode(baseURL: string): Promise<string> {
-  const api = await request.newContext({ baseURL })
+  const api = await request.newContext({
+    baseURL,
+    extraHTTPHeaders: { 'X-Photobooth-Launcher': runtimeSecret('launcher.token') },
+  })
   try {
     // Rotation is rate limited to 1/s; retry briefly if a previous test just rotated.
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await api.post('/kiosk/pairing-code/rotate')
       if (response.status() === 204) {
-        return readFileSync(join(instanceRoot, 'config', 'runtime', 'pairing.code'), 'utf-8')
+        return runtimeSecret('pairing.code')
       }
       expect(response.status()).toBe(429)
       await new Promise((resolve) => setTimeout(resolve, 1100))
@@ -56,6 +63,8 @@ test('a browser without the device cookie cannot mutate booth state', async ({ b
   try {
     const response = await context.request.post('/api/booth/ping')
     expect(response.status()).toBe(401)
+    const rotate = await context.request.post('/kiosk/pairing-code/rotate')
+    expect(rotate.status()).toBe(401)
   } finally {
     await context.close()
   }

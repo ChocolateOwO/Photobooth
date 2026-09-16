@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Protocol
 
 PAIRING_CODE_FILENAME = "pairing.code"
+LAUNCHER_TOKEN_FILENAME = "launcher.token"  # noqa: S105 - a file name, not a secret
+LAUNCHER_HEADER = "X-Photobooth-Launcher"
 PAIRING_CODE_TTL_SECONDS = 60.0
 ROTATE_MIN_INTERVAL_SECONDS = 1.0
 
@@ -37,21 +39,58 @@ class PairingCodeStore(Protocol):
     def clear(self) -> None: ...
 
 
-class FilePairingCodeStore:
-    """Writes the code atomically to `runtime_dir/pairing.code` (UTF-8, no newline)."""
+class RuntimeSecretFile:
+    """A secret published atomically to `runtime_dir/<filename>` (UTF-8, no newline).
 
-    def __init__(self, runtime_dir: Path) -> None:
+    The runtime directory is readable only by the booth user once the containment gate applies ACLs.
+    """
+
+    def __init__(self, runtime_dir: Path, filename: str) -> None:
         self._dir = runtime_dir
-        self.path = runtime_dir / PAIRING_CODE_FILENAME
+        self._filename = filename
+        self.path = runtime_dir / filename
 
-    def publish(self, code: str) -> None:
+    def publish(self, value: str) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
-        tmp = self._dir / f".{PAIRING_CODE_FILENAME}.{secrets.token_hex(4)}.tmp"
-        tmp.write_text(code, encoding="utf-8")
+        tmp = self._dir / f".{self._filename}.{secrets.token_hex(4)}.tmp"
+        tmp.write_text(value, encoding="utf-8")
         os.replace(tmp, self.path)
 
     def clear(self) -> None:
         self.path.unlink(missing_ok=True)
+
+
+class FilePairingCodeStore(RuntimeSecretFile):
+    """The pairing code file read by the trusted launcher."""
+
+    def __init__(self, runtime_dir: Path) -> None:
+        super().__init__(runtime_dir, PAIRING_CODE_FILENAME)
+
+
+class LauncherCredential:
+    """Per-process secret that authorizes pairing-code rotation (launcher only).
+
+    Rotation is a mutation and loopback + Host are not an identity: the caller proves it can read
+    the runtime directory by presenting this token in the `X-Photobooth-Launcher` header.
+    """
+
+    def __init__(self, store: RuntimeSecretFile) -> None:
+        self._store = store
+        self._token = secrets.token_urlsafe(32)
+        self._digest = _digest(self._token)
+        store.publish(self._token)
+
+    @property
+    def path(self) -> Path:
+        return self._store.path
+
+    def verify(self, token: str | None) -> bool:
+        if not token:
+            return False
+        return hmac.compare_digest(_digest(token), self._digest)
+
+    def clear(self) -> None:
+        self._store.clear()
 
 
 class DeviceCredentialRegistry:

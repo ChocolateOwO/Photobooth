@@ -67,7 +67,9 @@ GOOGLE_REFRESH_TOKEN = re.compile(r"(?<![A-Za-z0-9])1//[0-9A-Za-z_\-]{30,}")
 GOOGLE_ACCESS_TOKEN = re.compile(r"(?<![A-Za-z0-9])ya29\.[0-9A-Za-z_\-]{20,}")
 ENV_SECRET_ASSIGNMENT = re.compile(
     r"^\s*(?:export\s+)?(?P<name>PHOTOBOOTH_ADMIN_PASSWORD|[A-Z0-9_]*_SECRET|[A-Z0-9_]*_TOKEN)"
-    r"=(?P<value>[^\s#]*)",
+    # dotenv forms: NAME=value, NAME = value, NAME= "quoted value", NAME='x' # comment.
+    # Unquoted values stop at code punctuation so `X_TOKEN = re.compile(...)` source is no value.
+    r"[ \t]*=[ \t]*(?P<value>\"[^\"\n]*\"|'[^'\n]*'|[^\s#()\[\]{},]*)[ \t\r]*(?:#[^\n]*)?$",
     re.MULTILINE,
 )
 JSON_CLIENT_SECRET = re.compile(r'"client_secret"\s*:\s*"(?P<value>[^"]*)"')

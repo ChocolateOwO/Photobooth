@@ -101,6 +101,16 @@ class InstanceGuard:
             "backups_dir": s.backups_dir,
             "logs_dir": s.logs_dir,
             "config_dir": s.config_dir,
+            # Derived paths the process mutates: validated separately so a nested junction or
+            # file link below an otherwise-contained directory cannot redirect writes.
+            "runtime_dir": s.runtime_dir,
+            "pairing_code": s.runtime_dir / "pairing.code",
+            "launcher_token": s.runtime_dir / "launcher.token",
+            "lock_path": s.lock_path,
+            "db_wal": s.db_path.with_name(s.db_path.name + "-wal"),
+            "db_shm": s.db_path.with_name(s.db_path.name + "-shm"),
+            "log_file": s.logs_dir / "photobooth.log",
+            "backup_ledger": s.backups_dir / "BACKUPS.json",
         }
         for name, path in named.items():
             if not is_within(path, s.instance_root):

@@ -45,6 +45,9 @@ function Get-Counts {
 }
 
 $overall = 'failed'
+# Capture the candidate before any check: a record may only certify this exact commit and a clean tree.
+$startCommit = (& git -C $app rev-parse HEAD).Trim()
+$startDirty = [bool](& git -C $app status --porcelain --untracked-files=all)
 try {
     $nodeVersion = Use-Node24
     $python = Get-VenvPython
@@ -121,18 +124,26 @@ try {
         Invoke-Native $python @((Join-Path $PSScriptRoot 'guards\check_staged.py'), '--repo', $app, '--tracked')
     }
 
-    $dirty = (& git -C $app status --porcelain --untracked-files=all)
-    $commit = (& git -C $app rev-parse HEAD).Trim()
-    if ($dirty) {
-        Write-Warning 'Working tree is dirty: make-patch dry run against this repository and the verify record require a clean committed tree.'
+    if ($startDirty) {
+        Write-Warning 'Working tree was dirty at start: no make-patch dry run and no verify record.'
         $overall = 'passed-uncommitted'
     }
     else {
-        Step 'make-patch dry run (this repository, no tag, nothing published)' {
+        # Next unused milestone number, so the gate stays reusable after earlier tags exist.
+        $numbers = @(& git -C $app tag --list 'dummy-patch-*' | ForEach-Object {
+                if ($_ -match '^dummy-patch-(\d{3})-') { [int]$Matches[1] } })
+        $max = if ($numbers.Count -gt 0) { ($numbers | Measure-Object -Maximum).Maximum } else { 0 }
+        $next = '{0:D3}' -f ($max + 1)
+        Step "make-patch dry run (next milestone $next, no tag, nothing published)" {
             Invoke-Native $python @((Join-Path $PSScriptRoot 'patchtool\make_patch.py'), '--repo', $app,
                 '--patches-dir', (Join-Path $script:ProjectRoot 'patches'),
                 '--index-file', (Join-Path $script:ProjectRoot 'Project_Docs\PATCH_INDEX.md'),
-                '--number', '001', '--slug', 'project-foundation', '--commit', $commit, '--dry-run')
+                '--number', $next, '--slug', 'verify-candidate', '--commit', $startCommit, '--dry-run')
+        }
+        $endCommit = (& git -C $app rev-parse HEAD).Trim()
+        $endDirty = [bool](& git -C $app status --porcelain --untracked-files=all)
+        if ($endCommit -ne $startCommit -or $endDirty) {
+            throw "Repository changed during verification (start $startCommit, end $endCommit, dirty=$endDirty)"
         }
         $overall = 'passed'
     }
@@ -148,15 +159,17 @@ $results | Format-Table -AutoSize suite, result, counts, seconds | Out-Host
 Write-Host "RESULT: $overall"
 
 if ($overall -eq 'passed') {
-    $commit = (& git -C $app rev-parse HEAD).Trim()
+    $commit = $startCommit
     $recordDir = Join-Path $script:InstanceRoot 'data\verify'
     New-Item -ItemType Directory -Force -Path $recordDir | Out-Null
-    [ordered]@{
+    $json = [ordered]@{
         commit      = $commit
         result      = 'passed'
         finished_at = (Get-Date).ToString('o')
         tests       = $results
-    } | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $recordDir "$commit.json") -Encoding UTF8
+    } | ConvertTo-Json -Depth 5
+    # BOM-free UTF-8: Windows PowerShell 5.1 `Set-Content -Encoding UTF8` would prepend a BOM.
+    [System.IO.File]::WriteAllText((Join-Path $recordDir "$commit.json"), $json, (New-Object System.Text.UTF8Encoding $false))
     Write-Host "Verify record: $recordDir\$commit.json"
     exit 0
 }

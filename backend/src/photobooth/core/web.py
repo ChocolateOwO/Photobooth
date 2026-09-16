@@ -7,7 +7,11 @@ from typing import Any, cast
 
 from fastapi import HTTPException, Request, status
 
-from photobooth.core.kiosk_pairing import DeviceCredentialRegistry
+from photobooth.core.kiosk_pairing import (
+    LAUNCHER_HEADER,
+    DeviceCredentialRegistry,
+    LauncherCredential,
+)
 
 REGISTRY_STATE_KEY = "service_registry"
 
@@ -53,6 +57,15 @@ def require_device(request: Request) -> None:
     credentials = registry.get(DeviceCredentialRegistry)
     if not credentials.verify(request.cookies.get(cookie)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="device not paired")
+
+
+def require_launcher(request: Request) -> None:
+    """Dependency for launcher-only mutations (pairing-code rotation)."""
+    registry = cast(ServiceRegistry, getattr(request.app.state, REGISTRY_STATE_KEY))
+    if not registry.get(LauncherCredential).verify(request.headers.get(LAUNCHER_HEADER)):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="launcher credential required"
+        )
 
 
 def is_device_paired(request: Request) -> bool:
