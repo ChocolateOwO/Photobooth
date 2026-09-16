@@ -1,0 +1,17 @@
+.button {
+  min-width: var(--pb-touch-target);
+  min-height: var(--pb-touch-target);
+  padding: 0 32px;
+  border: none;
+  border-radius: var(--pb-radius);
+  background: var(--pb-color-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

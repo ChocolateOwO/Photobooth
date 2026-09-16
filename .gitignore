@@ -1,0 +1,43 @@
+# runtime / secrets (anchored to repo root: unanchored storage/, captures/, outputs/
+# would also ignore source packages modules/storage, modules/captures, modules/outputs)
+/data/
+/config/
+/backups/
+/logs/
+/storage/
+/tmp/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+*.env
+!.env.example
+credentials*.json
+token*.json
+client_secret*.json
+*.pem
+*.key
+*.zip
+*.log
+# build / tooling
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+playwright-report/
+test-results/
+blob-report/
+# setuptools metadata from editable installs
+*.egg-info/

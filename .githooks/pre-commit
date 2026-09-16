@@ -1,0 +1,3 @@
+#!/bin/sh
+# Staged-content guard (enabled with: git config --local core.hooksPath .githooks)
+exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-staged.ps1 -Staged

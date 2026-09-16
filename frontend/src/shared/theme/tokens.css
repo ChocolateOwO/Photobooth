@@ -1,0 +1,38 @@
+:root {
+  --pb-font-family: system-ui, 'Noto Sans Thai', 'Segoe UI', sans-serif;
+  --pb-font-size-base: 20px;
+  --pb-color-bg: #101418;
+  --pb-color-surface: #1c232b;
+  --pb-color-text: #f4f6f8;
+  --pb-color-muted: #a9b4bf;
+  --pb-color-primary: #2f6fd6;
+  --pb-color-ok: #3fcf7f;
+  --pb-color-error: #ff6b70;
+  --pb-color-dummy: #ffb020;
+  --pb-radius: 16px;
+  --pb-space: 16px;
+  --pb-touch-target: 64px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background: var(--pb-color-bg);
+  color: var(--pb-color-text);
+  font-family: var(--pb-font-family);
+  font-size: var(--pb-font-size-base);
+  touch-action: manipulation;
+}
+
+:focus-visible {
+  outline: 4px solid var(--pb-color-dummy);
+  outline-offset: 4px;
+}

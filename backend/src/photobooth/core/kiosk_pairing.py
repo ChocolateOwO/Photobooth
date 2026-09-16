@@ -1,0 +1,140 @@
+"""Kiosk device credential groundwork.
+
+Loopback is not an identity: any local process can reach 127.0.0.1. The booth browser
+therefore proves itself with a device cookie obtained by consuming a one-time pairing
+code that only the booth user can read from `<instance>\\config\\runtime\\pairing.code`.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import os
+import secrets
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+
+PAIRING_CODE_FILENAME = "pairing.code"
+PAIRING_CODE_TTL_SECONDS = 60.0
+ROTATE_MIN_INTERVAL_SECONDS = 1.0
+
+Clock = Callable[[], float]
+
+
+def _digest(value: str) -> bytes:
+    return hashlib.sha256(value.encode("utf-8")).digest()
+
+
+class PairingCodeStore(Protocol):
+    """Where the current pairing code is published for the trusted launcher."""
+
+    def publish(self, code: str) -> None: ...
+
+    def clear(self) -> None: ...
+
+
+class FilePairingCodeStore:
+    """Writes the code atomically to `runtime_dir/pairing.code` (UTF-8, no newline)."""
+
+    def __init__(self, runtime_dir: Path) -> None:
+        self._dir = runtime_dir
+        self.path = runtime_dir / PAIRING_CODE_FILENAME
+
+    def publish(self, code: str) -> None:
+        self._dir.mkdir(parents=True, exist_ok=True)
+        tmp = self._dir / f".{PAIRING_CODE_FILENAME}.{secrets.token_hex(4)}.tmp"
+        tmp.write_text(code, encoding="utf-8")
+        os.replace(tmp, self.path)
+
+    def clear(self) -> None:
+        self.path.unlink(missing_ok=True)
+
+
+class DeviceCredentialRegistry:
+    """In-memory, hashed device credentials. A new registry per process = rotation on restart."""
+
+    def __init__(self) -> None:
+        self._hashes: set[bytes] = set()
+        self._lock = threading.Lock()
+
+    def issue(self) -> str:
+        token = secrets.token_urlsafe(32)
+        with self._lock:
+            self._hashes.add(_digest(token))
+        return token
+
+    def verify(self, token: str | None) -> bool:
+        if not token:
+            return False
+        candidate = _digest(token)
+        with self._lock:
+            return any(hmac.compare_digest(candidate, known) for known in self._hashes)
+
+
+@dataclass(frozen=True)
+class _PendingCode:
+    digest: bytes
+    expires_at: float
+
+
+class PairingService:
+    """Issues single-use, short-lived pairing codes and exchanges them for device credentials."""
+
+    def __init__(
+        self,
+        store: PairingCodeStore,
+        credentials: DeviceCredentialRegistry,
+        clock: Clock = time.monotonic,
+        ttl_seconds: float = PAIRING_CODE_TTL_SECONDS,
+    ) -> None:
+        self._store = store
+        self._credentials = credentials
+        self._clock = clock
+        self._ttl = ttl_seconds
+        self._pending: _PendingCode | None = None
+        self._last_rotation: float | None = None
+        self._lock = threading.Lock()
+
+    def rotate(self) -> bool:
+        """Publish a fresh code, invalidating any previous one. False when rate limited.
+
+        The code itself is never returned; only the runtime file carries it.
+        """
+        with self._lock:
+            now = self._clock()
+            if (
+                self._last_rotation is not None
+                and now - self._last_rotation < ROTATE_MIN_INTERVAL_SECONDS
+            ):
+                return False
+            code = secrets.token_urlsafe(32)
+            self._pending = _PendingCode(digest=_digest(code), expires_at=now + self._ttl)
+            self._last_rotation = now
+            self._store.publish(code)
+        return True
+
+    def consume(self, code: str | None) -> str | None:
+        """Return a new device credential if `code` is the current unexpired code, else None."""
+        if not code:
+            return None
+        with self._lock:
+            pending = self._pending
+            if pending is None:
+                return None
+            valid = hmac.compare_digest(_digest(code), pending.digest)
+            if not valid:
+                return None
+            self._pending = None
+            self._store.clear()
+            if self._clock() > pending.expires_at:
+                return None
+        return self._credentials.issue()
+
+    def shutdown(self) -> None:
+        with self._lock:
+            self._pending = None
+            self._store.clear()

@@ -1,0 +1,13 @@
+.badge {
+  position: fixed;
+  top: var(--pb-space);
+  right: var(--pb-space);
+  z-index: 2147483647;
+  padding: 8px 20px;
+  border-radius: var(--pb-radius);
+  background: var(--pb-color-dummy);
+  color: #1a1100;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+}
