@@ -18,8 +18,13 @@ function Step {
     Write-Host ""
     Write-Host "==> $Name" -ForegroundColor Cyan
     $started = Get-Date
-    $output = & $Body | ForEach-Object { "$_" } | Tee-Object -Variable captured
-    $output | Out-Host
+    # Stream every line as it arrives so a failing step's output is always visible in the log.
+    $captured = New-Object System.Collections.Generic.List[string]
+    & $Body | ForEach-Object {
+        $line = "$_"
+        Write-Host $line
+        $captured.Add($line)
+    }
     $text = ($captured -join "`n")
     $results.Add([pscustomobject]@{
             suite   = $Name
