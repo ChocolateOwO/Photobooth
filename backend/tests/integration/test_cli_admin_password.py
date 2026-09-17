@@ -41,6 +41,18 @@ def test_sets_and_changes_password_from_stdin(
     assert _hash(thai_root) != first
 
 
+def test_powershell_bom_on_stdin_is_not_part_of_the_password(
+    thai_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from argon2 import PasswordHasher
+
+    env = _init_env(thai_root)
+    assert main(["db-upgrade", "--env-file", str(env)]) == 0
+    monkeypatch.setattr("sys.stdin", io.StringIO("﻿" + PASSWORD + "\r\n"))
+    assert main(["admin-set-password", "--env-file", str(env), "--password-stdin"]) == 0
+    assert PasswordHasher().verify(_hash(thai_root), PASSWORD)
+
+
 def test_refuses_weak_password_and_wrong_intent(
     thai_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

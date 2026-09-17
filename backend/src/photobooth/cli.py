@@ -206,7 +206,8 @@ def cmd_init_env(args: argparse.Namespace) -> int:
 
 def _read_new_password(args: argparse.Namespace) -> str:
     if args.password_stdin:
-        return sys.stdin.readline().rstrip("\r\n")
+        # Windows PowerShell pipes text with a UTF-8 BOM; it is never part of the password.
+        return sys.stdin.readline().rstrip("\r\n").removeprefix("﻿")
     first = getpass.getpass("New admin password: ")
     if getpass.getpass("Repeat password: ") != first:
         raise PasswordPolicyError("passwords do not match")
