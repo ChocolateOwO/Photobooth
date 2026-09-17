@@ -63,7 +63,19 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
   await page.getByRole('link', { name: 'New profile' }).click()
   await expect(page.getByRole('heading', { name: 'New Event Profile' })).toBeVisible()
 
+  // Grey example text is a real placeholder, readable, and gone once the field has a value.
+  const nameField = page.getByLabel('Profile name')
+  await expect(nameField).toHaveAttribute('placeholder', 'e.g. Chiang Mai Expo 2026')
+  await expect(nameField).toHaveValue('')
+  const placeholderColor = await nameField.evaluate(
+    (el) => getComputedStyle(el, '::placeholder').color,
+  )
+  expect(placeholderColor).toBe('rgb(169, 180, 191)') // --pb-color-muted
+  expect(await nameField.evaluate((el) => el.matches(':placeholder-shown'))).toBe(true)
+
   await page.getByLabel('Profile name').fill(PERSISTED.original)
+  expect(await nameField.evaluate((el) => el.matches(':placeholder-shown'))).toBe(false)
+  await expect(page.getByText('Only admins see this name. It helps you find the profile later.')).toBeVisible()
   await page.getByLabel('Title', { exact: true }).fill(PERSISTED.title)
   await page.getByLabel('Subtitle').fill(PERSISTED.subtitle)
   await page.getByLabel('Start button text').fill(PERSISTED.startText)

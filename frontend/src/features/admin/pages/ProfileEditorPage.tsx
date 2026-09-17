@@ -458,7 +458,9 @@ function ProfileEditorForm({
               max={INACTIVITY_LIMITS.max}
               placeholder="e.g. 120"
               aria-describedby="help-inactivity"
-              value={settings.inactivity_timeout_s}
+              // A cleared field is stored as 0 (still refused by validation) but shown empty so the
+              // example placeholder is visible.
+              value={settings.inactivity_timeout_s === 0 ? '' : settings.inactivity_timeout_s}
               onChange={(e) => {
                 const num = parseInt(e.target.value, 10)
                 setSettings((current) => ({
