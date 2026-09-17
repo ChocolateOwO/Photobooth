@@ -84,6 +84,23 @@ All routes need the paired device and an admin session; mutations also need Orig
 
 Frames are not uploaded here: organizers make finished transparent PNG frames outside the app (Phase 5).
 
+## Admin UI (Phase 4)
+
+Open `/admin` on the paired kiosk browser (Dummy dev: `http://127.0.0.1:5191/admin`). Create the admin
+account first with `admin-set-password` while the booth is stopped.
+
+- Sign in / sign out; an expired session returns to the sign-in form without showing data.
+- Event Profiles list: create, edit, duplicate, activate (one active), soft delete with confirmation, restore.
+- Editor: preparation-screen title, subtitle, start-button text, colors, logo and background upload with
+  preview, enabled layouts, mirror, inactivity timeout, retakes; fixed 5 s countdown and LAN QR delivery shown
+  read-only; live 16:9 preparation-screen preview; stale edits are refused with "Reload latest".
+- All data access goes through `frontend/src/shared/api/adminClient.ts` (generated OpenAPI types) and the hooks
+  in `frontend/src/features/admin/api/`.
+
+UI pages in `frontend/src/features/admin/{pages,components}` were produced by Antigravity running as the
+restricted Windows account `pb-ui-agent` (write access only to `Dummy\ui-work\frontend\src` and `public`),
+then reviewed and integrated by Claude. See `Project_Docs\DECISIONS.md` (P4 rows).
+
 ## Security groundwork
 
 - Kiosk listener binds loopback only and rejects non-allowlisted `Host` headers.
