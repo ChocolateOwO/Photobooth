@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -42,7 +43,6 @@ class Request:
     number: str
     slug: str
     commit: str
-    branch: str
     verify_record: Path | None
     purpose: str
     manual_test: str
@@ -120,10 +120,22 @@ def validate(req: Request) -> tuple[str, str | None]:
         tagged = git(req.repo, "rev-parse", f"{req.name}^{{commit}}")
         if tagged != commit:
             raise PatchError(f"tag {req.name} points to {tagged}, not approved commit {commit}")
-        if f"approved-commit: {commit}" not in git(
-            req.repo, "tag", "-l", "--format=%(contents)", req.name
-        ):
+        message = git(req.repo, "tag", "-l", "--format=%(contents)", req.name)
+        recorded = _tag_evidence(message)
+        if recorded.get("approved-commit") != commit:
             raise PatchError("tag message does not record the approved commit")
+        record_sha = _check_verify_record(req, commit)
+        expected_evidence = {
+            "approval": req.approval,
+            "manual-test": req.manual_test,
+            "verify-record-sha256": record_sha,
+        }
+        for key, value in expected_evidence.items():
+            if recorded.get(key) != value:
+                raise PatchError(
+                    f"--resume evidence mismatch for '{key}': tag records "
+                    f"{recorded.get(key)!r}, got {value!r}"
+                )
     else:
         if git(req.repo, "status", "--porcelain", "--untracked-files=all"):
             raise PatchError("working tree is dirty")
@@ -136,6 +148,10 @@ def validate(req: Request) -> tuple[str, str | None]:
         if number != expected:
             raise PatchError(f"patch number must be {expected:03d}, got {req.number}")
         if not req.dry_run:
+            if req.manual_test not in ("passed", "not_required"):
+                raise PatchError(
+                    "manual gate must be 'passed' or 'not_required' before publication"
+                )
             _check_verify_record(req, commit)
 
     previous = numbers.get(number - 1)
@@ -144,7 +160,8 @@ def validate(req: Request) -> tuple[str, str | None]:
     return commit, previous
 
 
-def _check_verify_record(req: Request, commit: str) -> None:
+def _check_verify_record(req: Request, commit: str) -> str:
+    """Validate the commit-bound verify record; return its SHA256 (bound into the tag message)."""
     if req.verify_record is None:
         raise PatchError("verify record required (scripts\\verify.ps1 writes one per commit)")
     if not req.verify_record.is_file():
@@ -153,6 +170,16 @@ def _check_verify_record(req: Request, commit: str) -> None:
     record = json.loads(req.verify_record.read_text(encoding="utf-8-sig"))
     if record.get("commit") != commit or record.get("result") != "passed":
         raise PatchError("verify record does not show a passing run for the approved commit")
+    return _sha256(req.verify_record)
+
+
+def _tag_evidence(message: str) -> dict[str, str]:
+    evidence: dict[str, str] = {}
+    for line in message.splitlines():
+        key, sep, value = line.partition(": ")
+        if sep and key in ("approved-commit", "approval", "manual-test", "verify-record-sha256"):
+            evidence[key] = value.strip()
+    return evidence
 
 
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -185,23 +212,31 @@ def _migrations(files: list[dict[str, object]], repo: Path, commit: str) -> dict
 
 
 def build_artifacts(
-    req: Request, commit: str, base_tag: str | None, ref: str, out: Path
+    req: Request, commit: str, base_tag: str | None, refname: str, out: Path
 ) -> dict[str, object]:
+    """`refname` is a full ref pinned to `commit`; it is the ONLY ref placed in the bundle."""
     out.mkdir(parents=True)
+    if git(req.repo, "rev-parse", f"{refname}^{{commit}}") != commit:
+        raise PatchError(f"{refname} does not point to the approved commit")
     base_commit = git(req.repo, "rev-parse", f"{base_tag}^{{commit}}") if base_tag else None
 
     patch_args = ["format-patch", "--binary", "--stdout"]
-    patch_args += ["--root", ref] if base_commit is None else [f"{base_commit}..{ref}"]
+    patch_args += ["--root", commit] if base_commit is None else [f"{base_commit}..{commit}"]
     (out / f"{req.name}.patch").write_bytes(git_bytes(req.repo, *patch_args))
 
     _inject("bundle")
     bundle = out / f"{req.name}.bundle"
-    refs = [ref, req.branch] if ref != req.branch else [ref]
-    git(req.repo, "bundle", "create", str(bundle), *refs)
+    # Never include the moving development branch: later unapproved commits must not leak in.
+    git(req.repo, "bundle", "create", str(bundle), refname)
     git(req.repo, "bundle", "verify", str(bundle))
+    heads = [
+        line.split()[-1] for line in git(req.repo, "bundle", "list-heads", str(bundle)).splitlines()
+    ]
+    if heads != [refname]:
+        raise PatchError(f"bundle must contain only {refname}, found {heads}")
 
     _inject("drill")
-    drill = restore_drill(req.repo, bundle, ref, commit)
+    drill = restore_drill(req.repo, bundle, refname, commit)
 
     _inject("manifest")
     files = _files_changed(req.repo, base_commit, commit)
@@ -224,7 +259,10 @@ def build_artifacts(
         "known_limitations": verify.get("known_limitations", []),
         "bundle_verified": True,
         "restore_drill": drill,
-        "restore_command": f"git switch -c restore/{req.number} {req.name}",
+        "restore_command": (
+            f"git clone {req.name}.bundle restored && "
+            f"git -C restored switch -c restore/{req.number} {req.name}"
+        ),
         "dry_run": req.dry_run,
     }
     (out / "manifest.json").write_text(
@@ -236,24 +274,21 @@ def build_artifacts(
     return manifest
 
 
-def restore_drill(repo: Path, bundle: Path, ref: str, commit: str) -> dict[str, object]:
-    """Clone the bundle into an empty scratch directory outside the project and compare trees."""
+def restore_drill(repo: Path, bundle: Path, refname: str, commit: str) -> dict[str, object]:
+    """Restore the bundle into an empty repository outside the project and compare trees."""
     scratch = Path(tempfile.mkdtemp(prefix="pb-restore-drill-"))
     try:
-        target = scratch / "restored"
-        result = subprocess.run(
-            ["git", "clone", "--quiet", "--no-checkout", str(bundle), str(target)],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise PatchError(f"restore drill clone failed: {result.stderr.strip()}")
+        target = scratch / "restored.git"
+        git(scratch, "init", "--quiet", "--bare", str(target))
+        git(target, "fetch", "--quiet", str(bundle), "+refs/*:refs/*")
+        restored_ref = git(target, "rev-parse", f"{refname}^{{commit}}")
         restored_tree = git(target, "rev-parse", f"{commit}^{{tree}}")
-        restored_ref = git(target, "rev-parse", f"{_ref_in_clone(target, ref)}^{{commit}}")
         expected_tree = git(repo, "rev-parse", f"{commit}^{{tree}}")
-        match = restored_tree == expected_tree and restored_ref == commit
-        if not match:
+        extra = git(target, "rev-list", "--all", "--not", commit)
+        if restored_tree != expected_tree or restored_ref != commit:
             raise PatchError("restore drill tree mismatch")
+        if extra:
+            raise PatchError("restore drill found commits beyond the approved commit")
         return {
             "tree_sha_match": True,
             "tree": expected_tree,
@@ -261,12 +296,6 @@ def restore_drill(repo: Path, bundle: Path, ref: str, commit: str) -> dict[str, 
         }
     finally:
         _force_rmtree(scratch)
-
-
-def _ref_in_clone(clone: Path, ref: str) -> str:
-    if git(clone, "tag", "--list", ref):
-        return f"refs/tags/{ref}"
-    return f"refs/remotes/origin/{ref}"
 
 
 def _force_rmtree(path: Path) -> None:
@@ -357,24 +386,29 @@ def run(req: Request) -> dict[str, object]:
     commit, base_tag = validate(req)
 
     if req.dry_run:
+        # Temporary private ref pinned to the commit (never a tag, never the moving branch).
+        dry_ref = f"refs/photobooth-dry-run/{secrets.token_hex(8)}"
         scratch = Path(tempfile.mkdtemp(prefix="pb-make-patch-dry-"))
+        git(req.repo, "update-ref", dry_ref, commit)
         try:
-            manifest = build_artifacts(req, commit, base_tag, req.branch, scratch / "artifacts")
+            manifest = build_artifacts(req, commit, base_tag, dry_ref, scratch / "artifacts")
         finally:
+            git(req.repo, "update-ref", "-d", dry_ref)
             _force_rmtree(scratch)
         return manifest
 
     if not req.resume:
+        record_sha = _check_verify_record(req, commit)
         message = (
             f"{req.name}\n\napproved-commit: {commit}\napproval: {req.approval}\n"
-            f"manual-test: {req.manual_test}\n"
+            f"manual-test: {req.manual_test}\nverify-record-sha256: {record_sha}\n"
         )
         git(req.repo, "tag", "-a", req.name, commit, "-m", message)
 
     staging = req.patches_dir / f".staging-{req.number}-{req.slug}"
     _force_rmtree(staging)
     try:
-        manifest = build_artifacts(req, commit, base_tag, req.name, staging)
+        manifest = build_artifacts(req, commit, base_tag, f"refs/tags/{req.name}", staging)
         _make_read_only(staging)
         os.replace(staging, req.patches_dir / req.name)
     except BaseException:
@@ -393,7 +427,6 @@ def parse(argv: list[str] | None) -> Request:
     p.add_argument("--number", required=True)
     p.add_argument("--slug", required=True)
     p.add_argument("--commit", required=True)
-    p.add_argument("--branch", default="dummy")
     p.add_argument("--verify-record")
     p.add_argument("--purpose", default="")
     p.add_argument(
@@ -414,7 +447,6 @@ def parse(argv: list[str] | None) -> Request:
         number=a.number,
         slug=a.slug,
         commit=a.commit,
-        branch=a.branch,
         verify_record=Path(a.verify_record) if a.verify_record else None,
         purpose=a.purpose,
         manual_test=a.manual_test,

@@ -134,8 +134,9 @@ def test_real_run_requires_passing_verify_record(workspace: dict[str, Path]) -> 
     commit = _baseline(workspace)
     bad = _record(workspace, commit, result="failed")
     result = _run(
-        workspace, commit, "--verify-record", str(bad), "--approval", "approved 2026-09-17"
-    )
+        workspace, commit, "--verify-record", str(bad), "--approval", "approved 2026-09-17",
+        "--manual-test", "passed",
+    )  # fmt: skip
     assert result.returncode == 1
     assert "verify record" in result.stderr
     assert not git(workspace["repo"], "tag", "--list")

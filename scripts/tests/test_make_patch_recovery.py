@@ -15,8 +15,9 @@ def test_verify_record_with_bom_is_accepted(workspace: dict[str, Path]) -> None:
     record = _record(workspace, commit)
     record.write_bytes(b"\xef\xbb\xbf" + record.read_bytes())
     result = _run(
-        workspace, commit, "--verify-record", str(record), "--approval", "approved 2026-09-17"
-    )
+        workspace, commit, "--verify-record", str(record), "--approval", "approved 2026-09-17",
+        "--manual-test", "passed",
+    )  # fmt: skip
     assert result.returncode == 0, result.stderr
 
 
@@ -38,8 +39,9 @@ def test_verify_record_written_by_powershell_is_accepted(workspace: dict[str, Pa
     assert ps.returncode == 0, ps.stderr
     assert record.read_bytes()[:3] != b"\xef\xbb\xbf"
     result = _run(
-        workspace, commit, "--verify-record", str(record), "--approval", "approved 2026-09-17"
-    )
+        workspace, commit, "--verify-record", str(record), "--approval", "approved 2026-09-17",
+        "--manual-test", "passed",
+    )  # fmt: skip
     assert result.returncode == 0, result.stderr
 
 

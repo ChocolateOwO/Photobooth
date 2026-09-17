@@ -89,6 +89,20 @@ function Wait-HttpOk {
     throw "Timed out waiting for $Url"
 }
 
+function Get-NextMilestoneNumber {
+    # Next unused dummy-patch number as a three-digit string. Integer arithmetic only:
+    # Measure-Object -Maximum returns a Double, which the D3 format specifier rejects.
+    param([Parameter(Mandatory)] [string] $Repo)
+    [int] $max = 0
+    foreach ($tag in @(& git -C $Repo tag --list 'dummy-patch-*')) {
+        if ($tag -match '^dummy-patch-(\d{3})-') {
+            [int] $n = [int] $Matches[1]
+            if ($n -gt $max) { $max = $n }
+        }
+    }
+    return ([int]($max + 1)).ToString('D3')
+}
+
 function Get-ThaiTempRoot {
     param([Parameter(Mandatory)] [string] $Prefix)
     # Thai segment built from code points so this file stays ASCII: "thotsop" (test).

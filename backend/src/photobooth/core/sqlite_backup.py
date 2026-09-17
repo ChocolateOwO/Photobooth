@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
@@ -13,8 +14,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from photobooth.core.errors import BackupError
+from photobooth.core.file_lock import ExclusiveFileLock
 
 LEDGER_FILENAME = "BACKUPS.json"
+LEDGER_LOCK_FILENAME = ".BACKUPS.lock"
 
 
 @dataclass(frozen=True)
@@ -71,7 +74,8 @@ class SqliteBackupService:
         with _connect_readonly(db_path) as probe:
             revision = _scalar(probe, "SELECT version_num FROM alembic_version")
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-        final = self._dir / f"{expected_instance}-{stamp}-{revision or 'norev'}.sqlite"
+        unique = secrets.token_hex(3)  # concurrent backups never share a partial or final name
+        final = self._dir / f"{expected_instance}-{stamp}-{unique}-{revision or 'norev'}.sqlite"
         partial = final.with_suffix(".sqlite.partial")
 
         with closing(sqlite3.connect(db_path)) as source, closing(sqlite3.connect(partial)) as dest:
@@ -119,8 +123,16 @@ class SqliteBackupService:
         return [BackupRecord(**item) for item in raw]
 
     def _append_ledger(self, record: BackupRecord) -> None:
-        entries = [asdict(r) for r in self.read_ledger()]
-        entries.append(asdict(record))
-        tmp = self.ledger_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, self.ledger_path)
+        """Serialized read-modify-write across processes; unique temp file per writer."""
+        try:
+            with ExclusiveFileLock(self._dir / LEDGER_LOCK_FILENAME):
+                entries = [asdict(r) for r in self.read_ledger()]
+                entries.append(asdict(record))
+                tmp = self._dir / f".{LEDGER_FILENAME}.{secrets.token_hex(6)}.tmp"
+                tmp.write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")
+                os.replace(tmp, self.ledger_path)
+        except (OSError, ValueError) as exc:
+            raise BackupError(
+                f"backup {record.path} is published and verified, but the ledger update failed "
+                f"({exc}); re-run the ledger update before relying on {LEDGER_FILENAME}"
+            ) from exc

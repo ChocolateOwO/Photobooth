@@ -83,13 +83,29 @@ $vite = Start-Process -FilePath $node -WorkingDirectory $frontend -PassThru -Win
     -RedirectStandardOutput (Join-Path $logsDir 'vite-console.out.log') `
     -RedirectStandardError (Join-Path $logsDir 'vite-console.err.log')
 
-@{
-    instance    = 'dummy'
-    backend_pid = $backend.Id
-    vite_pid    = $vite.Id
-    started_at  = (Get-Date).ToString('o')
-    commit      = $env:PHOTOBOOTH_GIT_COMMIT
-} | ConvertTo-Json | Set-Content -Path $pidFile -Encoding ASCII
+function Get-ProcessIdentity {
+    # Identity recorded so stop-dummy.ps1 never kills a recycled PID or an unrelated process.
+    param([System.Diagnostics.Process] $Process, [string] $Role, [string] $Marker)
+    $Process.Refresh()
+    return [ordered]@{
+        role       = $Role
+        pid        = $Process.Id
+        start_time = $Process.StartTime.ToUniversalTime().ToString('o')
+        executable = $Process.Path
+        marker     = $Marker
+    }
+}
+
+$record = [ordered]@{
+    instance   = 'dummy'
+    started_at = (Get-Date).ToString('o')
+    commit     = $env:PHOTOBOOTH_GIT_COMMIT
+    processes  = @(
+        (Get-ProcessIdentity -Process $backend -Role 'backend' -Marker '-m photobooth serve --env-file'),
+        (Get-ProcessIdentity -Process $vite -Role 'vite' -Marker 'vite\bin\vite.js')
+    )
+}
+[System.IO.File]::WriteAllText($pidFile, ($record | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding $false))
 
 try {
     Wait-HttpOk -Url "http://127.0.0.1:$kioskPort/api/health" -TimeoutSeconds 60

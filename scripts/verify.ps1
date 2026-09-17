@@ -130,10 +130,7 @@ try {
     }
     else {
         # Next unused milestone number, so the gate stays reusable after earlier tags exist.
-        $numbers = @(& git -C $app tag --list 'dummy-patch-*' | ForEach-Object {
-                if ($_ -match '^dummy-patch-(\d{3})-') { [int]$Matches[1] } })
-        $max = if ($numbers.Count -gt 0) { ($numbers | Measure-Object -Maximum).Maximum } else { 0 }
-        $next = '{0:D3}' -f ($max + 1)
+        $next = Get-NextMilestoneNumber -Repo $app
         Step "make-patch dry run (next milestone $next, no tag, nothing published)" {
             Invoke-Native $python @((Join-Path $PSScriptRoot 'patchtool\make_patch.py'), '--repo', $app,
                 '--patches-dir', (Join-Path $script:ProjectRoot 'patches'),

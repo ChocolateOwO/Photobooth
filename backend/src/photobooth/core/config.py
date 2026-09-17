@@ -66,7 +66,12 @@ class AppSettings(BaseSettings):
 
     @property
     def lock_path(self) -> Path:
-        return self.data_dir / "instance.lock"
+        """Canonical per-instance lock, independent of configurable data paths.
+
+        Every server, migration and credential-writing command for this instance root takes the
+        same lock, so overriding PHOTOBOOTH_DATA_DIR cannot create a second, parallel lock.
+        """
+        return self.instance_root / "data" / "instance.lock"
 
     @property
     def device_cookie_name(self) -> str:
