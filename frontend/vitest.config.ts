@@ -12,11 +12,12 @@ export default mergeConfig(
       restoreMocks: true,
       // forks workers time out on this Windows machine; threads are stable
       pool: 'threads',
-      // One worker for every file: spawning a worker per file intermittently exceeded Vitest's
-      // fixed worker start timeout on this machine ("Timeout waiting for worker to respond").
+      // One worker for every file: with isolate=true Vitest spawns a fresh worker per file, which
+      // intermittently exceeded its fixed worker start timeout here ("Timeout waiting for worker
+      // to respond"). The suites do not share module state.
       maxWorkers: 1,
       fileParallelism: false,
-      poolOptions: { threads: { singleThread: true } },
+      isolate: false,
       testTimeout: 30_000,
     },
   }),
