@@ -123,13 +123,23 @@ function Get-NextMilestoneNumber {
 
 function Get-ProcessIdentity {
     # Identity recorded so a recycled PID or an unrelated process is never killed.
+    # Executable path comes from the same source stop-time verification uses (Win32_Process), polled
+    # until available: immediately after launch Process.Path can still be empty.
     param([System.Diagnostics.Process] $Process, [string] $Role, [string] $Marker)
+    $deadline = (Get-Date).AddSeconds(10)
+    $executable = $null
+    while (-not $executable) {
+        $cim = Get-CimInstance Win32_Process -Filter "ProcessId = $($Process.Id)" -ErrorAction SilentlyContinue
+        if ($cim -and $cim.ExecutablePath) { $executable = $cim.ExecutablePath; break }
+        if ((Get-Date) -gt $deadline) { throw "executable path unavailable for PID $($Process.Id)" }
+        Start-Sleep -Milliseconds 100
+    }
     $Process.Refresh()
     return [pscustomobject][ordered]@{
         role       = $Role
         pid        = $Process.Id
         start_time = $Process.StartTime.ToUniversalTime().ToString('o')
-        executable = $Process.Path
+        executable = $executable
         marker     = $Marker
     }
 }
