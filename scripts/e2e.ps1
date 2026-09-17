@@ -41,7 +41,8 @@ try {
     # Upload fixtures: a small transparent PNG logo and a JPEG background.
     $fixtures = Join-Path $root 'fixtures'
     New-Item -ItemType Directory -Force -Path $fixtures | Out-Null
-    Invoke-Native $python @('-c', 'import sys; from PIL import Image; d=sys.argv[1]; Image.new("RGBA",(256,128),(255,176,32,200)).save(d+"/logo.png"); Image.new("RGB",(1280,720),(40,90,160)).save(d+"/background.jpg", quality=90)', $fixtures)
+    # Single quotes only: Windows PowerShell 5.1 drops embedded double quotes in native arguments.
+    Invoke-Native $python @('-c', 'import sys; from PIL import Image; d=sys.argv[1]; Image.new(''RGBA'',(256,128),(255,176,32,200)).save(d+''/logo.png''); Image.new(''RGB'',(1280,720),(40,90,160)).save(d+''/background.jpg'', quality=90)', $fixtures)
 
     if (-not $SkipBuild) {
         $env:PHOTOBOOTH_INSTANCE = 'dummy'
