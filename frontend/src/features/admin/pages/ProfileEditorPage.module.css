@@ -276,3 +276,80 @@
 .saveButton {
   margin-top: var(--pb-space);
 }
+
+.headerLinks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pb-space);
+}
+
+.layoutItem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.frameChooser {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  padding: var(--pb-space);
+  background-color: var(--pb-color-bg);
+  border-radius: var(--pb-radius);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.select {
+  min-height: var(--pb-touch-target);
+  padding: 0 16px;
+  border-radius: var(--pb-radius);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background-color: var(--pb-color-surface);
+  color: var(--pb-color-text);
+  font: inherit;
+  box-sizing: border-box;
+  outline: none;
+  cursor: pointer;
+}
+
+.select:focus {
+  border-color: var(--pb-color-primary);
+}
+
+.select:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.missingFrameWarning {
+  color: var(--pb-color-muted);
+  font-size: 16px;
+  line-height: 1.4;
+  margin: 4px 0 0;
+}
+
+.framePreviewThumbnail {
+  max-width: 200px;
+  max-height: 200px;
+  object-fit: contain;
+  border-radius: calc(var(--pb-radius) / 2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.04);
+  margin-top: 4px;
+}
+
+.noFramesText {
+  color: var(--pb-color-muted);
+  font-size: 16px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.inlineLink {
+  color: var(--pb-color-primary);
+  font-weight: 600;
+  text-decoration: underline;
+}

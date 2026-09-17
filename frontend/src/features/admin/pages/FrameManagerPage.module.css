@@ -1,0 +1,540 @@
+.container {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: var(--pb-space) 0 calc(var(--pb-space) * 3);
+}
+
+.headerRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space);
+  margin-bottom: var(--pb-space);
+}
+
+.heading {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--pb-color-text);
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 24px;
+  border-radius: var(--pb-radius);
+  background-color: var(--pb-color-surface);
+  color: var(--pb-color-text);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.2s;
+}
+
+.backLink:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.introText {
+  color: var(--pb-color-muted);
+  font-size: 18px;
+  line-height: 1.5;
+  margin: 0 0 calc(var(--pb-space) * 2);
+}
+
+.sectionsList {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pb-space) * 2);
+}
+
+.templateSection {
+  padding: calc(var(--pb-space) * 1.5);
+  background-color: var(--pb-color-surface);
+  border-radius: var(--pb-radius);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pb-space);
+}
+
+.sectionHeading {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--pb-color-text);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 12px;
+}
+
+.loadingText {
+  color: var(--pb-color-muted);
+  font-size: 16px;
+  margin: 0;
+}
+
+.requirementsList {
+  margin: 0;
+  padding-left: 24px;
+  color: var(--pb-color-muted);
+  line-height: 1.6;
+  font-size: 16px;
+}
+
+.requirementsList li {
+  margin-bottom: 4px;
+}
+
+.downloadLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space);
+  margin: 4px 0;
+}
+
+.downloadLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 20px;
+  border-radius: var(--pb-radius);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: var(--pb-color-bg);
+  color: var(--pb-color-text);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.2s;
+}
+
+.downloadLink:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.uploadForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pb-space);
+  background-color: var(--pb-color-bg);
+  padding: var(--pb-space);
+  border-radius: var(--pb-radius);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--pb-color-text);
+}
+
+.input {
+  min-height: var(--pb-touch-target);
+  padding: 0 16px;
+  border-radius: var(--pb-radius);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background-color: var(--pb-color-surface);
+  color: var(--pb-color-text);
+  font: inherit;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--pb-color-primary);
+}
+
+.input::placeholder {
+  color: var(--pb-color-muted);
+  opacity: 1;
+}
+
+.fileInput {
+  min-height: var(--pb-touch-target);
+  padding: 12px;
+  border-radius: var(--pb-radius);
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  background-color: var(--pb-color-surface);
+  color: var(--pb-color-text);
+  font: inherit;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.fileInput:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.uploadButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 24px;
+  border-radius: var(--pb-radius);
+  border: none;
+  background-color: var(--pb-color-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  font-size: 18px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  align-self: flex-start;
+}
+
+.uploadButton:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.uploadButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.alert {
+  padding: var(--pb-space);
+  border-radius: var(--pb-radius);
+  background-color: rgba(255, 107, 112, 0.15);
+  border: 2px solid var(--pb-color-error);
+  color: var(--pb-color-error);
+  font-weight: 500;
+}
+
+.alertMessage {
+  margin: 4px 0;
+}
+
+.status {
+  padding: var(--pb-space);
+  border-radius: var(--pb-radius);
+  background-color: rgba(63, 207, 127, 0.15);
+  border: 2px solid var(--pb-color-ok);
+  color: var(--pb-color-ok);
+  font-weight: 600;
+}
+
+.emptyText {
+  color: var(--pb-color-muted);
+  font-size: 16px;
+  margin: var(--pb-space) 0 0;
+  font-style: italic;
+}
+
+.framesList {
+  list-style: none;
+  padding: 0;
+  margin: var(--pb-space) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pb-space);
+}
+
+.frameCard {
+  background-color: var(--pb-color-bg);
+  border-radius: var(--pb-radius);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: calc(var(--pb-space) * 1.5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pb-space);
+}
+
+.frameHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.frameName {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--pb-color-text);
+}
+
+.dimensions {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--pb-color-muted);
+}
+
+.imagesGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--pb-space);
+}
+
+@media (min-width: 700px) {
+  .imagesGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.imageColumn {
+  display: flex;
+  flex-direction: column;
+}
+
+.checkerboard {
+  background-color: #2b333c;
+  background-image:
+    linear-gradient(45deg, #1c232b 25%, transparent 25%),
+    linear-gradient(-45deg, #1c232b 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1c232b 75%),
+    linear-gradient(-45deg, transparent 75%, #1c232b 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--pb-radius);
+  padding: var(--pb-space);
+  min-height: 220px;
+  overflow: hidden;
+}
+
+.frameImage {
+  max-width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+}
+
+.figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(255, 255, 255, 0.02);
+  border-radius: var(--pb-radius);
+  padding: var(--pb-space);
+  min-height: 220px;
+}
+
+.previewImage {
+  max-width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+  border-radius: calc(var(--pb-radius) / 2);
+}
+
+.caption {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--pb-color-muted);
+  text-align: center;
+}
+
+.warningsList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.warningText {
+  color: var(--pb-color-muted);
+  font-size: 15px;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.cardActions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pb-space);
+  margin-top: 8px;
+}
+
+.actionButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space);
+  align-items: center;
+}
+
+.actionButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 20px;
+  border-radius: var(--pb-radius);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: var(--pb-color-surface);
+  color: var(--pb-color-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.actionButton:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.deleteButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 20px;
+  border-radius: var(--pb-radius);
+  border: 1px solid var(--pb-color-error);
+  background-color: rgba(255, 107, 112, 0.15);
+  color: var(--pb-color-error);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.deleteButton:hover {
+  background-color: rgba(255, 107, 112, 0.25);
+}
+
+.renameRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pb-space);
+}
+
+.renameField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.renameButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space);
+}
+
+.saveButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 24px;
+  border-radius: var(--pb-radius);
+  border: none;
+  background-color: var(--pb-color-primary);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.saveButton:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.cancelButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 24px;
+  border-radius: var(--pb-radius);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--pb-color-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.cancelButton:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--pb-space);
+  z-index: 1000;
+}
+
+.dialog {
+  width: 100%;
+  max-width: 500px;
+  padding: calc(var(--pb-space) * 2);
+  background-color: var(--pb-color-surface);
+  border-radius: var(--pb-radius);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dialogHeading {
+  margin-top: 0;
+  margin-bottom: var(--pb-space);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--pb-color-text);
+}
+
+.dialogText {
+  margin-bottom: calc(var(--pb-space) * 1.5);
+  line-height: 1.5;
+  color: var(--pb-color-muted);
+}
+
+.dialogButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pb-space);
+  justify-content: flex-end;
+}
+
+.deleteConfirmButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 24px;
+  border-radius: var(--pb-radius);
+  border: none;
+  background-color: var(--pb-color-error);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.deleteConfirmButton:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

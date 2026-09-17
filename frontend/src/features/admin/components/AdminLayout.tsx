@@ -34,6 +34,9 @@ export function AdminLayout({ username, onLogout, children }: AdminLayoutProps) 
           <Link to="/admin" className={styles.navLink}>
             Event Profiles
           </Link>
+          <Link to="/admin/frames" className={styles.navLink}>
+            Frames
+          </Link>
         </nav>
         <button
           type="button"

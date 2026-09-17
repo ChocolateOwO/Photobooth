@@ -10,8 +10,15 @@ import {
   type ProfileSettings,
   type TemplateSummary,
 } from '../../../shared/api/adminClient'
+import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import { BigButton } from '../../../shared/ui/BigButton'
-import { useCreateProfile, useProfile, useTemplates, useUpdateProfile } from '../api/hooks'
+import {
+  useCreateProfile,
+  useFrames,
+  useProfile,
+  useTemplates,
+  useUpdateProfile,
+} from '../api/hooks'
 import { AssetPicker } from '../components/AssetPicker'
 import { PreparationPreview } from '../components/PreparationPreview'
 import styles from './ProfileEditorPage.module.css'
@@ -38,6 +45,8 @@ function ProfileEditorForm({
   const navigate = useNavigate()
   const createMutation = useCreateProfile()
   const updateMutation = useUpdateProfile()
+  const api = useAdminApi()
+  const { data: frames } = useFrames()
 
   const [settings, setSettings] = useState<ProfileSettings>(() => initialSettings)
   const [currentRevision, setCurrentRevision] = useState<number>(() => initialRevision)
@@ -400,28 +409,104 @@ function ProfileEditorForm({
           <p id="help-layouts" className={styles.helperText}>
             Choose one or more print layouts guests can pick from.
           </p>
-          {templates.map((tpl) => (
-            <label key={tpl.key} className={styles.checkboxLabel}>
-              <input
-                type="checkbox"
-                value={tpl.key}
-                aria-describedby="help-layouts"
-                checked={settings.enabled_layouts.includes(tpl.key)}
-                onChange={(e) => {
-                  const checked = e.target.checked
-                  setSettings((current) => ({
-                    ...current,
-                    enabled_layouts: checked
-                      ? [...current.enabled_layouts.filter((k) => k !== tpl.key), tpl.key]
-                      : current.enabled_layouts.filter((k) => k !== tpl.key),
-                  }))
-                }}
-                disabled={isDeleted}
-                className={styles.checkbox}
-              />
-              {tpl.name}
-            </label>
-          ))}
+          {templates.map((tpl) => {
+            const isChecked = settings.enabled_layouts.includes(tpl.key)
+            const layoutFrames = frames?.filter((f) => f.template_key === tpl.key) ?? []
+            const currentFrameId = settings.frame_selections?.[tpl.key] ?? ''
+            const activeFrame = layoutFrames.find((f) => f.id === currentFrameId)
+
+            return (
+              <div key={tpl.key} className={styles.layoutItem}>
+                <label className={styles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    value={tpl.key}
+                    aria-describedby="help-layouts"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      const checked = e.target.checked
+                      setSettings((current) => {
+                        const nextLayouts = checked
+                          ? [...current.enabled_layouts.filter((k) => k !== tpl.key), tpl.key]
+                          : current.enabled_layouts.filter((k) => k !== tpl.key)
+                        const nextSelections = { ...(current.frame_selections ?? {}) }
+                        if (!checked) {
+                          delete nextSelections[tpl.key]
+                        }
+                        return {
+                          ...current,
+                          enabled_layouts: nextLayouts,
+                          frame_selections: nextSelections,
+                        }
+                      })
+                    }}
+                    disabled={isDeleted}
+                    className={styles.checkbox}
+                  />
+                  {tpl.name}
+                </label>
+
+                {isChecked && (
+                  <div className={styles.frameChooser}>
+                    <label htmlFor={`frame-for-${tpl.key}`} className={styles.label}>
+                      Frame for {tpl.name}
+                    </label>
+                    <select
+                      id={`frame-for-${tpl.key}`}
+                      value={activeFrame ? activeFrame.id : ''}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setSettings((current) => {
+                          const nextSelections = { ...(current.frame_selections ?? {}) }
+                          if (!val) {
+                            delete nextSelections[tpl.key]
+                          } else {
+                            nextSelections[tpl.key] = val
+                          }
+                          return {
+                            ...current,
+                            frame_selections: nextSelections,
+                          }
+                        })
+                      }}
+                      className={styles.select}
+                      disabled={isDeleted}
+                    >
+                      <option value="">No frame selected</option>
+                      {layoutFrames.map((frame) => (
+                        <option key={frame.id} value={frame.id}>
+                          {frame.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    {layoutFrames.length === 0 && (
+                      <p className={styles.noFramesText}>
+                        Upload a frame for this layout first.{' '}
+                        <Link to="/admin/frames" className={styles.inlineLink}>
+                          Frames
+                        </Link>
+                      </p>
+                    )}
+
+                    {!activeFrame && (
+                      <p className={styles.missingFrameWarning} data-testid="missing-frame-warning">
+                        No frame selected for {tpl.name}. Photos will print without a frame.
+                      </p>
+                    )}
+
+                    {activeFrame && (
+                      <img
+                        src={api.framePreviewUrl(activeFrame.id, 1)}
+                        alt={`${tpl.name} frame preview`}
+                        className={styles.framePreviewThumbnail}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
           {settings.enabled_layouts.length === 0 && (
             <div role="alert" className={styles.alert}>
               Choose at least one layout.
@@ -558,9 +643,14 @@ export function ProfileEditorPage() {
       <div className={styles.container}>
         <div className={styles.headerRow}>
           <h1 className={styles.heading}>{isNew ? 'New Event Profile' : 'Edit Event Profile'}</h1>
-          <Link to="/admin" className={styles.backLink}>
-            Back to profiles
-          </Link>
+          <div className={styles.headerLinks}>
+            <Link to="/admin/frames" className={styles.backLink}>
+              Frames
+            </Link>
+            <Link to="/admin" className={styles.backLink}>
+              Back to profiles
+            </Link>
+          </div>
         </div>
         <p>Loading…</p>
       </div>
@@ -572,9 +662,14 @@ export function ProfileEditorPage() {
       <div className={styles.container}>
         <div className={styles.headerRow}>
           <h1 className={styles.heading}>{isNew ? 'New Event Profile' : 'Edit Event Profile'}</h1>
-          <Link to="/admin" className={styles.backLink}>
-            Back to profiles
-          </Link>
+          <div className={styles.headerLinks}>
+            <Link to="/admin/frames" className={styles.backLink}>
+              Frames
+            </Link>
+            <Link to="/admin" className={styles.backLink}>
+              Back to profiles
+            </Link>
+          </div>
         </div>
         <div role="alert" className={styles.alert}>
           Unable to load templates.
@@ -588,9 +683,14 @@ export function ProfileEditorPage() {
       <div className={styles.container}>
         <div className={styles.headerRow}>
           <h1 className={styles.heading}>Edit Event Profile</h1>
-          <Link to="/admin" className={styles.backLink}>
-            Back to profiles
-          </Link>
+          <div className={styles.headerLinks}>
+            <Link to="/admin/frames" className={styles.backLink}>
+              Frames
+            </Link>
+            <Link to="/admin" className={styles.backLink}>
+              Back to profiles
+            </Link>
+          </div>
         </div>
         <div role="alert" className={styles.alert}>
           Profile not found or could not be loaded.
@@ -614,9 +714,14 @@ export function ProfileEditorPage() {
     <div className={styles.container}>
       <div className={styles.headerRow}>
         <h1 className={styles.heading}>{isNew ? 'New Event Profile' : 'Edit Event Profile'}</h1>
-        <Link to="/admin" className={styles.backLink}>
-          Back to profiles
-        </Link>
+        <div className={styles.headerLinks}>
+          <Link to="/admin/frames" className={styles.backLink}>
+            Frames
+          </Link>
+          <Link to="/admin" className={styles.backLink}>
+            Back to profiles
+          </Link>
+        </div>
       </div>
 
       <ProfileEditorForm
