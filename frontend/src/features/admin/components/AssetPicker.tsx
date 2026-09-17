@@ -15,10 +15,18 @@ interface AssetPickerProps {
   kind: AssetKind
   assetId: string | null | undefined
   onChange: (assetId: string | null) => void
+  /** Reports upload start/end so the form can block saving meanwhile. */
+  onUploadingChange?: (active: boolean) => void
   disabled?: boolean
 }
 
-export function AssetPicker({ kind, assetId, onChange, disabled = false }: AssetPickerProps) {
+export function AssetPicker({
+  kind,
+  assetId,
+  onChange,
+  onUploadingChange,
+  disabled = false,
+}: AssetPickerProps) {
   const api = useAdminApi()
   const { data: asset } = useAsset(assetId)
   const uploadMutation = useUploadAsset()
@@ -57,6 +65,7 @@ export function AssetPicker({ kind, assetId, onChange, disabled = false }: Asset
       return
     }
 
+    onUploadingChange?.(true)
     try {
       const uploaded = await uploadMutation.mutateAsync({ kind, file })
       onChange(uploaded.id)
@@ -69,6 +78,7 @@ export function AssetPicker({ kind, assetId, onChange, disabled = false }: Asset
         setServerErrors(['Upload failed.'])
       }
     } finally {
+      onUploadingChange?.(false)
       e.target.value = ''
     }
   }

@@ -125,6 +125,50 @@ describe('ProfileEditorPage', () => {
     expect(server.profiles.get(wedding.id)?.revision).toBe(4)
   })
 
+  it('keeps edits made while an upload is in flight and both image selections (P4-001)', async () => {
+    const server = signedInServer()
+    let releaseUpload = () => {}
+    server.uploadGate = new Promise<void>((resolve) => {
+      releaseUpload = resolve
+    })
+    renderAdmin('/admin/profiles/new', { server })
+
+    await userEvent.upload(await screen.findByLabelText('Logo image'), png('logo.png'))
+    await userEvent.upload(screen.getByLabelText('Background image'), png('bg.png'))
+    await userEvent.type(screen.getByLabelText('Title'), 'Typed during upload')
+    await userEvent.type(screen.getByLabelText('Profile name'), 'Slow uploads')
+    releaseUpload()
+
+    expect(await screen.findByRole('img', { name: 'Logo preview' })).toBeInTheDocument()
+    expect(await screen.findByRole('img', { name: 'Background preview' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Title')).toHaveValue('Typed during upload')
+    expect(screen.getByLabelText('Profile name')).toHaveValue('Slow uploads')
+  })
+
+  it('does not save while an image upload is still pending (P4-002)', async () => {
+    const server = signedInServer()
+    const wedding = server.seedProfile({ name: 'Wedding' })
+    let releaseUpload = () => {}
+    server.uploadGate = new Promise<void>((resolve) => {
+      releaseUpload = resolve
+    })
+    renderAdmin(`/admin/profiles/${wedding.id}`, { server })
+
+    await userEvent.upload(await screen.findByLabelText('Logo image'), png())
+    const save = screen.getByRole('button', { name: 'Save profile' })
+    await waitFor(() => expect(save).toBeDisabled())
+    expect(screen.getByText('Wait for image uploads to finish before saving.')).toBeInTheDocument()
+    fireEvent.submit(save.closest('form') as HTMLFormElement)
+    expect(server.requests.some((r) => r.method === 'PUT')).toBe(false)
+
+    releaseUpload()
+    await waitFor(() => expect(save).toBeEnabled())
+    await userEvent.click(save)
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved')
+    const logoId = [...server.assets.keys()][0]
+    expect(server.profiles.get(wedding.id)?.settings.logo_asset_id).toBe(logoId)
+  })
+
   it('shows deleted profiles read-only', async () => {
     const server = signedInServer()
     const old = server.seedProfile({ name: 'Old' }, { deleted_at: '2026-09-17T11:00:00Z' })

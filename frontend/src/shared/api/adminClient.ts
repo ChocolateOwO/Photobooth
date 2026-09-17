@@ -114,6 +114,8 @@ export function createAdminApiClient(
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     body?: { json: unknown } | { form: FormData },
+    /** Login, logout and session checks report auth failures to their caller instead of listeners. */
+    quietAuth = false,
   ): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (method !== 'GET') {
@@ -154,7 +156,7 @@ export function createAdminApiClient(
         deviceKeys.clear()
         csrfToken = null
         emit('not-paired')
-      } else if (kind === 'unauthenticated' && !path.endsWith('/auth/login')) {
+      } else if (kind === 'unauthenticated' && !quietAuth) {
         const hadSession = csrfToken !== null
         csrfToken = null
         emit(hadSession ? 'expired' : 'signed-out')
@@ -181,9 +183,12 @@ export function createAdminApiClient(
     hasCsrfToken: () => csrfToken !== null,
 
     async login(username: string, password: string): Promise<AdminSession> {
-      const session = await send<AdminSession>('POST', '/api/admin/auth/login', {
-        json: { username, password },
-      })
+      const session = await send<AdminSession>(
+        'POST',
+        '/api/admin/auth/login',
+        { json: { username, password } },
+        true,
+      )
       csrfToken = session.csrf_token
       emit('signed-in')
       return session
@@ -191,7 +196,7 @@ export function createAdminApiClient(
     /** Current session or null when signed out / expired. */
     async session(): Promise<AdminSession | null> {
       try {
-        const session = await send<AdminSession>('GET', '/api/admin/auth/session')
+        const session = await send<AdminSession>('GET', '/api/admin/auth/session', undefined, true)
         csrfToken = session.csrf_token
         return session
       } catch (error) {
@@ -199,13 +204,38 @@ export function createAdminApiClient(
         throw error
       }
     },
+    /**
+     * Resolves only once the server session is known to be gone (revoked now, or already expired).
+     * Rejects when revocation could not be confirmed (network error, server error), so the UI never
+     * shows "signed out" while the HttpOnly session cookie still works.
+     */
     async logout(): Promise<void> {
+      const revoke = () => send<undefined>('POST', '/api/admin/auth/logout', undefined, true)
       try {
-        await send<undefined>('POST', '/api/admin/auth/logout')
-      } finally {
-        csrfToken = null
-        emit('signed-out')
+        await revoke()
+      } catch (error) {
+        if (!(error instanceof AdminApiError) || error.kind !== 'unauthenticated') {
+          throw error
+        }
+        if (error.status === 403) {
+          // Stale CSRF token (e.g. rotated in another tab): re-read it from the live session, retry once.
+          const live = await send<AdminSession>('GET', '/api/admin/auth/session', undefined, true).catch(
+            (sessionError: unknown) => {
+              if (sessionError instanceof AdminApiError && sessionError.kind === 'unauthenticated') {
+                return null // already signed out on the server
+              }
+              throw sessionError
+            },
+          )
+          if (live !== null) {
+            csrfToken = live.csrf_token
+            await revoke()
+          }
+        }
+        // 401: no valid session any more, which is the goal of signing out.
       }
+      csrfToken = null
+      emit('signed-out')
     },
 
     templates: () => send<TemplateSummary[]>('GET', '/api/templates'),

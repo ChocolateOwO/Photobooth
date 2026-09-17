@@ -9,7 +9,6 @@ import type { Fetcher } from '../../../shared/api/client'
 import { DEVICE_KEY_HEADER } from '../../../shared/api/deviceKey'
 
 export const DEVICE_KEY = 'k'.repeat(43)
-const CSRF = 'c'.repeat(43)
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(status === 204 ? null : JSON.stringify(body), {
@@ -44,6 +43,11 @@ export class FakeAdminServer {
   password = 'correct horse battery staple'
   signedIn = false
   throttleSeconds: number | null = null
+  csrf = 'c'.repeat(43)
+  /** When set, the upload response waits for this promise (simulates a slow upload). */
+  uploadGate: Promise<void> | null = null
+  /** When true, logout requests fail before reaching the server (network error). */
+  logoutNetworkFailure = false
   profiles = new Map<string, EventProfile>()
   assets = new Map<string, MediaAsset>()
   requests: { method: string; path: string; headers: Record<string, string> }[] = []
@@ -124,20 +128,24 @@ export class FakeAdminServer {
         return json({ detail: 'invalid username or password' }, 401)
       }
       this.signedIn = true
-      return json({ username: 'admin', csrf_token: CSRF, expires_in_seconds: 1800 })
+      return json({ username: 'admin', csrf_token: this.csrf, expires_in_seconds: 1800 })
+    }
+    if (path === '/api/admin/auth/logout' && this.logoutNetworkFailure) {
+      throw new TypeError('Failed to fetch')
     }
     if (!this.signedIn) return json({ detail: 'admin login required' }, 401)
-    if (method !== 'GET' && headers[ADMIN_CSRF_HEADER] !== CSRF) {
+    if (method !== 'GET' && headers[ADMIN_CSRF_HEADER] !== this.csrf) {
       return json({ detail: 'admin csrf token invalid' }, 403)
     }
     if (path === '/api/admin/auth/session') {
-      return json({ username: 'admin', csrf_token: CSRF, expires_in_seconds: 1800 })
+      return json({ username: 'admin', csrf_token: this.csrf, expires_in_seconds: 1800 })
     }
     if (path === '/api/admin/auth/logout') {
       this.signedIn = false
       return json(null, 204)
     }
     if (path === '/api/admin/assets' && method === 'POST') {
+      if (this.uploadGate) await this.uploadGate
       const form = init?.body as FormData
       const file = form.get('file') as File
       const asset: MediaAsset = {

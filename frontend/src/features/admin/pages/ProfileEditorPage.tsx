@@ -42,6 +42,9 @@ function ProfileEditorForm({
   const [settings, setSettings] = useState<ProfileSettings>(() => initialSettings)
   const [currentRevision, setCurrentRevision] = useState<number>(() => initialRevision)
   const [isSaving, setIsSaving] = useState(false)
+  // Saving while an image upload is in flight would store the previous asset id.
+  const [uploading, setUploading] = useState({ logo: false, background: false })
+  const uploadPending = uploading.logo || uploading.background
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [clientErrors, setClientErrors] = useState<string[] | null>(null)
   const [serverErrors, setServerErrors] = useState<string[] | null>(null)
@@ -75,6 +78,9 @@ function ProfileEditorForm({
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (uploadPending || isSaving) {
+      return
+    }
     setSaveStatus(null)
     setServerErrors(null)
     setConflictError(null)
@@ -192,7 +198,7 @@ function ProfileEditorForm({
               type="text"
               maxLength={TEXT_LIMITS.name}
               value={settings.name}
-              onChange={(e) => setSettings({ ...settings, name: e.target.value })}
+              onChange={(e) => setSettings((current) => ({ ...current, name: e.target.value }))}
               className={styles.input}
               disabled={isDeleted}
             />
@@ -211,7 +217,7 @@ function ProfileEditorForm({
               type="text"
               maxLength={TEXT_LIMITS.title}
               value={settings.title}
-              onChange={(e) => setSettings({ ...settings, title: e.target.value })}
+              onChange={(e) => setSettings((current) => ({ ...current, title: e.target.value }))}
               className={styles.input}
               disabled={isDeleted}
             />
@@ -225,7 +231,7 @@ function ProfileEditorForm({
               id="field-subtitle"
               maxLength={TEXT_LIMITS.subtitle}
               value={settings.subtitle}
-              onChange={(e) => setSettings({ ...settings, subtitle: e.target.value })}
+              onChange={(e) => setSettings((current) => ({ ...current, subtitle: e.target.value }))}
               className={styles.textarea}
               disabled={isDeleted}
             />
@@ -240,7 +246,7 @@ function ProfileEditorForm({
               type="text"
               maxLength={TEXT_LIMITS.startButtonText}
               value={settings.start_button_text}
-              onChange={(e) => setSettings({ ...settings, start_button_text: e.target.value })}
+              onChange={(e) => setSettings((current) => ({ ...current, start_button_text: e.target.value }))}
               className={styles.input}
               disabled={isDeleted}
             />
@@ -261,7 +267,7 @@ function ProfileEditorForm({
                   type="color"
                   value={settings.background_color}
                   onChange={(e) =>
-                    setSettings({ ...settings, background_color: e.target.value.toUpperCase() })
+                    setSettings((current) => ({ ...current, background_color: e.target.value.toUpperCase() }))
                   }
                   className={styles.colorInput}
                   disabled={isDeleted}
@@ -280,7 +286,7 @@ function ProfileEditorForm({
                   type="color"
                   value={settings.primary_color}
                   onChange={(e) =>
-                    setSettings({ ...settings, primary_color: e.target.value.toUpperCase() })
+                    setSettings((current) => ({ ...current, primary_color: e.target.value.toUpperCase() }))
                   }
                   className={styles.colorInput}
                   disabled={isDeleted}
@@ -299,7 +305,7 @@ function ProfileEditorForm({
                   type="color"
                   value={settings.secondary_color}
                   onChange={(e) =>
-                    setSettings({ ...settings, secondary_color: e.target.value.toUpperCase() })
+                    setSettings((current) => ({ ...current, secondary_color: e.target.value.toUpperCase() }))
                   }
                   className={styles.colorInput}
                   disabled={isDeleted}
@@ -318,7 +324,7 @@ function ProfileEditorForm({
                   type="color"
                   value={settings.button_color}
                   onChange={(e) =>
-                    setSettings({ ...settings, button_color: e.target.value.toUpperCase() })
+                    setSettings((current) => ({ ...current, button_color: e.target.value.toUpperCase() }))
                   }
                   className={styles.colorInput}
                   disabled={isDeleted}
@@ -337,7 +343,7 @@ function ProfileEditorForm({
                   type="color"
                   value={settings.text_color}
                   onChange={(e) =>
-                    setSettings({ ...settings, text_color: e.target.value.toUpperCase() })
+                    setSettings((current) => ({ ...current, text_color: e.target.value.toUpperCase() }))
                   }
                   className={styles.colorInput}
                   disabled={isDeleted}
@@ -354,15 +360,22 @@ function ProfileEditorForm({
           <AssetPicker
             kind="logo"
             assetId={settings.logo_asset_id}
-            onChange={(id) => setSettings({ ...settings, logo_asset_id: id })}
-            disabled={isDeleted}
+            onChange={(id) => setSettings((current) => ({ ...current, logo_asset_id: id }))}
+            onUploadingChange={(active) => setUploading((u) => ({ ...u, logo: active }))}
+            disabled={isDeleted || isSaving}
           />
           <AssetPicker
             kind="background"
             assetId={settings.background_asset_id}
-            onChange={(id) => setSettings({ ...settings, background_asset_id: id })}
-            disabled={isDeleted}
+            onChange={(id) => setSettings((current) => ({ ...current, background_asset_id: id }))}
+            onUploadingChange={(active) => setUploading((u) => ({ ...u, background: active }))}
+            disabled={isDeleted || isSaving}
           />
+          {uploadPending && (
+            <p role="status" className={styles.readOnlyText}>
+              Wait for image uploads to finish before saving.
+            </p>
+          )}
         </section>
 
         {/* Photo Layouts Section */}
@@ -376,10 +389,12 @@ function ProfileEditorForm({
                 checked={settings.enabled_layouts.includes(tpl.key)}
                 onChange={(e) => {
                   const checked = e.target.checked
-                  const next = checked
-                    ? [...settings.enabled_layouts, tpl.key]
-                    : settings.enabled_layouts.filter((k) => k !== tpl.key)
-                  setSettings({ ...settings, enabled_layouts: next })
+                  setSettings((current) => ({
+                    ...current,
+                    enabled_layouts: checked
+                      ? [...current.enabled_layouts.filter((k) => k !== tpl.key), tpl.key]
+                      : current.enabled_layouts.filter((k) => k !== tpl.key),
+                  }))
                 }}
                 disabled={isDeleted}
                 className={styles.checkbox}
@@ -401,7 +416,7 @@ function ProfileEditorForm({
             <input
               type="checkbox"
               checked={settings.mirror}
-              onChange={(e) => setSettings({ ...settings, mirror: e.target.checked })}
+              onChange={(e) => setSettings((current) => ({ ...current, mirror: e.target.checked }))}
               disabled={isDeleted}
               className={styles.checkbox}
             />
@@ -420,10 +435,10 @@ function ProfileEditorForm({
               value={settings.inactivity_timeout_s}
               onChange={(e) => {
                 const num = parseInt(e.target.value, 10)
-                setSettings({
-                  ...settings,
+                setSettings((current) => ({
+                  ...current,
                   inactivity_timeout_s: isNaN(num) ? 0 : num,
-                })
+                }))
               }}
               className={styles.input}
               disabled={isDeleted}
@@ -440,7 +455,7 @@ function ProfileEditorForm({
                 name="retake_mode"
                 value="none"
                 checked={settings.retake_mode === 'none'}
-                onChange={() => setSettings({ ...settings, retake_mode: 'none' })}
+                onChange={() => setSettings((current) => ({ ...current, retake_mode: 'none' }))}
                 className={styles.radio}
               />
               No retakes
@@ -451,7 +466,7 @@ function ProfileEditorForm({
                 name="retake_mode"
                 value="per_photo"
                 checked={settings.retake_mode === 'per_photo'}
-                onChange={() => setSettings({ ...settings, retake_mode: 'per_photo' })}
+                onChange={() => setSettings((current) => ({ ...current, retake_mode: 'per_photo' }))}
                 className={styles.radio}
               />
               Retake any single photo
@@ -462,7 +477,7 @@ function ProfileEditorForm({
                 name="retake_mode"
                 value="all"
                 checked={settings.retake_mode === 'all'}
-                onChange={() => setSettings({ ...settings, retake_mode: 'all' })}
+                onChange={() => setSettings((current) => ({ ...current, retake_mode: 'all' }))}
                 className={styles.radio}
               />
               Retake all photos
@@ -474,7 +489,7 @@ function ProfileEditorForm({
 
         <BigButton
           type="submit"
-          disabled={isDeleted || isSaving}
+          disabled={isDeleted || isSaving || uploadPending}
           className={styles.saveButton}
         >
           Save profile

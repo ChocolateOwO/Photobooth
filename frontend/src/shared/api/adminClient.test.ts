@@ -175,6 +175,50 @@ describe('createAdminApiClient', () => {
     expect(api.assetContentUrl('a/1')).toBe('/api/admin/assets/a%2F1/content')
   })
 
+  it('logout resolves only after the server confirms the session is gone', async () => {
+    const events: string[] = []
+    let mode: 'network' | 'server-error' | 'gone' = 'network'
+    const fetcher = vi.fn<Fetcher>(async (path) => {
+      if (path === '/api/admin/auth/login') return json(SESSION)
+      if (mode === 'network') throw new TypeError('Failed to fetch')
+      if (mode === 'server-error') return json({ detail: 'boom' }, 500)
+      return json({ detail: 'admin login required' }, 401)
+    })
+    const api = createAdminApiClient(fetcher, keyStore())
+    api.onSessionChange((event) => events.push(event))
+    await api.login('admin', 'pw')
+
+    await expect(api.logout()).rejects.toMatchObject({ kind: 'network' })
+    mode = 'server-error'
+    await expect(api.logout()).rejects.toMatchObject({ kind: 'server' })
+    expect(events).toEqual(['signed-in'])
+    expect(api.hasCsrfToken()).toBe(true)
+
+    mode = 'gone' // already expired on the server: signing out is complete
+    await api.logout()
+    expect(events).toEqual(['signed-in', 'signed-out'])
+  })
+
+  it('logout retries once with a refreshed CSRF token after a 403', async () => {
+    const fresh = { ...SESSION, csrf_token: 'f'.repeat(43) }
+    const fetcher = vi.fn<Fetcher>(async (path, init) => {
+      if (path === '/api/admin/auth/login') return json(SESSION)
+      if (path === '/api/admin/auth/session') return json(fresh)
+      const csrf = (init?.headers as Record<string, string>)[ADMIN_CSRF_HEADER]
+      return csrf === fresh.csrf_token ? json(null, 204) : json({ detail: 'admin csrf token invalid' }, 403)
+    })
+    const api = createAdminApiClient(fetcher, keyStore())
+    await api.login('admin', 'pw')
+    await api.logout()
+    expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+      '/api/admin/auth/login',
+      '/api/admin/auth/logout',
+      '/api/admin/auth/session',
+      '/api/admin/auth/logout',
+    ])
+    expect(api.hasCsrfToken()).toBe(false)
+  })
+
   it('returns null from session() when signed out and reports network failures', async () => {
     const signedOut = createAdminApiClient(async () => json({ detail: 'admin login required' }, 401), keyStore())
     expect(await signedOut.session()).toBeNull()

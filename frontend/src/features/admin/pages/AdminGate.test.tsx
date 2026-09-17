@@ -89,6 +89,40 @@ describe('AdminGate', () => {
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Admin sign in' })).toBeNull())
   })
 
+  it('does not pretend to sign out when the logout request fails (P4-003)', async () => {
+    const server = new FakeAdminServer()
+    server.seedProfile({ name: 'Wedding' })
+    renderAdmin('/admin', { server })
+    await signIn()
+    expect(await screen.findByText('Wedding')).toBeInTheDocument()
+
+    server.logoutNetworkFailure = true
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Sign-out did not finish, so this admin session may still be active.',
+    )
+    expect(screen.queryByText('Wedding')).not.toBeInTheDocument() // data hidden meanwhile
+    expect(screen.queryByRole('heading', { name: 'Admin sign in' })).toBeNull()
+    expect(server.signedIn).toBe(true)
+
+    server.logoutNetworkFailure = false
+    await userEvent.click(screen.getByRole('button', { name: 'Try sign out again' }))
+    expect(await screen.findByRole('heading', { name: 'Admin sign in' })).toBeInTheDocument()
+    expect(server.signedIn).toBe(false)
+  })
+
+  it('refreshes a stale CSRF token so sign-out really revokes the session (P4-003)', async () => {
+    const server = new FakeAdminServer()
+    renderAdmin('/admin', { server })
+    await signIn()
+    expect(await screen.findByText('Signed in as admin')).toBeInTheDocument()
+
+    server.csrf = 'rotated-'.padEnd(43, 'x') // e.g. a newer login in another tab
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByRole('heading', { name: 'Admin sign in' })).toBeInTheDocument()
+    expect(server.signedIn).toBe(false)
+  })
+
   it('offers a large Admin link on the home page', async () => {
     renderAdmin('/')
     const link = await screen.findByRole('link', { name: 'Admin' })
