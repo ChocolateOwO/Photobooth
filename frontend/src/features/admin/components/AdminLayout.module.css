@@ -1,0 +1,76 @@
+.layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--pb-color-bg);
+  color: var(--pb-color-text);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pb-space);
+  padding: var(--pb-space) calc(var(--pb-space) * 1.5);
+  background-color: var(--pb-color-surface);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.userSection {
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  min-height: var(--pb-touch-target);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--pb-space);
+}
+
+.navLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 20px;
+  border-radius: var(--pb-radius);
+  color: var(--pb-color-text);
+  text-decoration: none;
+  font-weight: 600;
+  transition: background-color 0.2s;
+}
+
+.navLink:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.signOutButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pb-touch-target);
+  padding: 0 24px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--pb-radius);
+  background-color: transparent;
+  color: var(--pb-color-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.signOutButton:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.main {
+  flex: 1;
+  padding: calc(var(--pb-space) * 1.5);
+  max-width: 1920px;
+  width: 100%;
+  margin: 0 auto;
+}
