@@ -140,3 +140,14 @@ def test_multiple_alembic_heads_are_refused_before_tagging(workspace: dict[str, 
     assert result.returncode == 1
     assert "exactly one Alembic head" in result.stderr
     assert not git(repo, "tag", "--list")
+
+
+def test_patch_drill_handles_empty_baseline_commit(workspace: dict[str, Path]) -> None:
+    """The real repository starts with an empty `patch-000` commit; the drill must replay it."""
+    repo = workspace["repo"]
+    git(repo, "commit", "-q", "--allow-empty", "-m", "patch-000: empty repository baseline")
+    commit = _baseline(workspace)
+    result = _run(workspace, commit, *_approved(workspace, commit))
+    assert result.returncode == 0, result.stderr
+    dry = _run(workspace, commit, "--dry-run")
+    assert dry.returncode == 1  # tag now exists; the real run above already proved the drill

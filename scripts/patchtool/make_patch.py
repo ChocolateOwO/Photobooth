@@ -360,8 +360,9 @@ def restore_patch_drill(
             git(work, "fetch", "--quiet", str(bundle), "+refs/*:refs/drill/*")
             git(work, "checkout", "--quiet", "--detach", base_commit)
         applied = subprocess.run(
-            # --keep-cr: blobs containing CRLF must round-trip byte-for-byte
-            ["git", "-C", str(work), "am", "--quiet", "--keep-cr", str(patch)],
+            # --keep-cr: blobs containing CRLF round-trip byte-for-byte.
+            # --empty=keep: empty commits (e.g. the patch-000 baseline) are part of the series.
+            ["git", "-C", str(work), "am", "--quiet", "--keep-cr", "--empty=keep", str(patch)],
             capture_output=True,
             text=True,
         )
