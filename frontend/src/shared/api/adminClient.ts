@@ -11,16 +11,22 @@ export type RetakeMode = Schemas['RetakeMode']
 export type DeliveryMode = Schemas['DeliveryMode']
 export type AdminSession = Schemas['SessionResponse']
 export type TemplateSummary = Schemas['TemplateSummary']
+export type Frame = Schemas['FrameResponse']
+export type TemplateSpec = Schemas['TemplateSpec']
 
 export const ADMIN_CSRF_HEADER = 'X-Photobooth-Admin-CSRF'
 
 /** Limits enforced by the backend (Phase 3); the UI checks them first for friendlier messages. */
-export const ASSET_LIMITS: Record<AssetKind, { maxBytes: number; maxSide: number }> = {
+export const ASSET_LIMITS: Record<'logo' | 'background', { maxBytes: number; maxSide: number }> = {
   logo: { maxBytes: 5 * 1024 * 1024, maxSide: 4096 },
   background: { maxBytes: 12 * 1024 * 1024, maxSide: 7680 },
 }
+/** Only these two kinds are uploaded through /api/admin/assets; frames have their own routes. */
+export type UploadableAssetKind = keyof typeof ASSET_LIMITS
 export const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg'] as const
 export const INACTIVITY_LIMITS = { min: 30, max: 900 } as const
+/** Frame rules from the approved templates (the server checks them again). */
+export const FRAME_LIMITS = { maxBytes: 10 * 1024 * 1024, mime: 'image/png' } as const
 export const TEXT_LIMITS = { name: 80, title: 120, subtitle: 240, startButtonText: 40 } as const
 
 export type AdminErrorKind =
@@ -256,6 +262,39 @@ export function createAdminApiClient(
       send<EventProfile>('DELETE', `${profilePath(id)}?revision=${revision}`),
     restoreProfile: (id: string) => send<EventProfile>('POST', `${profilePath(id)}/restore`),
 
+    // --- Frames (Phase 5): finished transparent PNGs made outside this app ---
+    listFrames: (templateKey?: string) =>
+      send<Frame[]>(
+        'GET',
+        `/api/admin/frames${templateKey ? `?template_key=${encodeURIComponent(templateKey)}` : ''}`,
+      ),
+    getFrame: (id: string) => send<Frame>('GET', `/api/admin/frames/${encodeURIComponent(id)}`),
+    uploadFrame(templateKey: string, name: string, file: File): Promise<Frame> {
+      const form = new FormData()
+      form.append('template_key', templateKey)
+      form.append('name', name)
+      form.append('file', file)
+      return send<Frame>('POST', '/api/admin/frames', { form })
+    },
+    replaceFrameFile(id: string, file: File): Promise<Frame> {
+      const form = new FormData()
+      form.append('file', file)
+      return send<Frame>('POST', `/api/admin/frames/${encodeURIComponent(id)}/replace`, { form })
+    },
+    renameFrame: (id: string, name: string) =>
+      send<Frame>('PUT', `/api/admin/frames/${encodeURIComponent(id)}/name`, { json: { name } }),
+    deleteFrame: (id: string) =>
+      send<undefined>('DELETE', `/api/admin/frames/${encodeURIComponent(id)}`),
+    /** The original PNG, for an <img> preview of the frame itself. */
+    frameContentUrl: (id: string) => `/api/admin/frames/${encodeURIComponent(id)}/content`,
+    /** A rendered sample output (placeholder photos + this frame). */
+    framePreviewUrl: (id: string, outputIndex = 1) =>
+      `/api/admin/frames/${encodeURIComponent(id)}/preview/${outputIndex}.jpg`,
+    templateSpec: (key: string) =>
+      send<TemplateSpec>('GET', `/api/templates/${encodeURIComponent(key)}`),
+    templateGuideUrl: (key: string) => `/api/templates/${encodeURIComponent(key)}/guide.png`,
+    templateBlankUrl: (key: string) => `/api/templates/${encodeURIComponent(key)}/blank.png`,
+
     uploadAsset(kind: AssetKind, file: File): Promise<MediaAsset> {
       const form = new FormData()
       form.append('kind', kind)
@@ -285,6 +324,7 @@ export function newProfileSettings(layouts: string[]): ProfileSettings {
     button_color: '#2F6FD6',
     text_color: '#F4F6F8',
     enabled_layouts: layouts.slice(0, 1),
+    frame_selections: {},
     countdown_seconds: 5,
     mirror: true,
     inactivity_timeout_s: 120,

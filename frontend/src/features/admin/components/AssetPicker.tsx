@@ -4,7 +4,7 @@ import {
   ACCEPTED_IMAGE_TYPES,
   AdminApiError,
   ASSET_LIMITS,
-  type AssetKind,
+  type UploadableAssetKind,
 } from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import { BigButton } from '../../../shared/ui/BigButton'
@@ -12,7 +12,7 @@ import { useAsset, useUploadAsset } from '../api/hooks'
 import styles from './AssetPicker.module.css'
 
 interface AssetPickerProps {
-  kind: AssetKind
+  kind: UploadableAssetKind
   assetId: string | null | undefined
   onChange: (assetId: string | null) => void
   /** Reports upload start/end so the form can block saving meanwhile. */

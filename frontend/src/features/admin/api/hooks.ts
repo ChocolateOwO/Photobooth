@@ -13,6 +13,8 @@ export const adminKeys = {
   profile: (id: string) => [...ADMIN_QUERY_ROOT, 'profile', id] as const,
   asset: (id: string) => [...ADMIN_QUERY_ROOT, 'asset', id] as const,
   templates: () => ['templates'] as const,
+  templateSpec: (key: string) => ['templates', key] as const,
+  frames: (templateKey?: string) => [...ADMIN_QUERY_ROOT, 'frames', templateKey ?? 'all'] as const,
 }
 
 const noRetry = { retry: false } as const
@@ -103,6 +105,64 @@ export function useDeleteProfile() {
 export function useRestoreProfile() {
   const api = useAdminApi()
   return useProfileMutation((id: string) => api.restoreProfile(id))
+}
+
+export function useTemplateSpec(key: string | undefined) {
+  const api = useAdminApi()
+  return useQuery({
+    queryKey: adminKeys.templateSpec(key ?? ''),
+    queryFn: () => api.templateSpec(key ?? ''),
+    enabled: key !== undefined,
+    ...noRetry,
+  })
+}
+
+export function useFrames(templateKey?: string) {
+  const api = useAdminApi()
+  return useQuery({
+    queryKey: adminKeys.frames(templateKey),
+    queryFn: () => api.listFrames(templateKey),
+    ...noRetry,
+  })
+}
+
+/** Refresh every frame list after a change (frames are shown per layout and all together). */
+function useFrameMutation<TArgs, TResult>(run: (args: TArgs) => Promise<TResult>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: run,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...ADMIN_QUERY_ROOT, 'frames'] }),
+  })
+}
+
+export function useUploadFrame() {
+  const api = useAdminApi()
+  return useFrameMutation(
+    ({ templateKey, name, file }: { templateKey: string; name: string; file: File }) =>
+      api.uploadFrame(templateKey, name, file),
+  )
+}
+
+export function useReplaceFrameFile() {
+  const api = useAdminApi()
+  return useFrameMutation(({ id, file }: { id: string; file: File }) =>
+    api.replaceFrameFile(id, file),
+  )
+}
+
+export function useRenameFrame() {
+  const api = useAdminApi()
+  return useFrameMutation(({ id, name }: { id: string; name: string }) => api.renameFrame(id, name))
+}
+
+export function useDeleteFrame() {
+  const api = useAdminApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteFrame(id),
+    // A deleted frame can change profile views too.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ADMIN_QUERY_ROOT }),
+  })
 }
 
 export function useUploadAsset() {

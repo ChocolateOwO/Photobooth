@@ -228,3 +228,59 @@ describe('createAdminApiClient', () => {
     await expect(offline.listProfiles()).rejects.toMatchObject({ kind: 'network' })
   })
 })
+
+describe('frames', () => {
+  it('uploads a frame with its layout and admin-chosen name', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => json({ id: 'f1', template_key: 'strip_2x6' }, 201))
+    const api = createAdminApiClient(fetcher, keyStore())
+    const file = new File([new Uint8Array([1, 2])], 'anything.png', { type: 'image/png' })
+    await api.uploadFrame('strip_2x6', 'Gold border', file)
+    const [path, init] = callOf(fetcher, 0)
+    expect(path).toBe('/api/admin/frames')
+    const form = init?.body as FormData
+    expect(form.get('template_key')).toBe('strip_2x6')
+    expect(form.get('name')).toBe('Gold border')
+    expect(form.get('file')).toBeInstanceOf(File)
+    expect(headersOf(callOf(fetcher, 0))['Content-Type']).toBeUndefined()
+  })
+
+  it('lists, replaces, renames and deletes frames', async () => {
+    const fetcher = vi.fn<Fetcher>(async (_path, init) =>
+      init?.method === 'DELETE' ? json(null, 204) : json([]),
+    )
+    const api = createAdminApiClient(fetcher, keyStore())
+    await api.listFrames()
+    await api.listFrames('print_3x4')
+    await api.replaceFrameFile('f1', new File([new Uint8Array([3])], 'x.png', { type: 'image/png' }))
+    await api.renameFrame('f1', 'New name')
+    await api.deleteFrame('f1')
+    expect(fetcher.mock.calls.map((call) => `${call[1]?.method ?? 'GET'} ${call[0]}`)).toEqual([
+      'GET /api/admin/frames',
+      'GET /api/admin/frames?template_key=print_3x4',
+      'POST /api/admin/frames/f1/replace',
+      'PUT /api/admin/frames/f1/name',
+      'DELETE /api/admin/frames/f1',
+    ])
+    expect(JSON.parse(String(callOf(fetcher, 3)[1]?.body))).toEqual({ name: 'New name' })
+  })
+
+  it('reports that a frame in use can not be deleted', async () => {
+    const api = createAdminApiClient(
+      async () => json({ detail: 'this frame is still used by: Wedding' }, 409),
+      keyStore(),
+    )
+    await expect(api.deleteFrame('f1')).rejects.toMatchObject({
+      kind: 'conflict',
+      messages: ['this frame is still used by: Wedding'],
+    })
+  })
+
+  it('builds same-origin URLs for the frame file, its preview and the template downloads', () => {
+    const api = createAdminApiClient(async () => json({}), keyStore())
+    expect(api.frameContentUrl('f 1')).toBe('/api/admin/frames/f%201/content')
+    expect(api.framePreviewUrl('f1')).toBe('/api/admin/frames/f1/preview/1.jpg')
+    expect(api.framePreviewUrl('f1', 2)).toBe('/api/admin/frames/f1/preview/2.jpg')
+    expect(api.templateGuideUrl('strip_2x6')).toBe('/api/templates/strip_2x6/guide.png')
+    expect(api.templateBlankUrl('strip_2x6')).toBe('/api/templates/strip_2x6/blank.png')
+  })
+})
