@@ -27,7 +27,8 @@ export function PreparationPreview({ settings, templates }: PreparationPreviewPr
     backgroundColor: settings.background_color,
     ...(bgUrl
       ? {
-          backgroundImage: `url(${bgUrl})`,
+          // Quoted; the URL is built by the admin client from an encoded asset id.
+          backgroundImage: `url("${bgUrl}")`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat',

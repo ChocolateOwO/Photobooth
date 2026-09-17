@@ -19,10 +19,12 @@ export function AdminGate({ children }: { children: ReactNode }) {
     setErrorMessage(null)
     setIsSubmitting(true)
 
+    // Never keep the password in memory after the attempt, whatever the outcome.
+    const password = passwordInput
+    setPasswordInput('')
     try {
-      await login(usernameInput, passwordInput)
+      await login(usernameInput, password)
     } catch (err: unknown) {
-      setPasswordInput('')
       if (err instanceof AdminApiError) {
         if (err.kind === 'throttled') {
           const seconds = err.retryAfterSeconds ?? 60

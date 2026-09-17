@@ -530,7 +530,7 @@ export function ProfileEditorPage() {
     )
   }
 
-  if (!isNew && (profileError || !profile)) {
+  if (!isNew && (profileError !== null || profile === undefined)) {
     return (
       <div className={styles.container}>
         <div className={styles.headerRow}>
@@ -546,11 +546,11 @@ export function ProfileEditorPage() {
     )
   }
 
-  const initialSettings = isNew
-    ? newProfileSettings(templates.map((t) => t.key))
-    : profile.settings
-  const initialRevision = isNew ? 1 : profile.revision
-  const isDeleted = !isNew && profile.deleted_at !== null
+  // Narrowed above: an existing profile is loaded whenever this is not a new one.
+  const loaded = isNew ? undefined : profile
+  const initialSettings = loaded?.settings ?? newProfileSettings(templates.map((t) => t.key))
+  const initialRevision = loaded?.revision ?? 1
+  const isDeleted = loaded !== undefined && loaded.deleted_at !== null
 
   const handleReloadLatest = async (): Promise<EventProfile | undefined> => {
     const res = await refetchProfile()
@@ -567,11 +567,11 @@ export function ProfileEditorPage() {
       </div>
 
       <ProfileEditorForm
-        key={isNew ? 'new' : profile.id}
+        key={loaded?.id ?? 'new'}
         initialSettings={initialSettings}
         initialRevision={initialRevision}
         templates={templates}
-        profileId={profileId}
+        {...(loaded ? { profileId: loaded.id } : {})}
         isNew={isNew}
         isDeleted={isDeleted}
         onReloadLatest={handleReloadLatest}
