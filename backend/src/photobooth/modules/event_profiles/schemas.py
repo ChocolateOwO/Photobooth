@@ -40,6 +40,8 @@ class ProfileSettingsBody(BaseModel):
     button_color: Color = "#2F6FD6"
     text_color: Color = "#F4F6F8"
     enabled_layouts: list[LayoutKey] = Field(min_length=1, max_length=16)
+    # Chosen frame per layout; a layout may be missing here, which means "no frame selected".
+    frame_selections: dict[LayoutKey, AssetId] = Field(default_factory=dict, max_length=16)
     countdown_seconds: Literal[5] = 5
     mirror: bool = True
     inactivity_timeout_s: int = Field(default=120, ge=INACTIVITY_MIN_S, le=INACTIVITY_MAX_S)
@@ -60,6 +62,7 @@ class ProfileSettingsBody(BaseModel):
             button_color=self.button_color,
             text_color=self.text_color,
             enabled_layouts=tuple(self.enabled_layouts),
+            frame_selections=tuple(sorted(self.frame_selections.items())),
             countdown_seconds=self.countdown_seconds,
             mirror=self.mirror,
             inactivity_timeout_s=self.inactivity_timeout_s,
@@ -82,6 +85,7 @@ class ProfileSettingsBody(BaseModel):
             button_color=settings.button_color,
             text_color=settings.text_color,
             enabled_layouts=list(settings.enabled_layouts),
+            frame_selections=dict(settings.frame_selections),
             mirror=settings.mirror,
             inactivity_timeout_s=settings.inactivity_timeout_s,
             retake_mode=settings.retake_mode,

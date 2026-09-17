@@ -12,6 +12,7 @@ from typing import Protocol
 class AssetKind(StrEnum):
     LOGO = "logo"
     BACKGROUND = "background"
+    FRAME = "frame"  # uploaded through the frames module, which validates it against a template
 
 
 class AssetValidationError(Exception):
@@ -35,6 +36,8 @@ class UploadLimits:
 LIMITS: dict[AssetKind, UploadLimits] = {
     AssetKind.LOGO: UploadLimits(max_bytes=5 * 1024 * 1024, max_width=4096, max_height=4096),
     AssetKind.BACKGROUND: UploadLimits(max_bytes=12 * 1024 * 1024, max_width=7680, max_height=7680),
+    # Frame rules (plan): PNG, exact canvas size, at most 10 MB.
+    AssetKind.FRAME: UploadLimits(max_bytes=10 * 1024 * 1024, max_width=7680, max_height=7680),
 }
 
 ALLOWED_FORMATS: dict[str, tuple[str, str]] = {  # detected format -> (mime, extension)

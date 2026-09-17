@@ -54,6 +54,20 @@ class EventProfileLayoutRow(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+class EventProfileFrameRow(Base):
+    """One chosen frame per layout per profile. FK RESTRICT keeps a used frame undeletable."""
+
+    __tablename__ = "event_profile_frames"
+
+    profile_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("event_profiles.id", ondelete="CASCADE"), primary_key=True
+    )
+    template_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    frame_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("frame_assets.id", ondelete="RESTRICT"), nullable=False
+    )
+
+
 class EventProfileRow(Base):
     __tablename__ = "event_profiles"
     __table_args__ = (
@@ -114,6 +128,12 @@ class EventProfileRow(Base):
         passive_deletes=True,
         lazy="selectin",
     )
+    frames: Mapped[list[EventProfileFrameRow]] = relationship(
+        order_by=EventProfileFrameRow.template_key,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+    )
 
     def apply(self, settings: ProfileSettings) -> None:
         self.name = settings.name
@@ -150,6 +170,9 @@ class EventProfileRow(Base):
                 button_color=self.button_color,
                 text_color=self.text_color,
                 enabled_layouts=tuple(layout.template_key for layout in self.layouts),
+                frame_selections=tuple(
+                    (chosen.template_key, chosen.frame_id) for chosen in self.frames
+                ),
                 countdown_seconds=self.countdown_seconds,
                 mirror=self.mirror,
                 inactivity_timeout_s=self.inactivity_timeout_s,
@@ -175,12 +198,19 @@ def _rowcount(result: Result[Any]) -> int:
     return cast(CursorResult[Any], result).rowcount
 
 
+def _frame_rows(profile_id: str, settings: ProfileSettings) -> list[EventProfileFrameRow]:
+    return [
+        EventProfileFrameRow(profile_id=profile_id, template_key=key, frame_id=frame_id)
+        for key, frame_id in settings.frame_selections
+    ]
+
+
 def _conflict(exc: IntegrityError) -> ProfileConflictError:
     message = str(exc.orig)
     if "name_key" in message:
         return ProfileConflictError("another live profile already uses this name")
     if "FOREIGN KEY" in message:
-        return ProfileConflictError("a referenced asset does not exist")
+        return ProfileConflictError("a referenced asset or frame does not exist")
     return ProfileConflictError("the change conflicts with the stored profiles")
 
 
@@ -218,6 +248,7 @@ class SqlEventProfileRepository(EventProfileRepository):
         )
         row.apply(profile.settings)
         row.layouts = _layout_rows(profile.id, profile.settings)
+        row.frames = _frame_rows(profile.id, profile.settings)
         try:
             with self._sessions.begin() as session:
                 session.add(row)
@@ -254,7 +285,12 @@ class SqlEventProfileRepository(EventProfileRepository):
                         EventProfileLayoutRow.profile_id == profile_id
                     )
                 )
-                session.expire(row, ["layouts"])
+                session.execute(
+                    delete(EventProfileFrameRow).where(
+                        EventProfileFrameRow.profile_id == profile_id
+                    )
+                )
+                session.expire(row, ["layouts", "frames"])
                 session.flush()
                 session.execute(
                     insert(EventProfileLayoutRow),
@@ -263,6 +299,14 @@ class SqlEventProfileRepository(EventProfileRepository):
                         for index, key in enumerate(settings.enabled_layouts)
                     ],
                 )
+                if settings.frame_selections:
+                    session.execute(
+                        insert(EventProfileFrameRow),
+                        [
+                            {"profile_id": profile_id, "template_key": key, "frame_id": frame_id}
+                            for key, frame_id in settings.frame_selections
+                        ],
+                    )
         except IntegrityError as exc:
             raise _conflict(exc) from exc
         return self._require(profile_id)
@@ -341,6 +385,17 @@ class SqlEventProfileRepository(EventProfileRepository):
         except IntegrityError as exc:
             raise _conflict(exc) from exc
         return self._require(profile_id)
+
+    def names_using_frame(self, frame_id: str) -> list[str]:
+        with self._sessions() as session:
+            rows = session.scalars(
+                select(EventProfileRow)
+                .join(EventProfileFrameRow, EventProfileFrameRow.profile_id == EventProfileRow.id)
+                .where(EventProfileFrameRow.frame_id == frame_id)
+                .order_by(EventProfileRow.name)
+            )
+            # Deleted profiles still hold their frame: they can be restored.
+            return [row.name if row.deleted_at is None else f"{row.name} (deleted)" for row in rows]
 
     def _require(self, profile_id: str) -> EventProfile:
         profile = self.get(profile_id)

@@ -12,6 +12,7 @@ from photobooth.modules.event_profiles.domain import (
     AssetLookup,
     EventProfile,
     EventProfileRepository,
+    FrameLookup,
     ProfileConflictError,
     ProfileNotFoundError,
     ProfileSettings,
@@ -26,12 +27,14 @@ class EventProfileService:
         repository: EventProfileRepository,
         assets: AssetLookup,
         templates: TemplateCatalog,
+        frames: FrameLookup,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
     ) -> None:
         self._repository = repository
         self._assets = assets
         self._templates = templates
+        self._frames = frames
         self._clock = clock
         self._new_id = new_id
 
@@ -61,9 +64,21 @@ class EventProfileService:
             normalized.background_asset_id, "background"
         ):
             problems.append("background_asset_id does not refer to an uploaded background")
+        for template_key, frame_id in normalized.frame_selections:
+            belongs_to = self._frames.frame_template(frame_id)
+            if belongs_to is None:
+                problems.append(f"the frame chosen for {template_key} does not exist")
+            elif belongs_to != template_key:
+                problems.append(
+                    f"that frame belongs to the {belongs_to} layout, not {template_key}"
+                )
         if problems:
             raise ProfileValidationError(problems)
         return normalized
+
+    def names_using_frame(self, frame_id: str) -> list[str]:
+        """Port for the frames module: live profiles that still select this frame."""
+        return self._repository.names_using_frame(frame_id)
 
     def list_profiles(self, include_deleted: bool = False) -> list[EventProfile]:
         return self._repository.list_profiles(include_deleted)

@@ -4,7 +4,8 @@
       "AssetKind": {
         "enum": [
           "logo",
-          "background"
+          "background",
+          "frame"
         ],
         "title": "AssetKind",
         "type": "string"
@@ -86,6 +87,88 @@
           "deleted_at"
         ],
         "title": "EventProfileResponse",
+        "type": "object"
+      },
+      "FrameResponse": {
+        "description": "A validated frame. The stored file itself is served by `/content`.",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "slot_transparency": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Slot Transparency",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "template_key": {
+            "title": "Template Key",
+            "type": "string"
+          },
+          "template_version": {
+            "title": "Template Version",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "template_key",
+          "template_version",
+          "name",
+          "status",
+          "width",
+          "height",
+          "bytes",
+          "sha256",
+          "warnings",
+          "slot_transparency",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FrameResponse",
         "type": "object"
       },
       "FrameRulesModel": {
@@ -339,6 +422,17 @@
             "title": "Enabled Layouts",
             "type": "array"
           },
+          "frame_selections": {
+            "maxProperties": 16,
+            "patternProperties": {
+              "^[a-z0-9_]{1,64}$": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              }
+            },
+            "title": "Frame Selections",
+            "type": "object"
+          },
           "inactivity_timeout_s": {
             "default": 120,
             "maximum": 900.0,
@@ -483,6 +577,17 @@
             "title": "Enabled Layouts",
             "type": "array"
           },
+          "frame_selections": {
+            "maxProperties": 16,
+            "patternProperties": {
+              "^[a-z0-9_]{1,64}$": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              }
+            },
+            "title": "Frame Selections",
+            "type": "object"
+          },
           "inactivity_timeout_s": {
             "default": 120,
             "maximum": 900.0,
@@ -607,6 +712,19 @@
           "h"
         ],
         "title": "RectModel",
+        "type": "object"
+      },
+      "RenameFrameBody": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "RenameFrameBody",
         "type": "object"
       },
       "RetakeMode": {
@@ -1219,6 +1337,396 @@
         "summary": "Current Session",
         "tags": [
           "admin-auth"
+        ]
+      }
+    },
+    "/api/admin/frames": {
+      "get": {
+        "operationId": "list_frames_api_admin_frames_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "template_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9_]{1,64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Template Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FrameResponse"
+                  },
+                  "title": "Response List Frames Api Admin Frames Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Frames",
+        "tags": [
+          "admin-frames"
+        ]
+      },
+      "post": {
+        "operationId": "upload_frame_api_admin_frames_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "name": {
+                    "examples": [
+                      "Expo blue border"
+                    ],
+                    "type": "string"
+                  },
+                  "template_key": {
+                    "examples": [
+                      "strip_2x6"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "template_key",
+                  "name",
+                  "file"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Upload Frame",
+        "tags": [
+          "admin-frames"
+        ]
+      }
+    },
+    "/api/admin/frames/{frame_id}": {
+      "delete": {
+        "operationId": "delete_frame_api_admin_frames__frame_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "frame_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Frame Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Frame",
+        "tags": [
+          "admin-frames"
+        ]
+      },
+      "get": {
+        "operationId": "frame_metadata_api_admin_frames__frame_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "frame_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Frame Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Frame Metadata",
+        "tags": [
+          "admin-frames"
+        ]
+      }
+    },
+    "/api/admin/frames/{frame_id}/content": {
+      "get": {
+        "description": "The original uploaded PNG, byte for byte.",
+        "operationId": "frame_content_api_admin_frames__frame_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "frame_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Frame Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Frame Content",
+        "tags": [
+          "admin-frames"
+        ]
+      }
+    },
+    "/api/admin/frames/{frame_id}/name": {
+      "put": {
+        "operationId": "rename_frame_api_admin_frames__frame_id__name_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "frame_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Frame Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameFrameBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Frame",
+        "tags": [
+          "admin-frames"
+        ]
+      }
+    },
+    "/api/admin/frames/{frame_id}/preview/{output_index}.jpg": {
+      "get": {
+        "description": "Sample output: numbered placeholder photos with this frame composited on top.",
+        "operationId": "frame_preview_api_admin_frames__frame_id__preview__output_index__jpg_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "frame_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Frame Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "output_index",
+            "required": true,
+            "schema": {
+              "maximum": 16,
+              "minimum": 1,
+              "title": "Output Index",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Frame Preview",
+        "tags": [
+          "admin-frames"
+        ]
+      }
+    },
+    "/api/admin/frames/{frame_id}/replace": {
+      "post": {
+        "description": "Swap in a corrected PNG. Profiles keep their selection; the old file is kept unchanged.",
+        "operationId": "replace_frame_api_admin_frames__frame_id__replace_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "frame_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Frame Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace Frame",
+        "tags": [
+          "admin-frames"
         ]
       }
     },

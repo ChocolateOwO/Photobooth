@@ -18,8 +18,8 @@ from photobooth.core.kiosk_pairing import (
     PairingService,
     RuntimeSecretFile,
 )
+from photobooth.core.uploads import UploadAdmission
 from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
-from photobooth.modules.assets.api import UploadAdmission
 from photobooth.modules.assets.inspector import PillowImageInspector
 from photobooth.modules.assets.repository import SqlAssetRepository
 from photobooth.modules.assets.service import AssetService
@@ -35,6 +35,9 @@ from photobooth.modules.auth.service import AuthService
 from photobooth.modules.auth.sessions import InMemoryAdminSessionStore
 from photobooth.modules.event_profiles.repository import SqlEventProfileRepository
 from photobooth.modules.event_profiles.service import EventProfileService
+from photobooth.modules.frames.repository import SqlFrameRepository
+from photobooth.modules.frames.service import FrameService
+from photobooth.modules.frames.validator import PillowFrameValidator
 from photobooth.modules.kiosk.service import KioskPairingService
 from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
@@ -46,6 +49,16 @@ from photobooth.modules.system.service import SystemIdentity, SystemService
 from photobooth.modules.templates.imaging import PillowTemplateArtist
 from photobooth.modules.templates.repository import JsonTemplateRepository
 from photobooth.modules.templates.service import TemplateSpecService
+
+
+class _FrameUsage:
+    """Adapter so the frames module can ask which profiles still select a frame."""
+
+    def __init__(self, profiles: SqlEventProfileRepository) -> None:
+        self._profiles = profiles
+
+    def names_using_frame(self, frame_id: str) -> list[str]:
+        return self._profiles.names_using_frame(frame_id)
 
 
 class Container:
@@ -103,8 +116,19 @@ class Container:
                 else MIN_PASSWORD_LENGTH
             ),
         )
+        self.profile_repository = SqlEventProfileRepository(self.engine)
+        self.frame_service = FrameService(
+            SqlFrameRepository(self.engine),
+            self.asset_service,
+            PillowFrameValidator(),
+            self.template_service,
+            usage=_FrameUsage(self.profile_repository),
+        )
         self.profile_service = EventProfileService(
-            SqlEventProfileRepository(self.engine), self.asset_service, self.template_service
+            self.profile_repository,
+            self.asset_service,
+            self.template_service,
+            self.frame_service,
         )
 
         self.registry = ServiceRegistry()
@@ -118,6 +142,7 @@ class Container:
         self.registry.register(UploadAdmission, UploadAdmission(limit=2))
         self.registry.register(AuthService, self.auth_service)
         self.registry.register(EventProfileService, self.profile_service)
+        self.registry.register(FrameService, self.frame_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))
         self.registry.register(
             AdminCookieSettings, AdminCookieSettings(f"pb_admin_{settings.instance}")

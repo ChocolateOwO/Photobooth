@@ -98,6 +98,7 @@ containers = [
     "photobooth.modules.assets",
     "photobooth.modules.auth",
     "photobooth.modules.event_profiles",
+    "photobooth.modules.frames",
 ]
 layers = ["api", "service", "domain"]
 exhaustive = false
@@ -118,6 +119,8 @@ source_modules = [
     "photobooth.modules.auth.service",
     "photobooth.modules.event_profiles.api",
     "photobooth.modules.event_profiles.service",
+    "photobooth.modules.frames.api",
+    "photobooth.modules.frames.service",
     "photobooth.modules.rendering.service",
 ]
 forbidden_modules = [
@@ -134,6 +137,8 @@ forbidden_modules = [
     "photobooth.modules.auth.hasher",
     "photobooth.modules.auth.sessions",
     "photobooth.modules.event_profiles.repository",
+    "photobooth.modules.frames.repository",
+    "photobooth.modules.frames.validator",
     "PIL",
     "argon2",
     "sqlalchemy",
@@ -151,6 +156,7 @@ source_modules = [
     "photobooth.modules.assets.domain",
     "photobooth.modules.auth.domain",
     "photobooth.modules.event_profiles.domain",
+    "photobooth.modules.frames.domain",
 ]
 forbidden_modules = [
     "fastapi",
@@ -191,6 +197,19 @@ forbidden_modules = [
     "photobooth.modules.event_profiles",
     "photobooth.modules.assets",
     "photobooth.modules.storage",
+    "photobooth.modules.frames",
+]
+
+[[tool.importlinter.contracts]]
+name = "Frames never import auth, kiosk, system or the event_profiles internals"
+type = "forbidden"
+source_modules = ["photobooth.modules.frames"]
+forbidden_modules = [
+    "photobooth.modules.auth",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.system",
+    "photobooth.modules.event_profiles",
+    "photobooth.modules.storage.local",
 ]
 
 [[tool.importlinter.contracts]]

@@ -106,6 +106,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/frames": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Frames */
+        get: operations["list_frames_api_admin_frames_get"];
+        put?: never;
+        /** Upload Frame */
+        post: operations["upload_frame_api_admin_frames_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/frames/{frame_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Frame Metadata */
+        get: operations["frame_metadata_api_admin_frames__frame_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Frame */
+        delete: operations["delete_frame_api_admin_frames__frame_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/frames/{frame_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Frame Content
+         * @description The original uploaded PNG, byte for byte.
+         */
+        get: operations["frame_content_api_admin_frames__frame_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/frames/{frame_id}/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Rename Frame */
+        put: operations["rename_frame_api_admin_frames__frame_id__name_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/frames/{frame_id}/preview/{output_index}.jpg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Frame Preview
+         * @description Sample output: numbered placeholder photos with this frame composited on top.
+         */
+        get: operations["frame_preview_api_admin_frames__frame_id__preview__output_index__jpg_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/frames/{frame_id}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace Frame
+         * @description Swap in a corrected PNG. Profiles keep their selection; the old file is kept unchanged.
+         */
+        post: operations["replace_frame_api_admin_frames__frame_id__replace_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/profiles": {
         parameters: {
             query?: never;
@@ -375,7 +488,7 @@ export interface components {
          * AssetKind
          * @enum {string}
          */
-        AssetKind: "logo" | "background";
+        AssetKind: "logo" | "background" | "frame";
         /**
          * DeliveryMode
          * @enum {string}
@@ -407,6 +520,44 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * FrameResponse
+         * @description A validated frame. The stored file itself is served by `/content`.
+         */
+        FrameResponse: {
+            /** Bytes */
+            bytes: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Height */
+            height: number;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Sha256 */
+            sha256: string;
+            /** Slot Transparency */
+            slot_transparency: number[];
+            /** Status */
+            status: string;
+            /** Template Key */
+            template_key: string;
+            /** Template Version */
+            template_version: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Warnings */
+            warnings: string[];
+            /** Width */
+            width: number;
         };
         /** FrameRulesModel */
         FrameRulesModel: {
@@ -520,6 +671,10 @@ export interface components {
             delivery_mode: components["schemas"]["DeliveryMode"];
             /** Enabled Layouts */
             enabled_layouts: string[];
+            /** Frame Selections */
+            frame_selections?: {
+                [key: string]: string;
+            };
             /**
              * Inactivity Timeout S
              * @default 120
@@ -597,6 +752,10 @@ export interface components {
             delivery_mode: components["schemas"]["DeliveryMode"];
             /** Enabled Layouts */
             enabled_layouts: string[];
+            /** Frame Selections */
+            frame_selections?: {
+                [key: string]: string;
+            };
             /**
              * Inactivity Timeout S
              * @default 120
@@ -663,6 +822,11 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /** RenameFrameBody */
+        RenameFrameBody: {
+            /** Name */
+            name: string;
         };
         /**
          * RetakeMode
@@ -971,6 +1135,264 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+        };
+    };
+    list_frames_api_admin_frames_get: {
+        parameters: {
+            query?: {
+                template_key?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_frame_api_admin_frames_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    /** @example Expo blue border */
+                    name: string;
+                    /** @example strip_2x6 */
+                    template_key: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameResponse"];
+                };
+            };
+        };
+    };
+    frame_metadata_api_admin_frames__frame_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                frame_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_frame_api_admin_frames__frame_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                frame_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    frame_content_api_admin_frames__frame_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                frame_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_frame_api_admin_frames__frame_id__name_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                frame_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameFrameBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    frame_preview_api_admin_frames__frame_id__preview__output_index__jpg_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                frame_id: string;
+                output_index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    replace_frame_api_admin_frames__frame_id__replace_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                frame_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

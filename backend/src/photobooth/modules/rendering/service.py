@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import threading
+from collections import OrderedDict
 from collections.abc import Sequence
 from concurrent.futures import Future
 
@@ -20,6 +22,8 @@ from photobooth.modules.rendering.domain import (
 )
 from photobooth.modules.templates.domain import PhotoTemplate
 
+PREVIEW_CACHE_SIZE = 16
+
 
 class RenderService:
     def __init__(
@@ -34,6 +38,9 @@ class RenderService:
         self._samples = samples
         self._scheduler = scheduler
         self._sample_cache: dict[tuple[str, int, int], Future[RenderedOutput]] = {}
+        self._preview_cache: OrderedDict[tuple[str, int, int, str], Future[RenderedOutput]] = (
+            OrderedDict()
+        )
         self._sample_lock = threading.Lock()
 
     def render_session(
@@ -84,7 +91,44 @@ class RenderService:
         future.add_done_callback(lambda done: self._forget_failure(cache_key, done))
         return future
 
-    def _render_one_sample(self, template: PhotoTemplate, output_index: int) -> RenderedOutput:
+    def render_frame_preview(
+        self, key: str, output_index: int, frame_png: bytes, version: int | None = None
+    ) -> Future[RenderedOutput]:
+        """Sample output with a candidate frame composited on top (admin frame preview).
+
+        Cached per (template version, output, frame bytes) so repeated views are rendered once;
+        the cache keeps the newest PREVIEW_CACHE_SIZE entries.
+        """
+        template = self._templates.get(key, version)
+        if not 1 <= output_index <= template.outputs_per_session:
+            raise RenderError(f"{key} has outputs 1..{template.outputs_per_session}")
+        digest = hashlib.sha256(frame_png).hexdigest()
+        cache_key = (template.key, template.version, output_index, digest)
+        with self._sample_lock:
+            cached = self._preview_cache.get(cache_key)
+            if cached is not None:
+                self._preview_cache.move_to_end(cache_key)
+                return cached
+            future = self._scheduler.submit(
+                lambda: self._render_one_sample(template, output_index, frame_png)
+            )
+            self._preview_cache[cache_key] = future
+            while len(self._preview_cache) > PREVIEW_CACHE_SIZE:
+                self._preview_cache.popitem(last=False)
+        future.add_done_callback(lambda done: self._forget_preview_failure(cache_key, done))
+        return future
+
+    def _forget_preview_failure(
+        self, cache_key: tuple[str, int, int, str], done: Future[RenderedOutput]
+    ) -> None:
+        if done.cancelled() or done.exception() is not None:
+            with self._sample_lock:
+                if self._preview_cache.get(cache_key) is done:
+                    del self._preview_cache[cache_key]
+
+    def _render_one_sample(
+        self, template: PhotoTemplate, output_index: int, frame_png: bytes | None = None
+    ) -> RenderedOutput:
         captures = [
             CaptureRef(capture_id=f"sample-{shot}", shot_index=shot)
             for shot in range(1, template.captures_per_session + 1)
@@ -92,7 +136,9 @@ class RenderService:
         plan = plan_outputs(template, captures)[output_index - 1]
         source = _SampleSource(self._samples)
         images = {capture_id: source.read(capture_id) for capture_id in plan.capture_ids}
-        return self._renderer.render(RenderJob(template=template, plan=plan, images=images))
+        return self._renderer.render(
+            RenderJob(template=template, plan=plan, images=images, frame_png=frame_png)
+        )
 
     def _forget_failure(
         self, cache_key: tuple[str, int, int], done: Future[RenderedOutput]

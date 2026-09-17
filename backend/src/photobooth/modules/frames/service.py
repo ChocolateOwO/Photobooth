@@ -1,0 +1,120 @@
+"""Frame use cases: validate against a template, store, list, replace, rename, delete."""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Protocol
+
+from photobooth.modules.frames.domain import (
+    AssetStore,
+    FrameAsset,
+    FrameInUseError,
+    FrameNotFoundError,
+    FrameRepository,
+    FrameStatus,
+    FrameValidationError,
+    FrameValidator,
+    check_frame_name,
+)
+from photobooth.modules.templates.domain import PhotoTemplate, TemplateNotFoundError
+
+
+class TemplateLookup(Protocol):
+    def get(self, key: str, version: int | None = None) -> PhotoTemplate: ...
+
+
+class FrameUsage(Protocol):
+    """Which live Event Profiles select a frame (implemented by the event_profiles module)."""
+
+    def names_using_frame(self, frame_id: str) -> list[str]: ...
+
+
+class FrameService:
+    def __init__(
+        self,
+        repository: FrameRepository,
+        assets: AssetStore,
+        validator: FrameValidator,
+        templates: TemplateLookup,
+        usage: FrameUsage,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
+    ) -> None:
+        self._repository = repository
+        self._assets = assets
+        self._validator = validator
+        self._templates = templates
+        self._usage = usage
+        self._clock = clock
+        self._new_id = new_id
+
+    def _template(self, template_key: str) -> PhotoTemplate:
+        try:
+            return self._templates.get(template_key)
+        except TemplateNotFoundError as exc:
+            raise FrameValidationError(
+                [f"Unknown photo layout '{template_key}'; choose one of the booth layouts."]
+            ) from exc
+
+    def upload(self, template_key: str, name: str, data: bytes) -> FrameAsset:
+        """Validate the PNG against the layout, store the original bytes, record the frame."""
+        template = self._template(template_key)
+        frame_name = check_frame_name(name)
+        report = self._validator.validate(data, template)
+        asset = self._assets.upload("frame", data)
+        now = self._clock()
+        return self._repository.add(
+            FrameAsset(
+                id=self._new_id(),
+                media_asset_id=asset.id,
+                template_key=template.key,
+                template_version=template.version,
+                name=frame_name,
+                status=FrameStatus.VALID,
+                report=report,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    def list_frames(self, template_key: str | None = None) -> list[FrameAsset]:
+        if template_key is not None:
+            self._template(template_key)
+        return self._repository.list_frames(template_key)
+
+    def get(self, frame_id: str) -> FrameAsset:
+        frame = self._repository.get(frame_id)
+        if frame is None:
+            raise FrameNotFoundError(frame_id)
+        return frame
+
+    def content(self, frame_id: str) -> tuple[FrameAsset, bytes]:
+        frame = self.get(frame_id)
+        _asset, data = self._assets.content(frame.media_asset_id)
+        return frame, data
+
+    def replace_file(self, frame_id: str, data: bytes) -> FrameAsset:
+        """Swap in a corrected file. Profile selections keep working; old bytes stay untouched."""
+        frame = self.get(frame_id)
+        template = self._templates.get(frame.template_key, frame.template_version)
+        report = self._validator.validate(data, template)
+        asset = self._assets.upload("frame", data)
+        return self._repository.replace_file(frame_id, asset.id, report, self._clock())
+
+    def rename(self, frame_id: str, name: str) -> FrameAsset:
+        self.get(frame_id)
+        return self._repository.rename(frame_id, check_frame_name(name), self._clock())
+
+    def delete(self, frame_id: str) -> None:
+        self.get(frame_id)
+        used_by = self._usage.names_using_frame(frame_id)
+        if used_by:
+            raise FrameInUseError(used_by)
+        self._repository.delete(frame_id)
+
+    def frame_template(self, frame_id: str) -> str | None:
+        """Port for the event_profiles module: the layout a frame belongs to, or None."""
+        frame = self._repository.get(frame_id)
+        return None if frame is None else frame.template_key

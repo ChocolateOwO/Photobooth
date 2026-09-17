@@ -60,6 +60,9 @@ class ProfileSettings:
     button_color: str = "#2F6FD6"
     text_color: str = "#F4F6F8"
     enabled_layouts: tuple[str, ...] = field(default=("strip_2x6",))
+    # One chosen frame per enabled layout: ((template_key, frame_id), ...). A layout may be left
+    # without a frame; the admin UI shows that clearly.
+    frame_selections: tuple[tuple[str, str], ...] = field(default=())
     countdown_seconds: int = COUNTDOWN_SECONDS
     mirror: bool = True
     inactivity_timeout_s: int = 120
@@ -97,6 +100,12 @@ class ProfileSettings:
             found.append("at least one layout must be enabled")
         if len(set(self.enabled_layouts)) != len(self.enabled_layouts):
             found.append("enabled_layouts must not repeat a layout")
+        chosen = [key for key, _frame in self.frame_selections]
+        if len(set(chosen)) != len(chosen):
+            found.append("only one frame can be chosen per layout")
+        outside = sorted(set(chosen) - set(self.enabled_layouts))
+        if outside:
+            found.append(f"frames chosen for layouts that are not enabled: {', '.join(outside)}")
         if self.countdown_seconds != COUNTDOWN_SECONDS:
             found.append(f"countdown_seconds is fixed at {COUNTDOWN_SECONDS}")
         if not INACTIVITY_MIN_S <= self.inactivity_timeout_s <= INACTIVITY_MAX_S:
@@ -153,9 +162,19 @@ class EventProfileRepository(ABC):
     @abstractmethod
     def restore(self, profile_id: str, at: datetime) -> EventProfile: ...
 
+    @abstractmethod
+    def names_using_frame(self, frame_id: str) -> list[str]:
+        """Names of profiles that selected this frame, including soft-deleted ones (restorable)."""
+
 
 class AssetLookup(Protocol):
     def exists(self, asset_id: str, kind: str) -> bool: ...
+
+
+class FrameLookup(Protocol):
+    """The layout a frame belongs to, or None when the frame does not exist (frames module)."""
+
+    def frame_template(self, frame_id: str) -> str | None: ...
 
 
 class HasKey(Protocol):
