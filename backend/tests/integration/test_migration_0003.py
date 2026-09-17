@@ -45,29 +45,28 @@ def test_orm_metadata_matches_migrated_schema(thai_root: Path) -> None:
 
 
 def _seed_frame(conn: sqlite3.Connection, suffix: str = "1") -> None:
+    """Insert a frame, a profile and the profile's frame selection (all values are bound)."""
     conn.execute(
-        f"INSERT OR IGNORE INTO media_assets VALUES ('a{suffix}','frame',"
-        f"'assets/frame/aa/a{suffix}.png','image/png',"
-        "600,1800,2048,?,?)",
-        (f"{suffix}" * 64, NOW),
+        "INSERT OR IGNORE INTO media_assets VALUES (?,'frame',?,'image/png',600,1800,2048,?,?)",
+        (f"a{suffix}", f"assets/frame/aa/a{suffix}.png", suffix * 64, NOW),
     )
     conn.execute(
-        f"INSERT INTO frame_assets VALUES ('f{suffix}','a{suffix}','strip_2x6',1,'Gold{suffix}',"
-        f"'valid','{{}}',?,?)",
-        (NOW, NOW),
+        "INSERT INTO frame_assets VALUES (?,?,'strip_2x6',1,?,'valid','{}',?,?)",
+        (f"f{suffix}", f"a{suffix}", f"Gold{suffix}", NOW, NOW),
     )
     conn.execute(
-        f"INSERT INTO event_profiles (id,name,name_key,title,subtitle,start_button_text,"
-        f"logo_asset_id,background_asset_id,background_color,primary_color,secondary_color,"
-        f"button_color,text_color,countdown_seconds,mirror,inactivity_timeout_s,retake_mode,"
-        f"delivery_mode,is_active,revision,created_at,updated_at,deleted_at) VALUES "
-        f"('p{suffix}','งานแต่ง{suffix}','งานแต่ง{suffix}','ยินดีต้อนรับ','','Start',"
-        f"NULL,NULL,'#000000','#000000',"
-        f"'#000000','#000000','#FFFFFF',5,1,120,'per_photo','local_link',1,1,?,?,NULL)",
-        (NOW, NOW),
+        "INSERT INTO event_profiles (id,name,name_key,title,subtitle,start_button_text,"
+        "logo_asset_id,background_asset_id,background_color,primary_color,secondary_color,"
+        "button_color,text_color,countdown_seconds,mirror,inactivity_timeout_s,retake_mode,"
+        "delivery_mode,is_active,revision,created_at,updated_at,deleted_at) VALUES "
+        "(?,?,?,'ยินดีต้อนรับ','','Start',NULL,NULL,'#000000','#000000','#000000','#000000',"
+        "'#FFFFFF',5,1,120,'per_photo','local_link',1,1,?,?,NULL)",
+        (f"p{suffix}", f"งานแต่ง{suffix}", f"งานแต่ง{suffix}", NOW, NOW),
     )
-    conn.execute(f"INSERT INTO event_profile_layouts VALUES ('p{suffix}','strip_2x6',0)")
-    conn.execute(f"INSERT INTO event_profile_frames VALUES ('p{suffix}','strip_2x6','f{suffix}')")
+    conn.execute("INSERT INTO event_profile_layouts VALUES (?,'strip_2x6',0)", (f"p{suffix}",))
+    conn.execute(
+        "INSERT INTO event_profile_frames VALUES (?,'strip_2x6',?)", (f"p{suffix}", f"f{suffix}")
+    )
     conn.commit()
 
 
@@ -90,9 +89,8 @@ def test_upgrade_seed_constraints_downgrade_upgrade(thai_root: Path) -> None:
             conn.execute("INSERT INTO event_profile_frames VALUES ('p1','strip_2x6','f1')")
         with pytest.raises(sqlite3.IntegrityError):  # frame names are unique per layout
             conn.execute(
-                "INSERT INTO frame_assets VALUES "
-                "('fx','a1','strip_2x6',1,'Gold1','valid','{}',?,?)",
-                (NOW, NOW),
+                "INSERT INTO frame_assets VALUES (?,?,'strip_2x6',1,?,'valid','{}',?,?)",
+                ("fx", "a1", "Gold1", NOW, NOW),
             )
         # Deleting the profile releases its selection (cascade).
         conn.execute("DELETE FROM event_profiles WHERE id='p1'")
