@@ -64,7 +64,7 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
   await expect(page.getByRole('heading', { name: 'New Event Profile' })).toBeVisible()
 
   await page.getByLabel('Profile name').fill(PERSISTED.original)
-  await page.getByLabel('Title').fill(PERSISTED.title)
+  await page.getByLabel('Title', { exact: true }).fill(PERSISTED.title)
   await page.getByLabel('Subtitle').fill(PERSISTED.subtitle)
   await page.getByLabel('Start button text').fill(PERSISTED.startText)
   await page.getByLabel('Primary color').fill(PERSISTED.primary.toLowerCase())
@@ -98,13 +98,13 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
 
   const save = page.getByRole('button', { name: 'Save profile' })
   expect((await save.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(64)
-  expect((await page.getByLabel('Title').boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(64)
+  expect((await page.getByLabel('Title', { exact: true }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(64)
   await save.click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
   await expect(page.getByRole('heading', { name: 'Edit Event Profile' })).toBeVisible()
 
   await page.reload()
-  await expect(page.getByLabel('Title')).toHaveValue(PERSISTED.title)
+  await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
   await expect(page.getByLabel('Primary color')).toHaveValue(PERSISTED.primary.toLowerCase())
   await expect(page.getByRole('radio', { name: 'Retake all photos' })).toBeChecked()
   await expect(page.getByRole('img', { name: 'Logo preview' })).toBeVisible()
@@ -139,7 +139,7 @@ test('duplicate, activate, soft delete and restore', async ({ page }) => {
 test('a stale edit is refused and can be reloaded', async ({ page, context }) => {
   await pairAndSignIn(page)
   await page.getByRole('link', { name: `Edit ${PERSISTED.original}` }).click()
-  await expect(page.getByLabel('Title')).toHaveValue(PERSISTED.title)
+  await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
 
   const other = await context.newPage() // second tab, same signed-in browser
   await other.goto(page.url())
@@ -188,7 +188,7 @@ test('saved profiles reopen and stay editable after a backend restart @after-res
 
   await page.getByRole('link', { name: `Edit ${PERSISTED.original}` }).click()
   await expect(page.getByLabel('Profile name')).toHaveValue(PERSISTED.original)
-  await expect(page.getByLabel('Title')).toHaveValue(PERSISTED.title)
+  await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
   await expect(page.getByLabel('Subtitle')).toHaveValue(PERSISTED.subtitle)
   await expect(page.getByLabel('Start button text')).toHaveValue(PERSISTED.startText)
   await expect(page.getByLabel('Primary color')).toHaveValue(PERSISTED.primary.toLowerCase())
@@ -201,9 +201,9 @@ test('saved profiles reopen and stay editable after a backend restart @after-res
     )
     .toBe(1280)
 
-  await page.getByLabel('Title').fill('Edited after restart')
+  await page.getByLabel('Title', { exact: true }).fill('Edited after restart')
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page.getByRole('status')).toHaveText('Saved')
   await page.reload()
-  await expect(page.getByLabel('Title')).toHaveValue('Edited after restart')
+  await expect(page.getByLabel('Title', { exact: true })).toHaveValue('Edited after restart')
 })
