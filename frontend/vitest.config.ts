@@ -12,9 +12,11 @@ export default mergeConfig(
       restoreMocks: true,
       // forks workers time out on this Windows machine; threads are stable
       pool: 'threads',
-      // One worker: parallel jsdom worker start-up exceeded Vitest's fixed 60 s start timeout here.
+      // One worker for every file: spawning a worker per file intermittently exceeded Vitest's
+      // fixed worker start timeout on this machine ("Timeout waiting for worker to respond").
       maxWorkers: 1,
       fileParallelism: false,
+      poolOptions: { threads: { singleThread: true } },
       testTimeout: 30_000,
     },
   }),
