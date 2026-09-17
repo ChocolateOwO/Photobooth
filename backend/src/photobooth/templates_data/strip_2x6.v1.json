@@ -1,0 +1,30 @@
+{
+  "key": "strip_2x6",
+  "version": 1,
+  "name": "2x6 photo strip",
+  "physical": { "width_in": 2, "height_in": 6 },
+  "dpi": 300,
+  "canvas": { "width": 600, "height": 1800 },
+  "orientation": "portrait",
+  "photos_per_output": 3,
+  "captures_per_session": 6,
+  "outputs_per_session": 2,
+  "output_capture_groups": [[1, 2, 3], [4, 5, 6]],
+  "slots": [
+    { "index": 1, "x": 30, "y": 45, "w": 540, "h": 405, "fit": "cover", "anchor": "center" },
+    { "index": 2, "x": 30, "y": 480, "w": 540, "h": 405, "fit": "cover", "anchor": "center" },
+    { "index": 3, "x": 30, "y": 915, "w": 540, "h": 405, "fit": "cover", "anchor": "center" }
+  ],
+  "safe_area_inset": 36,
+  "bleed": 0,
+  "branding_area": { "x": 0, "y": 1350, "w": 600, "h": 450 },
+  "frame_rules": {
+    "format": "PNG",
+    "mode": "RGBA",
+    "exact_size": true,
+    "max_bytes": 10485760,
+    "color": "sRGB or untagged",
+    "slot_min_transparency": 0.95,
+    "animated": false
+  }
+}

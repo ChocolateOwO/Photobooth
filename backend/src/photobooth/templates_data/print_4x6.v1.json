@@ -1,0 +1,31 @@
+{
+  "key": "print_4x6",
+  "version": 1,
+  "name": "4x6 print (2x2 grid)",
+  "physical": { "width_in": 4, "height_in": 6 },
+  "dpi": 300,
+  "canvas": { "width": 1200, "height": 1800 },
+  "orientation": "portrait",
+  "photos_per_output": 4,
+  "captures_per_session": 4,
+  "outputs_per_session": 1,
+  "output_capture_groups": [[1, 2, 3, 4]],
+  "slots": [
+    { "index": 1, "x": 30, "y": 30, "w": 555, "h": 740, "fit": "cover", "anchor": "center" },
+    { "index": 2, "x": 615, "y": 30, "w": 555, "h": 740, "fit": "cover", "anchor": "center" },
+    { "index": 3, "x": 30, "y": 800, "w": 555, "h": 740, "fit": "cover", "anchor": "center" },
+    { "index": 4, "x": 615, "y": 800, "w": 555, "h": 740, "fit": "cover", "anchor": "center" }
+  ],
+  "safe_area_inset": 36,
+  "bleed": 0,
+  "branding_area": { "x": 0, "y": 1570, "w": 1200, "h": 230 },
+  "frame_rules": {
+    "format": "PNG",
+    "mode": "RGBA",
+    "exact_size": true,
+    "max_bytes": 10485760,
+    "color": "sRGB or untagged",
+    "slot_min_transparency": 0.95,
+    "animated": false
+  }
+}

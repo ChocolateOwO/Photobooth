@@ -44,6 +44,29 @@ Dummy\
 | Dummy e2e (temp instance) | 8112 | 8114 (127.0.0.1) | preview 5192 |
 | Main | 8121 | 8123 | served by kiosk |
 
+## Photo templates (Phase 2)
+
+Code-defined, versioned, read-only JSON in `backend/src/photobooth/templates_data/<key>.v<N>.json`.
+Spec API, blank PNG, guide PNG, renderer and (later) frame validator all read the same definition.
+
+| Template | Physical | Canvas @ 300 DPI | Photos per output | Captures / outputs |
+|---|---|---|---|---|
+| `strip_2x6` v1 | 2 x 6 in | 600 x 1800 | 3 (4:3) | 6 captures -> 2 strips (1-3, 4-6), no reuse |
+| `print_3x4` v1 | 3 x 4 in | 900 x 1200 | 2 (3:2) | 2 -> 1 |
+| `print_4x6` v1 | 4 x 6 in | 1200 x 1800 | 4 (3:4, 2x2) | 4 -> 1 |
+
+| Endpoint (kiosk listener, GET only) | Returns |
+|---|---|
+| `/api/templates` | all latest templates with links |
+| `/api/templates/{key}?version=N` | full spec: slots, safe area, branding area, frame rules, frame requirements text |
+| `/api/templates/{key}/blank.png` | transparent RGBA canvas at exact size and DPI (frame starting point) |
+| `/api/templates/{key}/guide.png` | labeled guide: slots with x/y/w/h, safe area, branding area |
+| `/api/render/samples/{key}/{n}.jpg` | output n rendered server-side with numbered placeholder photos |
+
+Renderer: each capture is center cover-cropped into its slot, optional RGBA frame composited on top,
+exported as sRGB JPEG q95 with 300 DPI metadata. A session must supply exactly the template's captures;
+a capture is never placed twice.
+
 ## Security groundwork
 
 - Kiosk listener binds loopback only and rejects non-allowlisted `Host` headers.
@@ -56,7 +79,8 @@ Dummy\
 - The env file is authoritative: process environment variables are never read for settings; launchers
   also clear inherited `PHOTOBOOTH_*` variables and pass `--expect-root` / `--expect-profile`.
 - Booth/admin mutations require the device cookie **and** an exact allowed `Origin` (this instance's kiosk
-  and UI ports) **and** the `X-Photobooth-CSRF` token from a same-origin read of `/api/kiosk/status`.
+  and UI ports) **and** the `X-Photobooth-Device-Key` issued at pairing (delivered only in the redirect
+  fragment, kept in the UI origin's storage, never returned by any endpoint).
 - Playwright browsers are installed only into `Dummy\data\playwright-browsers`
   (`PLAYWRIGHT_BROWSERS_PATH`); the shared user browser cache is never used or modified.
 - Logs redact delivery tokens, pairing codes, device cookies and secret assignments.

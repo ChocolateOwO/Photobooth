@@ -1,6 +1,62 @@
 {
   "components": {
     "schemas": {
+      "FrameRulesModel": {
+        "properties": {
+          "animated": {
+            "title": "Animated",
+            "type": "boolean"
+          },
+          "color": {
+            "title": "Color",
+            "type": "string"
+          },
+          "exact_size": {
+            "title": "Exact Size",
+            "type": "boolean"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "slot_min_transparency": {
+            "title": "Slot Min Transparency",
+            "type": "number"
+          }
+        },
+        "required": [
+          "format",
+          "mode",
+          "exact_size",
+          "max_bytes",
+          "color",
+          "slot_min_transparency",
+          "animated"
+        ],
+        "title": "FrameRulesModel",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "database": {
@@ -56,6 +112,353 @@
           "ok"
         ],
         "title": "PingResponse",
+        "type": "object"
+      },
+      "RectModel": {
+        "properties": {
+          "h": {
+            "title": "H",
+            "type": "integer"
+          },
+          "w": {
+            "title": "W",
+            "type": "integer"
+          },
+          "x": {
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "title": "RectModel",
+        "type": "object"
+      },
+      "SlotModel": {
+        "properties": {
+          "anchor": {
+            "title": "Anchor",
+            "type": "string"
+          },
+          "aspect": {
+            "title": "Aspect",
+            "type": "string"
+          },
+          "fit": {
+            "title": "Fit",
+            "type": "string"
+          },
+          "h": {
+            "title": "H",
+            "type": "integer"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "w": {
+            "title": "W",
+            "type": "integer"
+          },
+          "x": {
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "w",
+          "h",
+          "index",
+          "fit",
+          "anchor",
+          "aspect"
+        ],
+        "title": "SlotModel",
+        "type": "object"
+      },
+      "TemplateLinks": {
+        "properties": {
+          "blank_png": {
+            "title": "Blank Png",
+            "type": "string"
+          },
+          "guide_png": {
+            "title": "Guide Png",
+            "type": "string"
+          },
+          "sample_jpgs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sample Jpgs",
+            "type": "array"
+          },
+          "spec": {
+            "title": "Spec",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec",
+          "blank_png",
+          "guide_png",
+          "sample_jpgs"
+        ],
+        "title": "TemplateLinks",
+        "type": "object"
+      },
+      "TemplateSpec": {
+        "properties": {
+          "bleed": {
+            "title": "Bleed",
+            "type": "integer"
+          },
+          "branding_area": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RectModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "captures_per_session": {
+            "title": "Captures Per Session",
+            "type": "integer"
+          },
+          "dpi": {
+            "title": "Dpi",
+            "type": "integer"
+          },
+          "frame_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Frame Requirements",
+            "type": "array"
+          },
+          "frame_rules": {
+            "$ref": "#/components/schemas/FrameRulesModel"
+          },
+          "height_in": {
+            "title": "Height In",
+            "type": "number"
+          },
+          "height_px": {
+            "title": "Height Px",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "links": {
+            "$ref": "#/components/schemas/TemplateLinks"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "orientation": {
+            "title": "Orientation",
+            "type": "string"
+          },
+          "output_capture_groups": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Output Capture Groups",
+            "type": "array"
+          },
+          "outputs_per_session": {
+            "title": "Outputs Per Session",
+            "type": "integer"
+          },
+          "photos_per_output": {
+            "title": "Photos Per Output",
+            "type": "integer"
+          },
+          "safe_area": {
+            "$ref": "#/components/schemas/RectModel"
+          },
+          "safe_area_inset": {
+            "title": "Safe Area Inset",
+            "type": "integer"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotModel"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "width_in": {
+            "title": "Width In",
+            "type": "number"
+          },
+          "width_px": {
+            "title": "Width Px",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "version",
+          "name",
+          "width_in",
+          "height_in",
+          "dpi",
+          "width_px",
+          "height_px",
+          "orientation",
+          "photos_per_output",
+          "captures_per_session",
+          "outputs_per_session",
+          "links",
+          "output_capture_groups",
+          "slots",
+          "safe_area_inset",
+          "safe_area",
+          "bleed",
+          "branding_area",
+          "frame_rules",
+          "frame_requirements"
+        ],
+        "title": "TemplateSpec",
+        "type": "object"
+      },
+      "TemplateSummary": {
+        "properties": {
+          "captures_per_session": {
+            "title": "Captures Per Session",
+            "type": "integer"
+          },
+          "dpi": {
+            "title": "Dpi",
+            "type": "integer"
+          },
+          "height_in": {
+            "title": "Height In",
+            "type": "number"
+          },
+          "height_px": {
+            "title": "Height Px",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "links": {
+            "$ref": "#/components/schemas/TemplateLinks"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "orientation": {
+            "title": "Orientation",
+            "type": "string"
+          },
+          "outputs_per_session": {
+            "title": "Outputs Per Session",
+            "type": "integer"
+          },
+          "photos_per_output": {
+            "title": "Photos Per Output",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "width_in": {
+            "title": "Width In",
+            "type": "number"
+          },
+          "width_px": {
+            "title": "Width Px",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "version",
+          "name",
+          "width_in",
+          "height_in",
+          "dpi",
+          "width_px",
+          "height_px",
+          "orientation",
+          "photos_per_output",
+          "captures_per_session",
+          "outputs_per_session",
+          "links"
+        ],
+        "title": "TemplateSummary",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
         "type": "object"
       },
       "VersionResponse": {
@@ -173,6 +576,274 @@
         "summary": "Kiosk Status",
         "tags": [
           "kiosk"
+        ]
+      }
+    },
+    "/api/render/samples/{key}/{output_index}.jpg": {
+      "get": {
+        "operationId": "sample_output_api_render_samples__key___output_index__jpg_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "output_index",
+            "required": true,
+            "schema": {
+              "maximum": 16,
+              "minimum": 1,
+              "title": "Output Index",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9999,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sample Output",
+        "tags": [
+          "rendering"
+        ]
+      }
+    },
+    "/api/templates": {
+      "get": {
+        "operationId": "list_templates_api_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateSummary"
+                  },
+                  "title": "Response List Templates Api Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Templates",
+        "tags": [
+          "templates"
+        ]
+      }
+    },
+    "/api/templates/{key}": {
+      "get": {
+        "operationId": "template_spec_api_templates__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9999,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateSpec"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Template Spec",
+        "tags": [
+          "templates"
+        ]
+      }
+    },
+    "/api/templates/{key}/blank.png": {
+      "get": {
+        "operationId": "blank_png_api_templates__key__blank_png_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9999,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Blank Png",
+        "tags": [
+          "templates"
+        ]
+      }
+    },
+    "/api/templates/{key}/guide.png": {
+      "get": {
+        "operationId": "guide_png_api_templates__key__guide_png_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9999,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Guide Png",
+        "tags": [
+          "templates"
         ]
       }
     },

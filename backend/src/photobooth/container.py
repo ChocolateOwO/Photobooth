@@ -19,9 +19,14 @@ from photobooth.core.kiosk_pairing import (
 )
 from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
 from photobooth.modules.kiosk.service import KioskPairingService
+from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
+from photobooth.modules.rendering.service import RenderService
 from photobooth.modules.system.domain import AppMetaRepository
 from photobooth.modules.system.repository import SqlAppMetaRepository
 from photobooth.modules.system.service import SystemIdentity, SystemService
+from photobooth.modules.templates.imaging import PillowTemplateArtist
+from photobooth.modules.templates.repository import JsonTemplateRepository
+from photobooth.modules.templates.service import TemplateSpecService
 
 
 class Container:
@@ -52,9 +57,18 @@ class Container:
             RuntimeSecretFile(settings.runtime_dir, LAUNCHER_TOKEN_FILENAME)
         )
 
+        self.template_service = TemplateSpecService(
+            JsonTemplateRepository(), PillowTemplateArtist()
+        )
+        self.render_service = RenderService(
+            PillowPhotoRenderer(), self.template_service, PillowSampleImageFactory()
+        )
+
         self.registry = ServiceRegistry()
         self.registry.register(SystemService, self.system_service)
         self.registry.register(KioskPairingService, self.kiosk_pairing_service)
+        self.registry.register(TemplateSpecService, self.template_service)
+        self.registry.register(RenderService, self.render_service)
         self.registry.register(DeviceCredentialRegistry, self.device_credentials)
         self.registry.register(LauncherCredential, self.launcher)
         self.registry.register(

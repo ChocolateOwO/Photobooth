@@ -55,6 +55,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/render/samples/{key}/{output_index}.jpg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sample Output */
+        get: operations["sample_output_api_render_samples__key___output_index__jpg_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Templates */
+        get: operations["list_templates_api_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Template Spec */
+        get: operations["template_spec_api_templates__key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates/{key}/blank.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Blank Png */
+        get: operations["blank_png_api_templates__key__blank_png_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates/{key}/guide.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Guide Png */
+        get: operations["guide_png_api_templates__key__guide_png_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/version": {
         parameters: {
             query?: never;
@@ -93,6 +178,28 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** FrameRulesModel */
+        FrameRulesModel: {
+            /** Animated */
+            animated: boolean;
+            /** Color */
+            color: string;
+            /** Exact Size */
+            exact_size: boolean;
+            /** Format */
+            format: string;
+            /** Max Bytes */
+            max_bytes: number;
+            /** Mode */
+            mode: string;
+            /** Slot Min Transparency */
+            slot_min_transparency: number;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -117,6 +224,129 @@ export interface components {
         PingResponse: {
             /** Ok */
             ok: boolean;
+        };
+        /** RectModel */
+        RectModel: {
+            /** H */
+            h: number;
+            /** W */
+            w: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /** SlotModel */
+        SlotModel: {
+            /** Anchor */
+            anchor: string;
+            /** Aspect */
+            aspect: string;
+            /** Fit */
+            fit: string;
+            /** H */
+            h: number;
+            /** Index */
+            index: number;
+            /** W */
+            w: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /** TemplateLinks */
+        TemplateLinks: {
+            /** Blank Png */
+            blank_png: string;
+            /** Guide Png */
+            guide_png: string;
+            /** Sample Jpgs */
+            sample_jpgs: string[];
+            /** Spec */
+            spec: string;
+        };
+        /** TemplateSpec */
+        TemplateSpec: {
+            /** Bleed */
+            bleed: number;
+            branding_area: components["schemas"]["RectModel"] | null;
+            /** Captures Per Session */
+            captures_per_session: number;
+            /** Dpi */
+            dpi: number;
+            /** Frame Requirements */
+            frame_requirements: string[];
+            frame_rules: components["schemas"]["FrameRulesModel"];
+            /** Height In */
+            height_in: number;
+            /** Height Px */
+            height_px: number;
+            /** Key */
+            key: string;
+            links: components["schemas"]["TemplateLinks"];
+            /** Name */
+            name: string;
+            /** Orientation */
+            orientation: string;
+            /** Output Capture Groups */
+            output_capture_groups: number[][];
+            /** Outputs Per Session */
+            outputs_per_session: number;
+            /** Photos Per Output */
+            photos_per_output: number;
+            safe_area: components["schemas"]["RectModel"];
+            /** Safe Area Inset */
+            safe_area_inset: number;
+            /** Slots */
+            slots: components["schemas"]["SlotModel"][];
+            /** Version */
+            version: number;
+            /** Width In */
+            width_in: number;
+            /** Width Px */
+            width_px: number;
+        };
+        /** TemplateSummary */
+        TemplateSummary: {
+            /** Captures Per Session */
+            captures_per_session: number;
+            /** Dpi */
+            dpi: number;
+            /** Height In */
+            height_in: number;
+            /** Height Px */
+            height_px: number;
+            /** Key */
+            key: string;
+            links: components["schemas"]["TemplateLinks"];
+            /** Name */
+            name: string;
+            /** Orientation */
+            orientation: string;
+            /** Outputs Per Session */
+            outputs_per_session: number;
+            /** Photos Per Output */
+            photos_per_output: number;
+            /** Version */
+            version: number;
+            /** Width In */
+            width_in: number;
+            /** Width Px */
+            width_px: number;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
         };
         /** VersionResponse */
         VersionResponse: {
@@ -196,6 +426,159 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KioskStatusResponse"];
+                };
+            };
+        };
+    };
+    sample_output_api_render_samples__key___output_index__jpg_get: {
+        parameters: {
+            query?: {
+                version?: number | null;
+            };
+            header?: never;
+            path: {
+                key: string;
+                output_index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_templates_api_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateSummary"][];
+                };
+            };
+        };
+    };
+    template_spec_api_templates__key__get: {
+        parameters: {
+            query?: {
+                version?: number | null;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateSpec"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    blank_png_api_templates__key__blank_png_get: {
+        parameters: {
+            query?: {
+                version?: number | null;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    guide_png_api_templates__key__guide_png_get: {
+        parameters: {
+            query?: {
+                version?: number | null;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

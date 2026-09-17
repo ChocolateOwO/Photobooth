@@ -19,7 +19,9 @@ from photobooth.core.config import KIOSK_ALLOWED_HOSTS
 from photobooth.core.host_guard import BodySizeLimitMiddleware, HostAllowlistMiddleware
 from photobooth.core.web import REGISTRY_STATE_KEY, ServiceRegistry
 from photobooth.modules.kiosk.api import booth_router, pairing_router, status_router
+from photobooth.modules.rendering.api import router as rendering_router
 from photobooth.modules.system.api import router as system_router
+from photobooth.modules.templates.api import router as templates_router
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,8 @@ def create_kiosk_app(registry: ServiceRegistry, options: KioskAppOptions) -> Fas
     app.include_router(status_router)
     app.include_router(pairing_router)
     app.include_router(booth_router)
+    app.include_router(templates_router)
+    app.include_router(rendering_router)
 
     if options.frontend_dist is not None and (options.frontend_dist / "index.html").is_file():
         _mount_spa(app, options.frontend_dist)

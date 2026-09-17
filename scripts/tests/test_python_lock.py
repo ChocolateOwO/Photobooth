@@ -80,6 +80,22 @@ def test_compare_reports_extraneous_installed_packages() -> None:
     assert problems == ["extraneous installed package: left-behind-tool"]
 
 
+def test_first_distribution_on_path_wins_over_stale_duplicates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale generated photobooth.egg-info later on sys.path must not hide new requirements."""
+    tool = _tool()
+
+    class Fake:
+        def __init__(self, requires: list[str]) -> None:
+            self.metadata = {"Name": "photobooth"}
+            self.requires = requires
+
+    active, stale = Fake(["pillow>=11"]), Fake([])
+    monkeypatch.setattr(tool.metadata, "distributions", lambda: [active, stale])
+    assert tool._installed()["photobooth"] is active
+
+
 def test_lock_must_contain_exact_pins_only() -> None:
     tool = _tool()
     with pytest.raises(tool.LockError, match="exact pin"):

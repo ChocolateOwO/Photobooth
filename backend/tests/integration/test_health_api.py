@@ -46,4 +46,9 @@ def test_openapi_lists_only_expected_public_paths(kiosk_client: TestClient) -> N
         "/api/kiosk/status",
         "/kiosk/pairing-code/rotate",
         "/api/booth/ping",
+        "/api/templates",
+        "/api/templates/{key}",
+        "/api/templates/{key}/blank.png",
+        "/api/templates/{key}/guide.png",
+        "/api/render/samples/{key}/{output_index}.jpg",
     }

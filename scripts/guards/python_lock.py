@@ -37,7 +37,14 @@ class LockError(Exception):
 
 
 def _installed() -> dict[str, metadata.Distribution]:
-    return {canonicalize_name(d.metadata["Name"]): d for d in metadata.distributions()}
+    """First distribution per name in sys.path order, matching what `import` resolves.
+
+    Later duplicates (e.g. a stale generated `*.egg-info`) must not shadow the active metadata.
+    """
+    found: dict[str, metadata.Distribution] = {}
+    for dist in metadata.distributions():
+        found.setdefault(canonicalize_name(dist.metadata["Name"]), dist)
+    return found
 
 
 def _requirements_of(dist: metadata.Distribution, extras: frozenset[str]) -> list[Requirement]:

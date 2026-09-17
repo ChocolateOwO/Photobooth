@@ -14,6 +14,7 @@ dependencies = [
     "pydantic-settings>=2.6",
     "sqlalchemy>=2.0.36,<2.1",
     "alembic>=1.14",
+    "pillow>=11",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +31,9 @@ photobooth = "photobooth.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+photobooth = ["templates_data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "../scripts/tests"]
@@ -84,22 +88,34 @@ layers = [
 [[tool.importlinter.contracts]]
 name = "Module layering: api > service > domain"
 type = "layers"
-containers = ["photobooth.modules.system", "photobooth.modules.kiosk"]
+containers = [
+    "photobooth.modules.system",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.templates",
+    "photobooth.modules.rendering",
+]
 layers = ["api", "service", "domain"]
 exhaustive = false
 
 [[tool.importlinter.contracts]]
-name = "API and service layers never import repositories (only the composition root wires them)"
+name = "API and service layers never import infrastructure (only the composition root wires it)"
 type = "forbidden"
 source_modules = [
     "photobooth.modules.system.api",
     "photobooth.modules.system.service",
     "photobooth.modules.kiosk.api",
     "photobooth.modules.kiosk.service",
+    "photobooth.modules.templates.api",
+    "photobooth.modules.templates.service",
+    "photobooth.modules.rendering.service",
 ]
 forbidden_modules = [
     "photobooth.modules.system.repository",
     "photobooth.modules.kiosk.repository",
+    "photobooth.modules.templates.repository",
+    "photobooth.modules.templates.imaging",
+    "photobooth.modules.rendering.renderer",
+    "PIL",
 ]
 
 [[tool.importlinter.contracts]]
@@ -108,18 +124,44 @@ type = "forbidden"
 source_modules = [
     "photobooth.modules.system.domain",
     "photobooth.modules.kiosk.domain",
+    "photobooth.modules.templates.domain",
+    "photobooth.modules.rendering.domain",
 ]
 forbidden_modules = [
     "fastapi",
     "starlette",
     "sqlalchemy",
     "uvicorn",
+    "PIL",
     "photobooth.core.db",
     "photobooth.core.config",
 ]
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-name = "Modules are independent of each other"
+name = "Feature modules are independent of each other"
 type = "independence"
-modules = ["photobooth.modules.system", "photobooth.modules.kiosk"]
+modules = [
+    "photobooth.modules.system",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.templates",
+]
+
+[[tool.importlinter.contracts]]
+name = "Rendering depends only on the templates domain; templates never depend on rendering"
+type = "forbidden"
+source_modules = ["photobooth.modules.rendering"]
+forbidden_modules = [
+    "photobooth.modules.templates.api",
+    "photobooth.modules.templates.service",
+    "photobooth.modules.templates.repository",
+    "photobooth.modules.templates.imaging",
+    "photobooth.modules.system",
+    "photobooth.modules.kiosk",
+]
+
+[[tool.importlinter.contracts]]
+name = "Templates never import rendering"
+type = "forbidden"
+source_modules = ["photobooth.modules.templates"]
+forbidden_modules = ["photobooth.modules.rendering"]

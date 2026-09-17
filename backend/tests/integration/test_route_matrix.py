@@ -9,7 +9,16 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 PROTECTED_PREFIXES = ("/api/booth", "/api/admin")
-READ_ONLY_PUBLIC = {"/api/health", "/api/version", "/api/kiosk/status"}
+READ_ONLY_PUBLIC = {
+    "/api/health",
+    "/api/version",
+    "/api/kiosk/status",
+    "/api/templates",
+    "/api/templates/{key}",
+    "/api/templates/{key}/blank.png",
+    "/api/templates/{key}/guide.png",
+    "/api/render/samples/{key}/{output_index}.jpg",
+}
 LAUNCHER_ONLY = {"/kiosk/pairing-code/rotate"}  # /kiosk/pair is undocumented; tested separately
 
 
