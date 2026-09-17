@@ -1,12 +1,15 @@
 # Playwright smoke test against a throwaway e2e instance under %TEMP% (never Dummy data).
 # Ports: kiosk 8112, delivery 8114 (bound to 127.0.0.1), vite preview 5192.
+# Playwright browsers are isolated in Dummy\data\playwright-browsers (shared user cache untouched).
 [CmdletBinding()]
 param([switch] $SkipBuild)
 
 . (Join-Path $PSScriptRoot 'lib\common.ps1')
 Assert-DummyLayout
+Clear-PhotoboothEnvironment
 $null = Use-Node24
 $python = Get-VenvPython
+$browsers = Use-IsolatedPlaywrightBrowsers
 
 foreach ($port in 8112, 8114, 5192) {
     if (-not (Test-PortFree -Port $port)) { throw "E2E port $port is busy" }
@@ -21,12 +24,17 @@ try {
     Invoke-Native $python @('-m', 'photobooth', 'init-env', '--instance', 'dummy', '--profile', 'e2e',
         '--instance-root', $root, '--output', $envFile, '--kiosk-port', '8112',
         '--delivery-port', '8114', '--delivery-host', '127.0.0.1')
-    Invoke-Native $python @('-m', 'photobooth', 'db-upgrade', '--env-file', $envFile)
+    Invoke-Native $python @('-m', 'photobooth', 'db-upgrade', '--env-file', $envFile,
+        '--expect-root', $root, '--expect-profile', 'e2e')
 
     if (-not $SkipBuild) {
         $env:PHOTOBOOTH_INSTANCE = 'dummy'
         Invoke-Native 'npm.cmd' @('run', 'build') $frontend
     }
+
+    # Installs only into the isolated browsers path (no-op when already present).
+    Invoke-Native 'npx.cmd' @('playwright', 'install', 'chromium') $e2eDir
+    Write-Host "Playwright browsers: $browsers"
 
     $env:PHOTOBOOTH_E2E_ENV_FILE = $envFile
     $env:PHOTOBOOTH_E2E_PYTHON = $python

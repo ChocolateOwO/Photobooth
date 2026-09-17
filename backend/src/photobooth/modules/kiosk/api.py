@@ -3,21 +3,21 @@
 - GET  /kiosk/pair?code=...          consume one-time code, set device cookie, redirect to /
 - POST /kiosk/pairing-code/rotate    launcher-only (X-Photobooth-Launcher); publish a new code to
                                      the runtime file (code not returned)
-- GET  /api/kiosk/status             {"paired": bool} (read-only)
-- POST /api/booth/ping               device-authenticated mutation stub (route-matrix groundwork)
+- GET  /api/kiosk/status             {"paired": bool, "csrf_token": str | null} (same-origin read)
+- POST /api/booth/ping               device mutation stub: cookie + Origin allowlist + CSRF header
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from photobooth.core.web import (
     DeviceCookieSettings,
-    is_device_paired,
+    device_csrf_token,
     provide,
     require_device,
     require_launcher,
@@ -31,6 +31,7 @@ CookieSettings = Annotated[DeviceCookieSettings, Depends(provide(DeviceCookieSet
 
 class KioskStatusResponse(BaseModel):
     paired: bool
+    csrf_token: str | None
 
 
 class PingResponse(BaseModel):
@@ -80,8 +81,10 @@ def rotate_pairing_code(service: Service) -> None:
 
 
 @status_router.get("/status", response_model=KioskStatusResponse)
-def kiosk_status(request: Request) -> KioskStatusResponse:
-    return KioskStatusResponse(paired=is_device_paired(request))
+def kiosk_status(request: Request, response: Response) -> KioskStatusResponse:
+    token = device_csrf_token(request)
+    response.headers["Cache-Control"] = "no-store"
+    return KioskStatusResponse(paired=token is not None, csrf_token=token)
 
 
 @booth_router.post("/ping", response_model=PingResponse)

@@ -48,4 +48,10 @@ Dummy\
 - Pairing-code rotation is launcher-only: the caller sends `X-Photobooth-Launcher` with the per-process
   token from `config\runtime\launcher.token` (both runtime files are cleared when the backend stops).
 - `db-upgrade` / `db-downgrade` refuse a database stamped for another instance before any schema change.
+- The env file is authoritative: process environment variables are never read for settings; launchers
+  also clear inherited `PHOTOBOOTH_*` variables and pass `--expect-root` / `--expect-profile`.
+- Booth/admin mutations require the device cookie **and** an exact allowed `Origin` (this instance's kiosk
+  and UI ports) **and** the `X-Photobooth-CSRF` token from a same-origin read of `/api/kiosk/status`.
+- Playwright browsers are installed only into `Dummy\data\playwright-browsers`
+  (`PLAYWRIGHT_BROWSERS_PATH`); the shared user browser cache is never used or modified.
 - Logs redact delivery tokens, pairing codes, device cookies and secret assignments.

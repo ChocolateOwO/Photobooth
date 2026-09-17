@@ -14,6 +14,8 @@ from photobooth.core.kiosk_pairing import (
 )
 
 REGISTRY_STATE_KEY = "service_registry"
+CSRF_HEADER = "X-Photobooth-CSRF"
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 class ServiceRegistry:
@@ -44,19 +46,34 @@ def provide[T](kind: type[T]) -> Callable[[Request], T]:
 
 
 class DeviceCookieSettings:
-    """Name of the instance-scoped device cookie (Dummy and Main never share it)."""
+    """Instance-scoped device cookie name and the exact browser origins allowed to mutate."""
 
-    def __init__(self, cookie_name: str) -> None:
+    def __init__(self, cookie_name: str, allowed_origins: frozenset[str] = frozenset()) -> None:
         self.cookie_name = cookie_name
+        self.allowed_origins = allowed_origins
 
 
 def require_device(request: Request) -> None:
-    """Dependency for every booth/admin route: the paired device cookie is mandatory."""
+    """Dependency for every booth/admin route.
+
+    - Always: the paired device cookie (401).
+    - Unsafe methods: exact Origin allowlist and CSRF header bound to the cookie (403). Cookies are
+      shared across ports of 127.0.0.1 and SameSite treats other local ports as same-site, so the
+      cookie alone does not prove the request came from this instance's UI.
+    """
     registry = cast(ServiceRegistry, getattr(request.app.state, REGISTRY_STATE_KEY))
-    cookie = registry.get(DeviceCookieSettings).cookie_name
+    settings = registry.get(DeviceCookieSettings)
     credentials = registry.get(DeviceCredentialRegistry)
-    if not credentials.verify(request.cookies.get(cookie)):
+    device = request.cookies.get(settings.cookie_name)
+    if not credentials.verify(device):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="device not paired")
+    if request.method in SAFE_METHODS:
+        return
+    origin = request.headers.get("origin")
+    if origin is None or origin not in settings.allowed_origins:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="origin not allowed")
+    if not credentials.verify_csrf(device, request.headers.get(CSRF_HEADER)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="csrf token invalid")
 
 
 def require_launcher(request: Request) -> None:
@@ -68,7 +85,8 @@ def require_launcher(request: Request) -> None:
         )
 
 
-def is_device_paired(request: Request) -> bool:
+def device_csrf_token(request: Request) -> str | None:
+    """CSRF token for the calling paired device, or None when not paired."""
     registry = cast(ServiceRegistry, getattr(request.app.state, REGISTRY_STATE_KEY))
     cookie = registry.get(DeviceCookieSettings).cookie_name
-    return registry.get(DeviceCredentialRegistry).verify(request.cookies.get(cookie))
+    return registry.get(DeviceCredentialRegistry).csrf_token_for(request.cookies.get(cookie))

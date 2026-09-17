@@ -48,10 +48,39 @@ test('shell loads with DUMMY badge and API OK, then pairs the kiosk', async ({ p
   await expect(page.getByTestId('pairing-status')).toHaveText('Kiosk paired')
   await expect(page.getByTestId('dummy-badge')).toBeVisible()
 
-  const paired = await page.request.post('/api/booth/ping')
-  expect(paired.status()).toBe(200)
-  expect(await paired.json()).toEqual({ ok: true })
+  // A real browser mutation from the Dummy UI origin: Origin header + CSRF token from same-origin read.
+  const paired = await page.evaluate(async () => {
+    const status = (await (await fetch('/api/kiosk/status')).json()) as { csrf_token: string }
+    const response = await fetch('/api/booth/ping', {
+      method: 'POST',
+      headers: { 'X-Photobooth-CSRF': status.csrf_token },
+    })
+    return { status: response.status, body: (await response.json()) as unknown }
+  })
+  expect(paired).toEqual({ status: 200, body: { ok: true } })
 
+  // The cookie alone (no Origin / CSRF, e.g. a non-browser client) is refused.
+  const cookieOnly = await page.request.post('/api/booth/ping')
+  expect(cookieOnly.status()).toBe(403)
+
+  // Another local application on a different port is same-site: the Strict cookie IS sent with a
+  // cross-origin form POST, so the server must reject it by Origin/CSRF.
+  await page.route('http://127.0.0.1:5193/attack', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: `<form id="f" method="POST" action="http://127.0.0.1:5192/api/booth/ping"></form>
+             <script>document.getElementById('f').submit()</script>`,
+    }),
+  )
+  const attackResponse = page.waitForResponse(
+    (response) => response.url() === 'http://127.0.0.1:5192/api/booth/ping',
+  )
+  await page.goto('http://127.0.0.1:5193/attack')
+  const attack = await attackResponse
+  expect((await attack.request().allHeaders())['cookie']).toContain('pb_device_dummy=')
+  expect(attack.status()).toBe(403)
+
+  await page.goto('/')
   const reused = await page.request.get(`/kiosk/pair?code=${encodeURIComponent(code)}`, {
     maxRedirects: 0,
   })

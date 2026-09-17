@@ -5,6 +5,7 @@ param()
 
 . (Join-Path $PSScriptRoot 'lib\common.ps1')
 Assert-DummyLayout
+Clear-PhotoboothEnvironment
 
 $results = New-Object System.Collections.Generic.List[object]
 $app = $script:AppRoot
@@ -76,12 +77,12 @@ try {
             Invoke-Native $python @('-m', 'photobooth', 'init-env', '--instance', 'dummy', '--profile', 'test',
                 '--instance-root', $root, '--output', $envFile, '--kiosk-port', '18111',
                 '--delivery-port', '18113', '--delivery-host', '127.0.0.1')
-            Invoke-Native $python @('-m', 'photobooth', 'db-upgrade', '--env-file', $envFile)
-            Invoke-Native $python @('-m', 'photobooth', 'db-check', '--env-file', $envFile)
-            Invoke-Native $python @('-m', 'photobooth', 'backup', '--env-file', $envFile)
-            Invoke-Native $python @('-m', 'photobooth', 'db-downgrade', '--env-file', $envFile, '--revision', 'base')
-            Invoke-Native $python @('-m', 'photobooth', 'db-upgrade', '--env-file', $envFile)
-            Invoke-Native $python @('-m', 'photobooth', 'db-check', '--env-file', $envFile)
+            Invoke-Native $python @('-m', 'photobooth', 'db-upgrade', '--env-file', $envFile, '--expect-root', $root, '--expect-profile', 'test')
+            Invoke-Native $python @('-m', 'photobooth', 'db-check', '--env-file', $envFile, '--expect-root', $root, '--expect-profile', 'test')
+            Invoke-Native $python @('-m', 'photobooth', 'backup', '--env-file', $envFile, '--expect-root', $root, '--expect-profile', 'test')
+            Invoke-Native $python @('-m', 'photobooth', 'db-downgrade', '--env-file', $envFile, '--revision', 'base', '--expect-root', $root, '--expect-profile', 'test')
+            Invoke-Native $python @('-m', 'photobooth', 'db-upgrade', '--env-file', $envFile, '--expect-root', $root, '--expect-profile', 'test')
+            Invoke-Native $python @('-m', 'photobooth', 'db-check', '--env-file', $envFile, '--expect-root', $root, '--expect-profile', 'test')
             'alembic: upgrade head -> backup -> downgrade base -> upgrade head passed'
         }
         finally {

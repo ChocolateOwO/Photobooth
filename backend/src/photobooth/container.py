@@ -58,7 +58,8 @@ class Container:
         self.registry.register(DeviceCredentialRegistry, self.device_credentials)
         self.registry.register(LauncherCredential, self.launcher)
         self.registry.register(
-            DeviceCookieSettings, DeviceCookieSettings(settings.device_cookie_name)
+            DeviceCookieSettings,
+            DeviceCookieSettings(settings.device_cookie_name, settings.allowed_origins),
         )
 
     def close(self) -> None:

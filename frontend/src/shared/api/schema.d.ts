@@ -110,6 +110,8 @@ export interface components {
         };
         /** KioskStatusResponse */
         KioskStatusResponse: {
+            /** Csrf Token */
+            csrf_token: string | null;
             /** Paired */
             paired: boolean;
         };

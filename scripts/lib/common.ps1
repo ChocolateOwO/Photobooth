@@ -8,6 +8,24 @@ $script:AppRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:InstanceRoot = Split-Path -Parent $script:AppRoot
 $script:ProjectRoot = Split-Path -Parent $script:InstanceRoot
 
+function Clear-PhotoboothEnvironment {
+    # Inherited PHOTOBOOTH_* / Playwright variables from the calling shell must never steer a script.
+    # (The backend also ignores process environment for settings; this is defence in depth.)
+    foreach ($name in @(Get-ChildItem Env: | Where-Object {
+                $_.Name -like 'PHOTOBOOTH_*' -or $_.Name -eq 'PLAYWRIGHT_BROWSERS_PATH' } |
+            ForEach-Object Name)) {
+        Remove-Item -LiteralPath "Env:$name"
+    }
+}
+
+function Use-IsolatedPlaywrightBrowsers {
+    # Photobooth's Playwright browsers live in Dummy runtime storage, never in the shared user cache.
+    $path = Join-Path $script:InstanceRoot 'data\playwright-browsers'
+    New-Item -ItemType Directory -Force -Path $path | Out-Null
+    $env:PLAYWRIGHT_BROWSERS_PATH = $path
+    return $path
+}
+
 function Assert-DummyLayout {
     if ((Split-Path -Leaf $script:InstanceRoot) -ne 'Dummy') {
         throw "Refusing to run: expected <project>\Dummy\app layout, got $($script:AppRoot)"
@@ -101,6 +119,127 @@ function Get-NextMilestoneNumber {
         }
     }
     return ([int]($max + 1)).ToString('D3')
+}
+
+function Get-ProcessIdentity {
+    # Identity recorded so a recycled PID or an unrelated process is never killed.
+    param([System.Diagnostics.Process] $Process, [string] $Role, [string] $Marker)
+    $Process.Refresh()
+    return [pscustomobject][ordered]@{
+        role       = $Role
+        pid        = $Process.Id
+        start_time = $Process.StartTime.ToUniversalTime().ToString('o')
+        executable = $Process.Path
+        marker     = $Marker
+    }
+}
+
+function Stop-RecordedProcesses {
+    # Stops exact identity matches. Returns entries that could not be verified or stopped.
+    param([object[]] $Entries)
+    $remaining = New-Object System.Collections.Generic.List[object]
+    foreach ($entry in @($Entries)) {
+        if ($null -eq $entry) { continue }
+        $process = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
+        if (-not $process) {
+            Write-Host "$($entry.role) PID $($entry.pid) already exited."
+            continue
+        }
+        if ($entry.start_time -eq 'unknown') {
+            Write-Warning "$($entry.role) PID $($entry.pid) has no verified identity; not stopped, record kept."
+            $remaining.Add($entry)
+            continue
+        }
+        $cim = Get-CimInstance Win32_Process -Filter "ProcessId = $($entry.pid)" -ErrorAction SilentlyContinue
+        $sameStart = $process.StartTime.ToUniversalTime().ToString('o') -eq $entry.start_time
+        if (-not $sameStart) {
+            Write-Warning "$($entry.role) PID $($entry.pid) now belongs to another process (start time differs); not stopped."
+            continue
+        }
+        $sameExe = ("$($cim.ExecutablePath)").ToLowerInvariant() -eq ("$($entry.executable)").ToLowerInvariant()
+        $hasMarker = ("$($cim.CommandLine)").ToLowerInvariant().Contains(("$($entry.marker)").ToLowerInvariant())
+        if (-not ($sameExe -and $hasMarker)) {
+            Write-Warning "$($entry.role) PID $($entry.pid) identity mismatch (exe=$sameExe marker=$hasMarker); not stopped."
+            $remaining.Add($entry)
+            continue
+        }
+        & taskkill.exe /PID $entry.pid /T /F | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "taskkill failed for $($entry.role) PID $($entry.pid) (exit $LASTEXITCODE); record kept."
+            $remaining.Add($entry)
+            continue
+        }
+        Write-Host "Stopped $($entry.role) PID $($entry.pid)."
+    }
+    return , $remaining
+}
+
+function Save-ProcessRecord {
+    # Publishes the record atomically; an empty list removes it.
+    param([Parameter(Mandatory)] [string] $Path, [object[]] $Entries, [string] $Commit = '')
+    $list = @($Entries | Where-Object { $null -ne $_ })
+    if ($list.Count -eq 0) {
+        if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path }
+        return
+    }
+    $record = [ordered]@{
+        instance   = 'dummy'
+        updated_at = (Get-Date).ToString('o')
+        commit     = $Commit
+        processes  = $list
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
+    $tmp = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
+    [System.IO.File]::WriteAllText($tmp, ($record | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding $false))
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
+}
+
+function Invoke-TrackedStartup {
+    # Runs $Body with a $start scriptblock that launches and immediately records each child.
+    # Any failure (launch, identity, record write, readiness) stops every verified child started so
+    # far; unverifiable survivors stay in the record for stop-dummy.ps1.
+    param(
+        [Parameter(Mandatory)] [string] $RecordPath,
+        [Parameter(Mandatory)] [scriptblock] $Body,
+        [string] $Commit = ''
+    )
+    $tracked = New-Object System.Collections.Generic.List[object]
+    $start = {
+        param([string] $Role, [string] $Marker, [string] $FilePath, [string[]] $ArgumentList,
+            [string] $WorkingDirectory, [string] $StdOut, [string] $StdErr)
+        $startArgs = @{
+            FilePath         = $FilePath
+            ArgumentList     = $ArgumentList
+            WorkingDirectory = $WorkingDirectory
+            PassThru         = $true
+            WindowStyle      = 'Minimized'
+        }
+        if ($StdOut) { $startArgs.RedirectStandardOutput = $StdOut }
+        if ($StdErr) { $startArgs.RedirectStandardError = $StdErr }
+        $process = Start-Process @startArgs
+        try {
+            $tracked.Add((Get-ProcessIdentity -Process $process -Role $Role -Marker $Marker))
+        }
+        catch {
+            # Identity unreadable: record the bare PID with an impossible start time so it is never
+            # killed blindly, then fail the startup.
+            $tracked.Add([pscustomobject]@{ role = $Role; pid = $process.Id; start_time = 'unknown'; executable = $FilePath; marker = $Marker })
+            throw "could not record identity of $Role (PID $($process.Id)): $_"
+        }
+        Save-ProcessRecord -Path $RecordPath -Entries $tracked.ToArray() -Commit $Commit
+        return $process
+    }  # no GetNewClosure: resolves $tracked/$RecordPath dynamically from this function's scope
+
+    try {
+        & $Body $start
+    }
+    catch {
+        $failure = $_
+        Write-Warning "Startup failed: $failure. Stopping started processes."
+        $remaining = Stop-RecordedProcesses -Entries $tracked.ToArray()
+        Save-ProcessRecord -Path $RecordPath -Entries $remaining.ToArray() -Commit $Commit
+        throw $failure
+    }
 }
 
 function Get-ThaiTempRoot {

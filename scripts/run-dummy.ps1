@@ -49,6 +49,7 @@ if ($PairOnly) {
     return
 }
 
+Clear-PhotoboothEnvironment
 $nodeVersion = Use-Node24
 $python = Get-VenvPython
 New-Item -ItemType Directory -Force -Path $runDir, $logsDir | Out-Null
@@ -60,68 +61,39 @@ foreach ($port in $kioskPort, $deliveryPort, $uiPort) {
     if (-not (Test-PortFree -Port $port)) { throw "Port $port is busy; Dummy not started" }
 }
 
+$intent = @('--expect-root', $script:InstanceRoot, '--expect-profile', 'dev')
 if (-not (Test-Path $envFile)) {
     Invoke-Native $python @('-m', 'photobooth', 'init-env', '--instance', 'dummy', '--profile', 'dev',
         '--instance-root', $script:InstanceRoot, '--output', $envFile)
 }
-Invoke-Native $python @('-m', 'photobooth', 'db-upgrade', '--env-file', $envFile)
+Invoke-Native $python (@('-m', 'photobooth', 'db-upgrade', '--env-file', $envFile) + $intent)
 
-$env:PHOTOBOOTH_GIT_COMMIT = (& git -C $script:AppRoot rev-parse HEAD).Trim()
+$commit = (& git -C $script:AppRoot rev-parse HEAD).Trim()
+$env:PHOTOBOOTH_GIT_COMMIT = $commit
 $env:PHOTOBOOTH_INSTANCE = 'dummy'
 $env:PHOTOBOOTH_KIOSK_PORT = "$kioskPort"
-
-$backend = Start-Process -FilePath $python -WorkingDirectory $script:AppRoot -PassThru -WindowStyle Minimized `
-    -ArgumentList @('-m', 'photobooth', 'serve', '--env-file', "`"$envFile`"") `
-    -RedirectStandardOutput (Join-Path $logsDir 'backend-console.out.log') `
-    -RedirectStandardError (Join-Path $logsDir 'backend-console.err.log')
 
 $frontend = Join-Path $script:AppRoot 'frontend'
 $viteJs = Join-Path $frontend 'node_modules\vite\bin\vite.js'
 $node = Join-Path $script:InstanceRoot 'tools\node24\node.exe'
-$vite = Start-Process -FilePath $node -WorkingDirectory $frontend -PassThru -WindowStyle Minimized `
-    -ArgumentList @("`"$viteJs`"", '--host', '127.0.0.1', '--port', "$uiPort", '--strictPort') `
-    -RedirectStandardOutput (Join-Path $logsDir 'vite-console.out.log') `
-    -RedirectStandardError (Join-Path $logsDir 'vite-console.err.log')
 
-function Get-ProcessIdentity {
-    # Identity recorded so stop-dummy.ps1 never kills a recycled PID or an unrelated process.
-    param([System.Diagnostics.Process] $Process, [string] $Role, [string] $Marker)
-    $Process.Refresh()
-    return [ordered]@{
-        role       = $Role
-        pid        = $Process.Id
-        start_time = $Process.StartTime.ToUniversalTime().ToString('o')
-        executable = $Process.Path
-        marker     = $Marker
-    }
-}
-
-$record = [ordered]@{
-    instance   = 'dummy'
-    started_at = (Get-Date).ToString('o')
-    commit     = $env:PHOTOBOOTH_GIT_COMMIT
-    processes  = @(
-        (Get-ProcessIdentity -Process $backend -Role 'backend' -Marker '-m photobooth serve --env-file'),
-        (Get-ProcessIdentity -Process $vite -Role 'vite' -Marker 'vite\bin\vite.js')
-    )
-}
-[System.IO.File]::WriteAllText($pidFile, ($record | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding $false))
-
-try {
-    Wait-HttpOk -Url "http://127.0.0.1:$kioskPort/api/health" -TimeoutSeconds 60
-    Wait-HttpOk -Url "http://127.0.0.1:$uiPort/" -TimeoutSeconds 60
-}
-catch {
-    Write-Warning "Dummy did not become healthy; see $logsDir. Stopping."
-    & (Join-Path $PSScriptRoot 'stop-dummy.ps1')
-    throw
+Invoke-TrackedStartup -RecordPath $pidFile -Commit $commit -Body {
+    param($start)
+    $script:backend = & $start 'backend' '-m photobooth serve --env-file' $python `
+        (@('-m', 'photobooth', 'serve', '--env-file', "`"$envFile`"", '--expect-root', "`"$($script:InstanceRoot)`"", '--expect-profile', 'dev')) `
+        $script:AppRoot (Join-Path $logsDir 'backend-console.out.log') (Join-Path $logsDir 'backend-console.err.log')
+    $script:vite = & $start 'vite' 'vite\bin\vite.js' $node `
+        (@("`"$viteJs`"", '--host', '127.0.0.1', '--port', "$uiPort", '--strictPort')) `
+        $frontend (Join-Path $logsDir 'vite-console.out.log') (Join-Path $logsDir 'vite-console.err.log')
+    Wait-HttpOk -Url "http://127.0.0.1:$kioskPort/api/health" -TimeoutSeconds 90
+    Wait-HttpOk -Url "http://127.0.0.1:$uiPort/" -TimeoutSeconds 90
 }
 
 Open-Pairing
 Write-Host ''
-Write-Host "PHOTOBOOTH DUMMY running  (node $nodeVersion, commit $($env:PHOTOBOOTH_GIT_COMMIT))"
+Write-Host "PHOTOBOOTH DUMMY running  (node $nodeVersion, commit $commit)"
 Write-Host "  UI:        http://127.0.0.1:$uiPort/"
 Write-Host "  Kiosk API: http://127.0.0.1:$kioskPort/api/health"
 Write-Host "  Delivery:  port $deliveryPort (LAN), /d/_alive only"
-Write-Host "  PIDs:      backend $($backend.Id), vite $($vite.Id)"
+Write-Host "  PIDs:      backend $($script:backend.Id), vite $($script:vite.Id)"
 Write-Host '  Stop:      scripts\stop-dummy.ps1'

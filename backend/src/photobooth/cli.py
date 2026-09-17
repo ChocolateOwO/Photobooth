@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sqlite3
 import sys
 from collections.abc import Sequence
@@ -15,7 +16,7 @@ from photobooth.container import Container
 from photobooth.core.config import AppSettings
 from photobooth.core.db import create_sqlite_engine
 from photobooth.core.errors import InstanceGuardError, PhotoboothError
-from photobooth.core.instance_guard import PORT_TABLE, InstanceGuard, InstanceLock
+from photobooth.core.instance_guard import PORT_TABLE, InstanceGuard, InstanceLock, real_path
 from photobooth.core.listeners import build_server, listener_specs, serve_together
 from photobooth.core.logging import configure_logging
 from photobooth.core.migrations import Migrator
@@ -27,15 +28,36 @@ from photobooth.modules.system.repository import SqlAppMetaRepository
 log = logging.getLogger("photobooth")
 
 
-def _load(env_file: str) -> tuple[AppSettings, InstanceGuard]:
-    settings = AppSettings.from_env_file(Path(env_file))
+def _load(args: argparse.Namespace) -> tuple[AppSettings, InstanceGuard]:
+    settings = AppSettings.from_env_file(
+        Path(args.env_file), git_commit=os.environ.get("PHOTOBOOTH_GIT_COMMIT")
+    )
     guard = InstanceGuard(settings)
     guard.check_static()
+    _check_intent(settings, args)
     return settings, guard
 
 
+def _check_intent(settings: AppSettings, args: argparse.Namespace) -> None:
+    """Launchers state which instance they mean; refuse before any mutation if the file differs."""
+    expect_root = getattr(args, "expect_root", None)
+    expect_profile = getattr(args, "expect_profile", None)
+    if expect_root is not None and real_path(settings.instance_root) != real_path(
+        Path(expect_root)
+    ):
+        raise InstanceGuardError(
+            "intent",
+            f"env file targets {real_path(settings.instance_root)}, launcher expected "
+            f"{real_path(Path(expect_root))}",
+        )
+    if expect_profile is not None and settings.profile != expect_profile:
+        raise InstanceGuardError(
+            "intent", f"env file profile '{settings.profile}', launcher expected '{expect_profile}'"
+        )
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
-    settings, guard = _load(args.env_file)
+    settings, guard = _load(args)
     configure_logging(settings.logs_dir)
     with InstanceLock(settings.lock_path):
         container = Container(settings)
@@ -103,7 +125,7 @@ def _refuse_foreign_database(settings: AppSettings, require_stamp: bool) -> None
 
 
 def cmd_db_upgrade(args: argparse.Namespace) -> int:
-    settings, _guard = _load(args.env_file)
+    settings, _guard = _load(args)
     with InstanceLock(settings.lock_path):
         # Unstamped (fresh) databases are initialized and stamped; foreign ones are never touched.
         _refuse_foreign_database(settings, require_stamp=False)
@@ -118,7 +140,7 @@ def cmd_db_upgrade(args: argparse.Namespace) -> int:
 
 
 def cmd_db_downgrade(args: argparse.Namespace) -> int:
-    settings, _guard = _load(args.env_file)
+    settings, _guard = _load(args)
     with InstanceLock(settings.lock_path):
         _refuse_foreign_database(settings, require_stamp=True)
         Migrator(settings.db_path).downgrade(args.revision)
@@ -127,7 +149,7 @@ def cmd_db_downgrade(args: argparse.Namespace) -> int:
 
 
 def cmd_db_check(args: argparse.Namespace) -> int:
-    settings, guard = _load(args.env_file)
+    settings, guard = _load(args)
     engine = create_sqlite_engine(settings.db_path)
     try:
         guard.check_database(SqlAppMetaRepository(engine))
@@ -140,7 +162,7 @@ def cmd_db_check(args: argparse.Namespace) -> int:
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
-    settings, _guard = _load(args.env_file)
+    settings, _guard = _load(args)
     record = SqliteBackupService(settings.backups_dir).create_backup(
         settings.db_path, settings.instance
     )
@@ -169,6 +191,9 @@ def cmd_init_env(args: argparse.Namespace) -> int:
         f"PHOTOBOOTH_DELIVERY_HOST={args.delivery_host}",
         f"PHOTOBOOTH_DELIVERY_PORT={delivery_port}",
     ]
+    ui_port = args.ui_port or (ports.ui if ports else None)
+    if ui_port is not None:
+        lines.append(f"PHOTOBOOTH_UI_PORT={ui_port}")
     if args.frontend_dist:
         lines.append(f"PHOTOBOOTH_FRONTEND_DIST={Path(args.frontend_dist).resolve()}")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -191,6 +216,10 @@ def build_parser() -> argparse.ArgumentParser:
     def with_env(name: str, help_text: str) -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--env-file", required=True)
+        p.add_argument("--expect-root", help="refuse unless the env file targets this root")
+        p.add_argument(
+            "--expect-profile", choices=["dev", "e2e", "test", "prod"], help="refuse on mismatch"
+        )
         return p
 
     with_env("serve", "run kiosk + delivery listeners").set_defaults(func=cmd_serve)
@@ -210,6 +239,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--output", required=True)
     init.add_argument("--kiosk-port", type=int)
     init.add_argument("--delivery-port", type=int)
+    init.add_argument("--ui-port", type=int)
     init.add_argument("--delivery-host", default="0.0.0.0")  # noqa: S104 - LAN delivery listener
     init.add_argument("--frontend-dist")
     init.add_argument("--force", action="store_true")

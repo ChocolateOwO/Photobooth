@@ -157,7 +157,33 @@ def validate(req: Request) -> tuple[str, str | None]:
     previous = numbers.get(number - 1)
     if number > 1 and previous is None:
         raise PatchError(f"previous patch tag {number - 1:03d} not found")
+    _check_linear_history(req.repo, previous, commit)
+    _migration_metadata(req.repo, commit)  # refuses ambiguous Alembic history before any tag
     return commit, previous
+
+
+def _check_linear_history(repo: Path, previous_tag: str | None, commit: str) -> None:
+    """Milestones form one linear chain: previous milestone is an ancestor and no merge commits.
+
+    `git format-patch` silently omits merge commits (and conflict resolutions), so a range with
+    merges could not be reproduced from the published patch.
+    """
+    if previous_tag is not None:
+        previous = git(repo, "rev-parse", f"{previous_tag}^{{commit}}")
+        ancestor = subprocess.run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", previous, commit],
+            capture_output=True,
+        )
+        if ancestor.returncode != 0:
+            raise PatchError(f"previous milestone {previous_tag} is not an ancestor of {commit}")
+        merges = git(repo, "rev-list", "--merges", f"{previous}..{commit}")
+    else:
+        merges = git(repo, "rev-list", "--merges", commit)
+    if merges:
+        raise PatchError(
+            "milestone range contains merge commits (rebase or squash first): "
+            + ", ".join(merges.splitlines()[:5])
+        )
 
 
 def _check_verify_record(req: Request, commit: str) -> str:
@@ -199,16 +225,53 @@ def _files_changed(repo: Path, base: str | None, commit: str) -> list[dict[str, 
     return files
 
 
+VERSIONS_DIR = "backend/alembic/versions"
+_REVISION = re.compile(r"^revision(?:\s*:\s*[^=]+)?\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
+_DOWN_REVISION = re.compile(r"^down_revision(?:\s*:\s*[^=]+)?\s*=\s*(.+)$", re.MULTILINE)
+
+
+def _parse_down_revisions(expression: str) -> list[str]:
+    expression = expression.strip()
+    if expression == "None":
+        return []
+    found = re.findall(r"[\"']([^\"']+)[\"']", expression)
+    if not found:
+        raise PatchError(f"unsupported down_revision expression: {expression}")
+    return found
+
+
+def _migration_metadata(repo: Path, commit: str) -> dict[str, dict[str, object]]:
+    """Revision metadata read from migration files at `commit` (not from file names)."""
+    listing = git(repo, "ls-tree", "--name-only", f"{commit}:{VERSIONS_DIR}", check=False)
+    migrations: dict[str, dict[str, object]] = {}
+    for name in sorted(n for n in listing.splitlines() if n.endswith(".py")):
+        path = f"{VERSIONS_DIR}/{name}"
+        source = git_bytes(repo, "show", f"{commit}:{path}").decode("utf-8")
+        revision = _REVISION.search(source)
+        down = _DOWN_REVISION.search(source)
+        if revision is None or down is None:
+            raise PatchError(f"migration {path} lacks revision/down_revision")
+        rev = revision.group(1)
+        if rev in migrations:
+            raise PatchError(f"duplicate Alembic revision {rev}")
+        migrations[rev] = {"path": path, "down": _parse_down_revisions(down.group(1))}
+    referenced = {d for meta in migrations.values() for d in meta["down"]}
+    missing = referenced - set(migrations)
+    if missing:
+        raise PatchError(f"down_revision references unknown revisions: {sorted(missing)}")
+    heads = sorted(set(migrations) - referenced)
+    if migrations and len(heads) != 1:
+        raise PatchError(f"expected exactly one Alembic head, found {heads}")
+    return migrations
+
+
 def _migrations(files: list[dict[str, object]], repo: Path, commit: str) -> dict[str, object]:
-    pattern = re.compile(r"backend/alembic/versions/([^/]+)\.py$")
-    added = sorted(
-        m.group(1) for f in files if f["status"] == "A" and (m := pattern.search(str(f["path"])))
-    )
-    all_versions = git(
-        repo, "ls-tree", "--name-only", f"{commit}:backend/alembic/versions", check=False
-    )
-    heads = sorted(n[:-3] for n in all_versions.splitlines() if n.endswith(".py"))
-    return {"added": added, "head": heads[-1] if heads else None}
+    migrations = _migration_metadata(repo, commit)
+    referenced = {d for meta in migrations.values() for d in meta["down"]}
+    heads = sorted(set(migrations) - referenced)
+    added_paths = {str(f["path"]) for f in files if f["status"] == "A"}
+    added = sorted(rev for rev, meta in migrations.items() if meta["path"] in added_paths)
+    return {"added": added, "head": heads[0] if heads else None}
 
 
 def build_artifacts(
@@ -237,6 +300,9 @@ def build_artifacts(
 
     _inject("drill")
     drill = restore_drill(req.repo, bundle, refname, commit)
+    patch_drill = restore_patch_drill(
+        bundle, out / f"{req.name}.patch", base_commit, commit, drill["tree"]
+    )
 
     _inject("manifest")
     files = _files_changed(req.repo, base_commit, commit)
@@ -259,6 +325,7 @@ def build_artifacts(
         "known_limitations": verify.get("known_limitations", []),
         "bundle_verified": True,
         "restore_drill": drill,
+        "patch_drill": patch_drill,
         "restore_command": (
             f"git clone {req.name}.bundle restored && "
             f"git -C restored switch -c restore/{req.number} {req.name}"
@@ -272,6 +339,44 @@ def build_artifacts(
     sums = [f"{_sha256(p)}  {p.name}" for p in sorted(out.iterdir()) if p.is_file()]
     (out / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="utf-8")
     return manifest
+
+
+def restore_patch_drill(
+    bundle: Path, patch: Path, base_commit: str | None, commit: str, expected_tree: object
+) -> dict[str, object]:
+    """Apply the published .patch to its declared base in a fresh repo and compare trees."""
+    scratch = Path(tempfile.mkdtemp(prefix="pb-patch-drill-"))
+    try:
+        work = scratch / "work"
+        git(scratch, "init", "--quiet", str(work))
+        for key, value in (
+            ("user.name", "photobooth-patch-drill"),
+            ("user.email", "patch-drill@example.invalid"),
+            ("core.autocrlf", "false"),
+            ("commit.gpgsign", "false"),
+        ):
+            git(work, "config", key, value)
+        if base_commit is not None:
+            git(work, "fetch", "--quiet", str(bundle), "+refs/*:refs/drill/*")
+            git(work, "checkout", "--quiet", "--detach", base_commit)
+        applied = subprocess.run(
+            # --keep-cr: blobs containing CRLF must round-trip byte-for-byte
+            ["git", "-C", str(work), "am", "--quiet", "--keep-cr", str(patch)],
+            capture_output=True,
+            text=True,
+        )
+        if applied.returncode != 0:
+            raise PatchError(f"patch drill: git am failed: {applied.stderr.strip()[:400]}")
+        tree = git(work, "rev-parse", "HEAD^{tree}")
+        if tree != expected_tree:
+            raise PatchError(f"patch drill tree mismatch: {tree} != {expected_tree} ({commit})")
+        return {
+            "tree_sha_match": True,
+            "base": base_commit,
+            "at": datetime.now(BANGKOK).isoformat(timespec="seconds"),
+        }
+    finally:
+        _force_rmtree(scratch)
 
 
 def restore_drill(repo: Path, bundle: Path, refname: str, commit: str) -> dict[str, object]:
@@ -325,10 +430,10 @@ def _manifest_md(m: dict[str, object]) -> str:
         "## Files changed",
         "",
     ]
-    for f in m["files_changed"]:  # type: ignore[attr-defined]
+    for f in m["files_changed"]:
         lines.append(f"- {f['status']} {f['path']}{' (binary)' if f['binary'] else ''}")
     lines += ["", "## Migrations", "", f"{m['migrations']}", "", "## Tests", ""]
-    for t in m["tests_run"]:  # type: ignore[attr-defined]
+    for t in m["tests_run"]:
         lines.append(f"- {t}")
     return "\n".join(lines) + "\n"
 

@@ -94,8 +94,9 @@ def _approved(ws: dict[str, Path], commit: str) -> list[str]:
 def _baseline(ws: dict[str, Path]) -> str:
     commit_file(ws["repo"], "README.md", "ทดสอบ\n", "patch-000: baseline")
     commit_file(ws["repo"], "fixtures/pixel.bin", b"\x00\x01binary", "add binary")
+    migration = 'revision: str = "0001_baseline"\ndown_revision: str | None = None\n'
     return commit_file(
-        ws["repo"], "backend/alembic/versions/0001_baseline.py", "x = 1\n", "patch-001"
+        ws["repo"], "backend/alembic/versions/0001_baseline.py", migration, "patch-001"
     )
 
 

@@ -23,13 +23,14 @@ from photobooth.core.errors import InstanceGuardError, InstanceLockedError
 class PortPair:
     kiosk: int
     delivery: int
+    ui: int | None = None
 
 
 # (instance, profile) -> fixed ports. `test` profile uses ephemeral ports inside a temp root.
 PORT_TABLE: dict[tuple[str, str], PortPair] = {
-    ("dummy", "dev"): PortPair(kiosk=8111, delivery=8113),
-    ("dummy", "e2e"): PortPair(kiosk=8112, delivery=8114),
-    ("main", "prod"): PortPair(kiosk=8121, delivery=8123),
+    ("dummy", "dev"): PortPair(kiosk=8111, delivery=8113, ui=5191),
+    ("dummy", "e2e"): PortPair(kiosk=8112, delivery=8114, ui=5192),
+    ("main", "prod"): PortPair(kiosk=8121, delivery=8123, ui=None),
 }
 
 ALLOWED_PROFILES: dict[str, frozenset[str]] = {
@@ -126,11 +127,12 @@ class InstanceGuard:
         expected = PORT_TABLE.get((s.instance, s.profile))
         if expected is None:
             return  # test profile: ephemeral ports, root already confined to temp dir
-        if (s.kiosk_port, s.delivery_port) != (expected.kiosk, expected.delivery):
+        actual = (s.kiosk_port, s.delivery_port, s.ui_port)
+        if actual != (expected.kiosk, expected.delivery, expected.ui):
             raise InstanceGuardError(
                 "ports",
-                f"{s.instance}/{s.profile} must use kiosk {expected.kiosk} and delivery "
-                f"{expected.delivery}, got {s.kiosk_port}/{s.delivery_port}",
+                f"{s.instance}/{s.profile} must use kiosk {expected.kiosk}, delivery "
+                f"{expected.delivery}, ui {expected.ui}; got {actual[0]}/{actual[1]}/{actual[2]}",
             )
 
     def check_bind_addresses(self) -> None:

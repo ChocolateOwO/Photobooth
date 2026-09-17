@@ -36,7 +36,22 @@ def test_valid_test_profile_passes(thai_root: Path) -> None:
 def test_valid_dummy_dev_instance_passes(thai_root: Path) -> None:
     root = thai_root / "Dummy"
     root.mkdir()
-    _check(root, profile="dev", kiosk_port=8111, delivery_port=8113, delivery_host="0.0.0.0")
+    _check(
+        root,
+        profile="dev",
+        kiosk_port=8111,
+        delivery_port=8113,
+        ui_port=5191,
+        delivery_host="0.0.0.0",
+    )
+
+
+def test_dummy_dev_requires_its_ui_port(thai_root: Path) -> None:
+    root = thai_root / "Dummy"
+    root.mkdir()
+    base = {"profile": "dev", "kiosk_port": 8111, "delivery_port": 8113}
+    _assert_fails("ports", root, **base)  # ui port missing
+    _assert_fails("ports", root, **base, ui_port=5192)  # e2e ui port
 
 
 def test_rejects_profile_not_allowed_for_instance(thai_root: Path) -> None:

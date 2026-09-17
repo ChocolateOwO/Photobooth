@@ -74,16 +74,63 @@ def test_pairing_rejects_missing_or_wrong_code(
     assert kiosk_client.get("/kiosk/pair?code=guess", follow_redirects=False).status_code == 403
 
 
+ORIGIN = {"Origin": "http://127.0.0.1:18111"}
+
+
+def _pair(client: TestClient, container: Container) -> str:
+    code = _rotate_and_read(client, container)
+    client.get(f"/kiosk/pair?code={code}", follow_redirects=False)
+    status = client.get("/api/kiosk/status").json()
+    assert status["paired"] is True
+    token = status["csrf_token"]
+    assert isinstance(token, str) and len(token) == 64
+    return token
+
+
 def test_booth_mutation_requires_device_cookie(
     kiosk_client: TestClient, container: Container
 ) -> None:
     assert kiosk_client.post("/api/booth/ping").status_code == 401
-    assert kiosk_client.get("/api/kiosk/status").json() == {"paired": False}
+    assert kiosk_client.get("/api/kiosk/status").json() == {"paired": False, "csrf_token": None}
 
-    code = _rotate_and_read(kiosk_client, container)
-    kiosk_client.get(f"/kiosk/pair?code={code}", follow_redirects=False)
-    assert kiosk_client.post("/api/booth/ping").json() == {"ok": True}
-    assert kiosk_client.get("/api/kiosk/status").json() == {"paired": True}
+    csrf = _pair(kiosk_client, container)
+    headers = {**ORIGIN, "X-Photobooth-CSRF": csrf}
+    assert kiosk_client.post("/api/booth/ping", headers=headers).json() == {"ok": True}
+    assert kiosk_client.get("/api/kiosk/status").headers["cache-control"] == "no-store"
+
+
+def test_paired_cookie_alone_cannot_mutate_without_origin_and_csrf(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    csrf = _pair(kiosk_client, container)
+    ping = "/api/booth/ping"
+    # No Origin (non-browser or stripped) -> 403
+    assert kiosk_client.post(ping, headers={"X-Photobooth-CSRF": csrf}).status_code == 403
+    # Another local application on a different port (same-site, cross-origin) -> 403
+    for origin in (
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:8121",
+        "null",
+        "http://evil.example",
+    ):
+        headers = {"Origin": origin, "X-Photobooth-CSRF": csrf}
+        assert kiosk_client.post(ping, headers=headers).status_code == 403, origin
+    # Allowed origin but missing / wrong CSRF -> 403
+    assert kiosk_client.post(ping, headers=ORIGIN).status_code == 403
+    wrong = {**ORIGIN, "X-Photobooth-CSRF": "0" * 64}
+    assert kiosk_client.post(ping, headers=wrong).status_code == 403
+    # Allowed origin + CSRF -> 200
+    ok = {**ORIGIN, "X-Photobooth-CSRF": csrf}
+    assert kiosk_client.post(ping, headers=ok).status_code == 200
+
+
+def test_csrf_token_is_bound_to_device_and_process(container: Container) -> None:
+    registry = container.device_credentials
+    first, second = registry.issue(), registry.issue()
+    assert registry.csrf_token_for(first) != registry.csrf_token_for(second)
+    assert not registry.verify_csrf(second, registry.csrf_token_for(first))
+    assert registry.csrf_token_for("forged") is None
 
 
 def test_forged_cookie_rejected(kiosk_client: TestClient) -> None:

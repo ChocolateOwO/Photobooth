@@ -94,11 +94,16 @@ class LauncherCredential:
 
 
 class DeviceCredentialRegistry:
-    """In-memory, hashed device credentials. A new registry per process = rotation on restart."""
+    """In-memory, hashed device credentials. A new registry per process = rotation on restart.
+
+    Each credential has a derived CSRF token (HMAC with a per-process secret). The token is only
+    returned by a same-origin JSON endpoint, so a page on another origin cannot read it.
+    """
 
     def __init__(self) -> None:
         self._hashes: set[bytes] = set()
         self._lock = threading.Lock()
+        self._csrf_secret = secrets.token_bytes(32)
 
     def issue(self) -> str:
         token = secrets.token_urlsafe(32)
@@ -112,6 +117,20 @@ class DeviceCredentialRegistry:
         candidate = _digest(token)
         with self._lock:
             return any(hmac.compare_digest(candidate, known) for known in self._hashes)
+
+    def csrf_token_for(self, token: str | None) -> str | None:
+        """CSRF token bound to a valid device credential, else None."""
+        if token is None or not self.verify(token):
+            return None
+        return hmac.new(self._csrf_secret, token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    def verify_csrf(self, token: str | None, presented: str | None) -> bool:
+        expected = self.csrf_token_for(token)
+        return (
+            expected is not None
+            and presented is not None
+            and hmac.compare_digest(expected, presented)
+        )
 
 
 @dataclass(frozen=True)
