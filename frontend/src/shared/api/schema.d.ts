@@ -376,12 +376,6 @@ export interface components {
          * @enum {string}
          */
         AssetKind: "logo" | "background";
-        /** Body_upload_asset_api_admin_assets_post */
-        Body_upload_asset_api_admin_assets_post: {
-            /** File */
-            file: string;
-            kind: components["schemas"]["AssetKind"];
-        };
         /**
          * DeliveryMode
          * @enum {string}
@@ -827,7 +821,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_asset_api_admin_assets_post"];
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    /** @enum {string} */
+                    kind: "logo" | "background";
+                };
             };
         };
         responses: {
@@ -838,15 +837,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MediaAssetResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

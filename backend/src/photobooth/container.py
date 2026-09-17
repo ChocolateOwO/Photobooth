@@ -19,6 +19,7 @@ from photobooth.core.kiosk_pairing import (
     RuntimeSecretFile,
 )
 from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
+from photobooth.modules.assets.api import UploadAdmission
 from photobooth.modules.assets.inspector import PillowImageInspector
 from photobooth.modules.assets.repository import SqlAssetRepository
 from photobooth.modules.assets.service import AssetService
@@ -105,6 +106,7 @@ class Container:
         self.registry.register(DeviceCredentialRegistry, self.device_credentials)
         self.registry.register(LauncherCredential, self.launcher)
         self.registry.register(AssetService, self.asset_service)
+        self.registry.register(UploadAdmission, UploadAdmission(limit=2))
         self.registry.register(AuthService, self.auth_service)
         self.registry.register(EventProfileService, self.profile_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))

@@ -331,3 +331,18 @@ def test_service_rejects_duplicate_name_without_api(container: Container) -> Non
     service.create(ProfileSettings(name="Gala", title="t"))
     with pytest.raises(ProfileConflictError):
         service.create(ProfileSettings(name="GALA", title="t"))
+
+
+def test_duplicate_keeps_the_copy_suffix_for_maximum_length_names(
+    kiosk_client: TestClient, admin: dict[str, str]
+) -> None:
+    long_name = "ง" * 79 + "x"
+    source = _create(kiosk_client, admin, name=long_name)
+    names = []
+    for _ in range(3):
+        response = kiosk_client.post(f"{BASE}/{source['id']}/duplicate", headers=admin)
+        assert response.status_code == 201, response.text
+        names.append(response.json()["settings"]["name"])
+    assert names[0].endswith(" (copy)") and names[1].endswith(" (copy 2)")
+    assert names[2].endswith(" (copy 3)")
+    assert all(len(n) <= 80 for n in names) and len(set(names)) == 3

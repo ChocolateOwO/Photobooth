@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+import threading
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -109,7 +110,12 @@ class AdminSessionStore(Protocol):
 
 
 class LoginThrottle:
-    """Per-key failure window: `max_failures` within `window_s` locks the key for `lockout_s`."""
+    """Per-key failure window: `max_failures` within `window_s` locks the key for `lockout_s`.
+
+    Thread-safe. `admit` reserves an attempt atomically: attempts still being verified count as
+    potential failures, so a concurrent burst can never exceed `max_failures` verifications per key.
+    Every admitted attempt must be settled exactly once.
+    """
 
     def __init__(
         self,
@@ -124,23 +130,53 @@ class LoginThrottle:
         self._lockout = lockout_s
         self._failures: dict[str, deque[float]] = {}
         self._locked_until: dict[str, float] = {}
+        self._pending: dict[str, int] = {}
+        self._lock = threading.Lock()
 
-    def check(self, key: str) -> None:
-        until = self._locked_until.get(key)
-        now = self._clock()
-        if until is not None and now < until:
-            raise LoginThrottledError(int(until - now) + 1)
+    def admit(self, keys: Sequence[str]) -> None:
+        with self._lock:
+            now = self._clock()
+            for key in keys:
+                until = self._locked_until.get(key)
+                if until is not None and now < until:
+                    raise LoginThrottledError(int(until - now) + 1)
+                if until is not None:
+                    del self._locked_until[key]
+                failures = self._prune(key, now)
+                if failures + self._pending.get(key, 0) >= self._max:
+                    raise LoginThrottledError(1)
+            for key in keys:
+                self._pending[key] = self._pending.get(key, 0) + 1
 
-    def failure(self, key: str) -> None:
-        now = self._clock()
-        failures = self._failures.setdefault(key, deque())
-        failures.append(now)
+    def settle(
+        self, keys: Sequence[str], failed: bool, clear_on_success: Sequence[str] = ()
+    ) -> None:
+        with self._lock:
+            now = self._clock()
+            for key in keys:
+                remaining = self._pending.get(key, 0) - 1
+                if remaining > 0:
+                    self._pending[key] = remaining
+                else:
+                    self._pending.pop(key, None)
+                if failed:
+                    failures = self._failures.setdefault(key, deque())
+                    failures.append(now)
+                    self._prune(key, now)
+                    if len(failures) >= self._max:
+                        self._locked_until[key] = now + self._lockout
+                        failures.clear()
+            if not failed:
+                for key in clear_on_success:
+                    self._failures.pop(key, None)
+
+    def _prune(self, key: str, now: float) -> int:
+        failures = self._failures.get(key)
+        if failures is None:
+            return 0
         while failures and now - failures[0] > self._window:
             failures.popleft()
-        if len(failures) >= self._max:
-            self._locked_until[key] = now + self._lockout
-            failures.clear()
-
-    def success(self, key: str) -> None:
-        self._failures.pop(key, None)
-        self._locked_until.pop(key, None)
+        if not failures:
+            del self._failures[key]
+            return 0
+        return len(failures)

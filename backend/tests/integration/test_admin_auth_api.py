@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -12,6 +14,7 @@ from photobooth.container import Container
 from photobooth.core.config import AppSettings
 from photobooth.main import KioskAppOptions, create_kiosk_app
 from photobooth.modules.auth.domain import (
+    InvalidCredentialsError,
     LoginThrottle,
     LoginThrottledError,
     PasswordPolicyError,
@@ -263,19 +266,103 @@ def test_weak_hash_is_upgraded_on_login(container: Container) -> None:
     assert "m=8," not in after.password_hash and after.last_login_at is not None
 
 
-def test_throttle_locks_per_user_and_globally() -> None:
+def _fail(throttle: LoginThrottle, key: str) -> None:
+    throttle.admit((key,))
+    throttle.settle((key,), failed=True)
+
+
+def test_throttle_locks_per_key_and_expires() -> None:
     clock = FakeClock()
     throttle = LoginThrottle(clock, max_failures=3, window_s=60, lockout_s=30)
     for _ in range(3):
-        throttle.failure("admin")
+        _fail(throttle, "admin")
     with pytest.raises(LoginThrottledError) as info:
-        throttle.check("admin")
+        throttle.admit(("admin",))
     assert 0 < info.value.retry_after_seconds <= 31
-    throttle.check("other")
+    throttle.admit(("other",))
+    throttle.settle(("other",), failed=False)
     clock.now += 31
-    throttle.check("admin")
+    throttle.admit(("admin",))
+    throttle.settle(("admin",), failed=False)
     # failures spread beyond the window never lock
     for _ in range(5):
-        throttle.failure("slow")
+        _fail(throttle, "slow")
         clock.now += 61
-    throttle.check("slow")
+    throttle.admit(("slow",))
+
+
+def test_throttle_counts_in_flight_attempts() -> None:
+    throttle = LoginThrottle(FakeClock(), max_failures=3)
+    for _ in range(3):
+        throttle.admit(("*", "admin"))  # still being verified
+    with pytest.raises(LoginThrottledError):
+        throttle.admit(("*", "admin"))
+    with pytest.raises(LoginThrottledError):  # the global key is full as well
+        throttle.admit(("*", "other"))
+    throttle.settle(("*", "admin"), failed=False, clear_on_success=("admin",))
+    throttle.admit(("*", "other"))
+
+
+class CountingHasher(Argon2PasswordHasher):
+    def __init__(self) -> None:
+        super().__init__(Argon2(time_cost=1, memory_cost=512, parallelism=1))
+        self.active = 0
+        self.peak = 0
+        self.verifications = 0
+        self._lock = threading.Lock()
+
+    def verify(self, password_hash: str, password: str) -> bool:
+        with self._lock:
+            self.active += 1
+            self.verifications += 1
+            self.peak = max(self.peak, self.active)
+        try:
+            time.sleep(0.05)
+            return super().verify(password_hash, password)
+        finally:
+            with self._lock:
+                self.active -= 1
+
+
+def _burst(service: AuthService, attempts: list[tuple[str, str]]) -> list[str]:
+    barrier = threading.Barrier(len(attempts))
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def attempt(username: str, password: str) -> None:
+        barrier.wait()
+        try:
+            service.login(username, password, "device-a")
+            outcome = "ok"
+        except InvalidCredentialsError:
+            outcome = "invalid"
+        except LoginThrottledError:
+            outcome = "throttled"
+        with lock:
+            outcomes.append(outcome)
+
+    threads = [threading.Thread(target=attempt, args=a) for a in attempts]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return outcomes
+
+
+@pytest.mark.parametrize("spray", [False, True])
+def test_concurrent_login_burst_never_exceeds_the_failure_limit(
+    container: Container, spray: bool
+) -> None:
+    hasher = CountingHasher()
+    service = _service(container, FakeClock(), hasher)
+    service.set_password(USERNAME, PASSWORD)
+    attempts = [
+        (f"user{i:02d}" if spray else USERNAME, f"wrong-password-{i:02d}") for i in range(16)
+    ]
+    outcomes = _burst(service, attempts)
+    assert outcomes.count("invalid") <= 5
+    assert outcomes.count("invalid") + outcomes.count("throttled") == 16
+    assert hasher.verifications <= 5
+    assert hasher.peak == 1  # one memory-hard verification at a time
+    with pytest.raises(LoginThrottledError):  # the key (or all logins) is now locked
+        service.login(USERNAME, PASSWORD, "device-a")

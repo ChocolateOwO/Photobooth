@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette import formparsers
 
 from photobooth.container import Container
+from photobooth.main import KioskAppOptions, create_kiosk_app
+from photobooth.modules.assets.domain import ImageFacts, UploadLimits
+from photobooth.modules.assets.inspector import PillowImageInspector
+from photobooth.modules.assets.repository import SqlAssetRepository
+from photobooth.modules.assets.service import AssetService
 from tests.integration.admin_support import jpeg, login, png
 
 
@@ -128,3 +136,99 @@ def test_unknown_or_malformed_asset_ids(kiosk_client: TestClient, container: Con
     assert kiosk_client.get(f"/api/admin/assets/{missing}/content").status_code == 404
     for bad in ("..%2F..%2Fphotobooth.sqlite", "not-a-uuid", "%2e%2e"):
         assert kiosk_client.get(f"/api/admin/assets/{bad}").status_code in (404, 422), bad
+
+
+def test_unauthenticated_upload_is_rejected_before_multipart_parsing(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parsed: list[object] = []
+    original = formparsers.MultiPartParser.parse
+
+    async def spy(self: formparsers.MultiPartParser) -> object:
+        parsed.append(self)
+        return await original(self)
+
+    monkeypatch.setattr(formparsers.MultiPartParser, "parse", spy)
+    big = png() + b"\x00" * (3 * 1024 * 1024)
+    no_device = kiosk_client.post(
+        "/api/admin/assets", data={"kind": "logo"}, files={"file": ("x.png", big, "image/png")}
+    )
+    assert no_device.status_code == 401
+    headers = login(kiosk_client, container)
+    kiosk_client.cookies.delete("pb_admin_dummy", path="/api/admin")
+    no_admin = _upload(kiosk_client, headers, "logo", big)
+    assert no_admin[0] == 401
+    assert parsed == []
+
+
+def test_authorized_upload_never_spools_to_the_system_temp_dir(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rollovers: list[int] = []
+    original = formparsers.SpooledTemporaryFile
+
+    class Spy(original):  # type: ignore[misc, valid-type]
+        def rollover(self) -> None:
+            rollovers.append(1)
+            super().rollover()
+
+    monkeypatch.setattr(formparsers, "SpooledTemporaryFile", Spy)
+    headers = login(kiosk_client, container)
+    status, body = _upload(kiosk_client, headers, "background", jpeg((4000, 3000)), "b.jpg")
+    assert status == 201, body
+    assert rollovers == []
+
+
+def test_upload_admission_is_bounded(kiosk_client: TestClient, container: Container) -> None:
+    from photobooth.modules.assets.api import UploadAdmission
+
+    admission = container.registry.get(UploadAdmission)
+    headers = login(kiosk_client, container)
+    assert admission.try_acquire() and admission.try_acquire()
+    try:
+        response = kiosk_client.post(
+            "/api/admin/assets",
+            data={"kind": "logo"},
+            files={"file": ("x.png", png(), "image/png")},
+            headers=headers,
+        )
+        assert response.status_code == 503 and response.headers["retry-after"] == "2"
+    finally:
+        admission.release()
+        admission.release()
+    assert _upload(kiosk_client, headers, "logo", png())[0] == 201
+
+
+class BlockingInspector(PillowImageInspector):
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def inspect(self, data: bytes, limits: UploadLimits) -> ImageFacts:
+        self.entered.set()
+        assert self.release.wait(20)
+        return super().inspect(data, limits)
+
+
+def test_upload_processing_does_not_block_other_requests(container: Container) -> None:
+    inspector = BlockingInspector()
+    container.registry.register(
+        AssetService,
+        AssetService(SqlAssetRepository(container.engine), container.storage, inspector),
+    )
+    app = create_kiosk_app(container.registry, KioskAppOptions())
+    with TestClient(app, base_url="http://127.0.0.1:18111") as client:
+        headers = login(client, container)
+        result: list[int] = []
+        worker = threading.Thread(
+            target=lambda: result.append(_upload(client, headers, "logo", png())[0])
+        )
+        worker.start()
+        try:
+            assert inspector.entered.wait(20)
+            assert client.get("/api/health").status_code == 200  # loop still serving
+            assert client.get("/api/admin/profiles").status_code == 200
+        finally:
+            inspector.release.set()
+            worker.join(30)
+        assert result == [201]

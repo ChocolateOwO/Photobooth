@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 from photobooth.modules.event_profiles.domain import (
+    NAME_MAX_LENGTH,
     AssetLookup,
     EventProfile,
     EventProfileRepository,
@@ -110,8 +111,9 @@ class EventProfileService:
     def _copy_name(self, base: str) -> str:
         taken = {p.settings.name_key for p in self._repository.list_profiles(include_deleted=False)}
         for n in range(1, 1000):
-            candidate = f"{base} (copy)" if n == 1 else f"{base} (copy {n})"
-            candidate = candidate[:80]
+            suffix = " (copy)" if n == 1 else f" (copy {n})"
+            # Reserve room for the whole suffix so truncation never drops it.
+            candidate = " ".join(base.split())[: NAME_MAX_LENGTH - len(suffix)].rstrip() + suffix
             if ProfileSettings(name=candidate, title="x").name_key not in taken:
                 return candidate
         raise ProfileConflictError("could not find a free copy name")

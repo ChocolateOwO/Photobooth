@@ -11,6 +11,7 @@ from enum import StrEnum
 from typing import Protocol
 
 COUNTDOWN_SECONDS = 5  # fixed in the MVP (plan: countdown locked to 5 s)
+NAME_MAX_LENGTH = 80
 INACTIVITY_MIN_S = 30
 INACTIVITY_MAX_S = 900
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -73,7 +74,7 @@ class ProfileSettings:
     def problems(self) -> list[str]:
         found: list[str] = []
         for label, value, low, high in (
-            ("name", self.name, 1, 80),
+            ("name", self.name, 1, NAME_MAX_LENGTH),
             ("title", self.title, 1, 120),
             ("subtitle", self.subtitle, 0, 240),
             ("start_button_text", self.start_button_text, 1, 40),

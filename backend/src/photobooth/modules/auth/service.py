@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -18,11 +19,13 @@ from photobooth.modules.auth.domain import (
     AdminUserRepository,
     InvalidCredentialsError,
     LoginThrottle,
+    LoginThrottledError,
     PasswordHasher,
     check_password_policy,
     normalize_username,
 )
 
+VERIFY_WAIT_SECONDS = 10
 SESSION_IDLE_SECONDS = 30 * 60
 SESSION_ABSOLUTE_SECONDS = 8 * 60 * 60
 GLOBAL_THROTTLE_KEY = "*"
@@ -69,6 +72,7 @@ class AuthService:
         self._monotonic = monotonic
         self._now = now
         self._dummy_hash = hasher.hash(secrets.token_urlsafe(24))
+        self._verify_slot = threading.BoundedSemaphore(1)
 
     def set_password(self, username: str, password: str) -> AdminUser:
         name = normalize_username(username)
@@ -89,19 +93,33 @@ class AuthService:
 
     def login(self, username: str, password: str, device_token: str) -> LoginResult:
         name = username.strip().lower()[:64]
-        self._throttle.check(GLOBAL_THROTTLE_KEY)
-        self._throttle.check(name)
-        user = self._users.get_by_username(name)
-        # Always run one Argon2 verification so response time does not reveal unknown usernames.
-        valid = self._hasher.verify(user.password_hash if user else self._dummy_hash, password)
-        if user is None or not valid:
-            self._throttle.failure(name)
-            self._throttle.failure(GLOBAL_THROTTLE_KEY)
-            raise InvalidCredentialsError()
-        self._throttle.success(name)
-        upgraded = (
-            self._hasher.hash(password) if self._hasher.needs_rehash(user.password_hash) else None
-        )
+        keys = (GLOBAL_THROTTLE_KEY, name)
+        self._throttle.admit(keys)  # reserves the attempt; settled exactly once below
+        failed = True
+        try:
+            # One memory-hard verification at a time; a caller that can not get the slot soon is
+            # told to retry instead of piling up worker threads.
+            if not self._verify_slot.acquire(timeout=VERIFY_WAIT_SECONDS):
+                failed = False  # not a password failure
+                raise LoginThrottledError(1)
+            try:
+                user = self._users.get_by_username(name)
+                # Always run one Argon2 verification so timing does not reveal unknown usernames.
+                valid = self._hasher.verify(
+                    user.password_hash if user else self._dummy_hash, password
+                )
+                if user is None or not valid:
+                    raise InvalidCredentialsError()
+                failed = False
+                upgraded = (
+                    self._hasher.hash(password)
+                    if self._hasher.needs_rehash(user.password_hash)
+                    else None
+                )
+            finally:
+                self._verify_slot.release()
+        finally:
+            self._throttle.settle(keys, failed, clear_on_success=(name,))
         self._users.record_login(user.id, self._now(), upgraded)
 
         session_token = secrets.token_urlsafe(32)

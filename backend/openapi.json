@@ -9,24 +9,6 @@
         "title": "AssetKind",
         "type": "string"
       },
-      "Body_upload_asset_api_admin_assets_post": {
-        "properties": {
-          "file": {
-            "contentMediaType": "application/octet-stream",
-            "title": "File",
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/AssetKind"
-          }
-        },
-        "required": [
-          "kind",
-          "file"
-        ],
-        "title": "Body_upload_asset_api_admin_assets_post",
-        "type": "object"
-      },
       "DeliveryMode": {
         "enum": [
           "local_link"
@@ -1040,7 +1022,24 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_asset_api_admin_assets_post"
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "logo",
+                      "background"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "file"
+                ],
+                "type": "object"
               }
             }
           },
@@ -1056,16 +1055,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "Upload Asset",
