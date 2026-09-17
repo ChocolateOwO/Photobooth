@@ -114,31 +114,31 @@ test('duplicate, activate, soft delete and restore', async ({ page }) => {
   await pairAndSignIn(page)
   await expect(profileRow(page, PERSISTED.original)).toBeVisible()
 
-  await page.getByRole('button', { name: `Duplicate ${PERSISTED.original}` }).click()
+  await page.getByRole('button', { name: `Duplicate ${PERSISTED.original}`, exact: true }).click()
   await expect(profileRow(page, PERSISTED.copy)).toBeVisible()
 
-  await page.getByRole('button', { name: `Activate ${PERSISTED.copy}` }).click()
+  await page.getByRole('button', { name: `Activate ${PERSISTED.copy}`, exact: true }).click()
   await expect(page.getByRole('status')).toHaveText(`${PERSISTED.copy} is now the active profile.`)
   await expect(profileRow(page, PERSISTED.copy).getByText('Active', { exact: true })).toBeVisible()
   await expect(profileRow(page, PERSISTED.original).getByText('Active', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: `Delete ${PERSISTED.copy}` })).toBeDisabled()
+  await expect(page.getByRole('button', { name: `Delete ${PERSISTED.copy}`, exact: true })).toBeDisabled()
 
-  await page.getByRole('button', { name: `Delete ${PERSISTED.original}` }).click()
+  await page.getByRole('button', { name: `Delete ${PERSISTED.original}`, exact: true }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: `Delete ${PERSISTED.original}?` })).toBeVisible()
+  await expect(dialog.getByRole('heading', { name: `Delete ${PERSISTED.original}?`, exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: 'Delete profile' }).click()
   await expect(profileRow(page, PERSISTED.original)).toHaveCount(0)
 
   await page.getByRole('checkbox', { name: 'Show deleted profiles' }).check()
   await expect(profileRow(page, PERSISTED.original).getByText('Deleted', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: `Restore ${PERSISTED.original}` }).click()
+  await page.getByRole('button', { name: `Restore ${PERSISTED.original}`, exact: true }).click()
   await expect(profileRow(page, PERSISTED.original).getByText('Deleted', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: `Edit ${PERSISTED.original}` })).toBeVisible()
+  await expect(page.getByRole('link', { name: `Edit ${PERSISTED.original}`, exact: true })).toBeVisible()
 })
 
 test('a stale edit is refused and can be reloaded', async ({ page, context }) => {
   await pairAndSignIn(page)
-  await page.getByRole('link', { name: `Edit ${PERSISTED.original}` }).click()
+  await page.getByRole('link', { name: `Edit ${PERSISTED.original}`, exact: true }).click()
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
 
   const other = await context.newPage() // second tab, same signed-in browser
@@ -186,7 +186,7 @@ test('saved profiles reopen and stay editable after a backend restart @after-res
   await expect(profileRow(page, PERSISTED.original)).toBeVisible()
   await expect(profileRow(page, PERSISTED.copy).getByText('Active', { exact: true })).toBeVisible()
 
-  await page.getByRole('link', { name: `Edit ${PERSISTED.original}` }).click()
+  await page.getByRole('link', { name: `Edit ${PERSISTED.original}`, exact: true }).click()
   await expect(page.getByLabel('Profile name')).toHaveValue(PERSISTED.original)
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
   await expect(page.getByLabel('Subtitle')).toHaveValue(PERSISTED.subtitle)
