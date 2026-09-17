@@ -2,6 +2,7 @@ import { createBrowserRouter, Outlet } from 'react-router'
 
 import { AdminAuthProvider } from '../features/admin/api/AdminAuthProvider'
 import { AdminGate } from '../features/admin/pages/AdminGate'
+import { FrameManagerPage } from '../features/admin/pages/FrameManagerPage'
 import { ProfileEditorPage } from '../features/admin/pages/ProfileEditorPage'
 import { ProfileListPage } from '../features/admin/pages/ProfileListPage'
 import { SystemHomePage } from '../features/system/SystemHomePage'
@@ -22,6 +23,7 @@ export const routes = [
       { index: true, element: <ProfileListPage /> },
       { path: 'profiles/new', element: <ProfileEditorPage /> },
       { path: 'profiles/:profileId', element: <ProfileEditorPage /> },
+      { path: 'frames', element: <FrameManagerPage /> },
     ],
   },
   { path: '*', element: <SystemHomePage instance={buildInstance} /> },
