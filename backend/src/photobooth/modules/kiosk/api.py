@@ -1,10 +1,11 @@
 """Kiosk routes.
 
-- GET  /kiosk/pair?code=...          consume one-time code, set device cookie, redirect to /
+- GET  /kiosk/pair?code=...          consume one-time code, set device cookie, redirect to
+                                     /#pair-key=<device key> (fragment: never sent to servers)
 - POST /kiosk/pairing-code/rotate    launcher-only (X-Photobooth-Launcher); publish a new code to
                                      the runtime file (code not returned)
-- GET  /api/kiosk/status             {"paired": bool, "csrf_token": str | null} (same-origin read)
-- POST /api/booth/ping               device mutation stub: cookie + Origin allowlist + CSRF header
+- GET  /api/kiosk/status             {"paired": bool} (no secret)
+- POST /api/booth/ping               device mutation stub: cookie + Origin allowlist + device key
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from pydantic import BaseModel
 
 from photobooth.core.web import (
     DeviceCookieSettings,
-    device_csrf_token,
+    is_device_paired,
     provide,
     require_device,
     require_launcher,
@@ -31,7 +32,6 @@ CookieSettings = Annotated[DeviceCookieSettings, Depends(provide(DeviceCookieSet
 
 class KioskStatusResponse(BaseModel):
     paired: bool
-    csrf_token: str | None
 
 
 class PingResponse(BaseModel):
@@ -53,9 +53,19 @@ def pair(
     code: Annotated[str | None, Query(max_length=128)] = None,
 ) -> RedirectResponse:
     result = service.pair(code)
-    if result.outcome is not PairingOutcome.PAIRED or result.device_credential is None:
+    if (
+        result.outcome is not PairingOutcome.PAIRED
+        or result.device_credential is None
+        or result.device_key is None
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="pairing rejected")
-    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    # The key travels only in the fragment of this redirect to the UI origin that followed the
+    # launcher pairing URL; browsers never send fragments to servers.
+    response = RedirectResponse(
+        url=f"/#pair-key={result.device_key}", status_code=status.HTTP_303_SEE_OTHER
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
     response.set_cookie(
         cookie.cookie_name,
         result.device_credential,
@@ -82,9 +92,8 @@ def rotate_pairing_code(service: Service) -> None:
 
 @status_router.get("/status", response_model=KioskStatusResponse)
 def kiosk_status(request: Request, response: Response) -> KioskStatusResponse:
-    token = device_csrf_token(request)
     response.headers["Cache-Control"] = "no-store"
-    return KioskStatusResponse(paired=token is not None, csrf_token=token)
+    return KioskStatusResponse(paired=is_device_paired(request))
 
 
 @booth_router.post("/ping", response_model=PingResponse)

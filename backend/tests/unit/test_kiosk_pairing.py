@@ -32,9 +32,12 @@ def test_code_is_published_to_runtime_file_and_single_use(thai_root: Path) -> No
     code = store.path.read_text(encoding="utf-8")
     assert len(code) >= 40
 
-    credential = service.consume(code)
-    assert credential is not None
-    assert registry.verify(credential)
+    issued = service.consume(code)
+    assert issued is not None
+    token, key = issued
+    assert registry.verify(token)
+    assert registry.verify_key(token, key)
+    assert not registry.verify(key)
     assert not store.path.exists()
     assert service.consume(code) is None
 
@@ -79,9 +82,11 @@ def test_rotation_is_rate_limited(thai_root: Path) -> None:
 
 def test_credentials_do_not_survive_a_new_registry() -> None:
     old = DeviceCredentialRegistry()
-    credential = old.issue()
+    credential, key = old.issue()
     assert old.verify(credential)
-    assert not DeviceCredentialRegistry().verify(credential)
+    fresh = DeviceCredentialRegistry()
+    assert not fresh.verify(credential)
+    assert not fresh.verify_key(credential, key)
     assert not old.verify(None)
     assert not old.verify("forged")
 

@@ -54,7 +54,11 @@ def test_pairing_sets_strict_httponly_cookie_and_is_single_use(
     code = _rotate_and_read(kiosk_client, container)
     response = kiosk_client.get(f"/kiosk/pair?code={code}", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    location = response.headers["location"]
+    assert location.startswith("/#pair-key=")
+    assert len(location.removeprefix("/#pair-key=")) >= 43
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["referrer-policy"] == "no-referrer"
     set_cookie = response.headers["set-cookie"].lower()
     assert set_cookie.startswith("pb_device_dummy=")
     assert "httponly" in set_cookie
@@ -77,35 +81,37 @@ def test_pairing_rejects_missing_or_wrong_code(
 ORIGIN = {"Origin": "http://127.0.0.1:18111"}
 
 
+KEY_HEADER = "X-Photobooth-Device-Key"
+
+
 def _pair(client: TestClient, container: Container) -> str:
+    """Pair and return the device key taken from the redirect fragment (as the UI does)."""
     code = _rotate_and_read(client, container)
-    client.get(f"/kiosk/pair?code={code}", follow_redirects=False)
-    status = client.get("/api/kiosk/status").json()
-    assert status["paired"] is True
-    token = status["csrf_token"]
-    assert isinstance(token, str) and len(token) == 64
-    return token
+    response = client.get(f"/kiosk/pair?code={code}", follow_redirects=False)
+    key = response.headers["location"].removeprefix("/#pair-key=")
+    assert client.get("/api/kiosk/status").json() == {"paired": True}
+    return key
 
 
 def test_booth_mutation_requires_device_cookie(
     kiosk_client: TestClient, container: Container
 ) -> None:
     assert kiosk_client.post("/api/booth/ping").status_code == 401
-    assert kiosk_client.get("/api/kiosk/status").json() == {"paired": False, "csrf_token": None}
+    assert kiosk_client.get("/api/kiosk/status").json() == {"paired": False}
 
-    csrf = _pair(kiosk_client, container)
-    headers = {**ORIGIN, "X-Photobooth-CSRF": csrf}
+    key = _pair(kiosk_client, container)
+    headers = {**ORIGIN, KEY_HEADER: key}
     assert kiosk_client.post("/api/booth/ping", headers=headers).json() == {"ok": True}
     assert kiosk_client.get("/api/kiosk/status").headers["cache-control"] == "no-store"
 
 
-def test_paired_cookie_alone_cannot_mutate_without_origin_and_csrf(
+def test_paired_cookie_alone_cannot_mutate_without_origin_and_device_key(
     kiosk_client: TestClient, container: Container
 ) -> None:
-    csrf = _pair(kiosk_client, container)
+    key = _pair(kiosk_client, container)
     ping = "/api/booth/ping"
     # No Origin (non-browser or stripped) -> 403
-    assert kiosk_client.post(ping, headers={"X-Photobooth-CSRF": csrf}).status_code == 403
+    assert kiosk_client.post(ping, headers={KEY_HEADER: key}).status_code == 403
     # Another local application on a different port (same-site, cross-origin) -> 403
     for origin in (
         "http://127.0.0.1:3000",
@@ -114,23 +120,46 @@ def test_paired_cookie_alone_cannot_mutate_without_origin_and_csrf(
         "null",
         "http://evil.example",
     ):
-        headers = {"Origin": origin, "X-Photobooth-CSRF": csrf}
+        headers = {"Origin": origin, KEY_HEADER: key}
         assert kiosk_client.post(ping, headers=headers).status_code == 403, origin
-    # Allowed origin but missing / wrong CSRF -> 403
+    # Allowed origin but missing / wrong key -> 403
     assert kiosk_client.post(ping, headers=ORIGIN).status_code == 403
-    wrong = {**ORIGIN, "X-Photobooth-CSRF": "0" * 64}
-    assert kiosk_client.post(ping, headers=wrong).status_code == 403
-    # Allowed origin + CSRF -> 200
-    ok = {**ORIGIN, "X-Photobooth-CSRF": csrf}
-    assert kiosk_client.post(ping, headers=ok).status_code == 200
+    assert kiosk_client.post(ping, headers={**ORIGIN, KEY_HEADER: "x" * 43}).status_code == 403
+    # Allowed origin + key -> 200
+    assert kiosk_client.post(ping, headers={**ORIGIN, KEY_HEADER: key}).status_code == 200
 
 
-def test_csrf_token_is_bound_to_device_and_process(container: Container) -> None:
+def test_captured_cookie_can_not_recover_key_or_mutate(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """A local server that captured the HttpOnly cookie replays it directly (R20)."""
+    _pair(kiosk_client, container)
+    stolen = kiosk_client.cookies.get("pb_device_dummy")
+    assert stolen
+
+    app = create_kiosk_app(container.registry, KioskAppOptions())
+    with TestClient(app, base_url="http://127.0.0.1:18111") as attacker:
+        attacker.cookies.set("pb_device_dummy", stolen)
+        # Every readable endpoint, with the stolen cookie, reveals no key material.
+        for path in ("/api/kiosk/status", "/api/health", "/api/version", "/api/openapi.json"):
+            body = attacker.get(path).text
+            assert "key" not in body.lower() or path == "/api/openapi.json", path
+        assert attacker.get("/api/kiosk/status").json() == {"paired": True}
+        # Forged allowed Origin with no key, an empty key, or a cookie value as the key -> 403.
+        for headers in (ORIGIN, {**ORIGIN, KEY_HEADER: ""}, {**ORIGIN, KEY_HEADER: stolen}):
+            assert attacker.post("/api/booth/ping", headers=headers).status_code == 403
+
+
+def test_device_key_is_bound_to_its_own_cookie(container: Container) -> None:
     registry = container.device_credentials
-    first, second = registry.issue(), registry.issue()
-    assert registry.csrf_token_for(first) != registry.csrf_token_for(second)
-    assert not registry.verify_csrf(second, registry.csrf_token_for(first))
-    assert registry.csrf_token_for("forged") is None
+    token_a, key_a = registry.issue()
+    token_b, key_b = registry.issue()
+    assert key_a != key_b and token_a != key_a
+    assert registry.verify_key(token_a, key_a)
+    assert not registry.verify_key(token_a, key_b)
+    assert not registry.verify_key(token_b, key_a)
+    assert not registry.verify_key("forged", key_a)
+    assert not registry.verify_key(token_a, None)
 
 
 def test_forged_cookie_rejected(kiosk_client: TestClient) -> None:

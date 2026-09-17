@@ -1,14 +1,18 @@
+import { useApiClient } from '../../shared/api/ApiClientContext'
 import { useKioskStatus } from './useSystemStatus'
 
 export function PairingStatus() {
+  const api = useApiClient()
   const { data, isPending, isError } = useKioskStatus()
   let text: string
   if (isPending) {
     text = 'Checking kiosk pairing…'
   } else if (isError) {
     text = 'Kiosk pairing unknown'
-  } else if (data.paired) {
+  } else if (data.paired && api.hasDeviceKey()) {
     text = 'Kiosk paired'
+  } else if (data.paired) {
+    text = 'Kiosk needs re-pairing in this browser (run scripts\\run-dummy.ps1 -PairOnly)'
   } else {
     text = 'Kiosk not paired (open the booth with scripts\\run-dummy.ps1)'
   }

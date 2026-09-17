@@ -96,41 +96,45 @@ class LauncherCredential:
 class DeviceCredentialRegistry:
     """In-memory, hashed device credentials. A new registry per process = rotation on restart.
 
-    Each credential has a derived CSRF token (HMAC with a per-process secret). The token is only
-    returned by a same-origin JSON endpoint, so a page on another origin cannot read it.
+    Pairing issues TWO independent secrets:
+    - the device cookie (HttpOnly). Cookies are shared by every port of 127.0.0.1, so any local
+      server the kiosk browser visits receives it; it only proves "some paired browser".
+    - the device key, delivered once in the pairing redirect URL fragment (never sent to any
+      server) and kept in the UI origin storage. It is not derivable from the cookie and no
+      endpoint returns it, so a captured cookie can not be replayed as a mutation.
     """
 
     def __init__(self) -> None:
-        self._hashes: set[bytes] = set()
+        self._keys_by_token: dict[bytes, bytes] = {}
         self._lock = threading.Lock()
-        self._csrf_secret = secrets.token_bytes(32)
 
-    def issue(self) -> str:
+    def issue(self) -> tuple[str, str]:
+        """Return (cookie_token, device_key) for a newly paired device."""
         token = secrets.token_urlsafe(32)
+        key = secrets.token_urlsafe(32)
         with self._lock:
-            self._hashes.add(_digest(token))
-        return token
+            self._keys_by_token[_digest(token)] = _digest(key)
+        return token, key
 
-    def verify(self, token: str | None) -> bool:
+    def _key_digest(self, token: str | None) -> bytes | None:
         if not token:
-            return False
+            return None
         candidate = _digest(token)
         with self._lock:
-            return any(hmac.compare_digest(candidate, known) for known in self._hashes)
+            for known, key_digest in self._keys_by_token.items():
+                if hmac.compare_digest(candidate, known):
+                    return key_digest
+        return None
 
-    def csrf_token_for(self, token: str | None) -> str | None:
-        """CSRF token bound to a valid device credential, else None."""
-        if token is None or not self.verify(token):
-            return None
-        return hmac.new(self._csrf_secret, token.encode("utf-8"), hashlib.sha256).hexdigest()
+    def verify(self, token: str | None) -> bool:
+        return self._key_digest(token) is not None
 
-    def verify_csrf(self, token: str | None, presented: str | None) -> bool:
-        expected = self.csrf_token_for(token)
-        return (
-            expected is not None
-            and presented is not None
-            and hmac.compare_digest(expected, presented)
-        )
+    def verify_key(self, token: str | None, key: str | None) -> bool:
+        """True only for the key issued together with this cookie token."""
+        key_digest = self._key_digest(token)
+        if key_digest is None or not key:
+            return False
+        return hmac.compare_digest(_digest(key), key_digest)
 
 
 @dataclass(frozen=True)
@@ -175,8 +179,8 @@ class PairingService:
             self._store.publish(code)
         return True
 
-    def consume(self, code: str | None) -> str | None:
-        """Return a new device credential if `code` is the current unexpired code, else None."""
+    def consume(self, code: str | None) -> tuple[str, str] | None:
+        """Return new (cookie_token, device_key) if `code` is the current unexpired code."""
         if not code:
             return None
         with self._lock:

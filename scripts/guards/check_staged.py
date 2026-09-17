@@ -18,7 +18,7 @@ import subprocess
 import sys
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 MAX_BYTES = 5 * 1024 * 1024
 BINARY_ALLOWED_PREFIXES = ("backend/tests/fixtures/", "e2e/fixtures/", "frontend/public/")
@@ -65,12 +65,21 @@ SENSITIVE_ROOT_DIRS = ("data", "config", "backups", "logs", "storage", "tmp")
 PEM_PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----\s*[A-Za-z0-9+/=\r\n]{40,}")
 GOOGLE_REFRESH_TOKEN = re.compile(r"(?<![A-Za-z0-9])1//[0-9A-Za-z_\-]{30,}")
 GOOGLE_ACCESS_TOKEN = re.compile(r"(?<![A-Za-z0-9])ya29\.[0-9A-Za-z_\-]{20,}")
-ENV_SECRET_ASSIGNMENT = re.compile(
-    r"^\s*(?:export\s+)?(?P<name>PHOTOBOOTH_ADMIN_PASSWORD|[A-Z0-9_]*_SECRET|[A-Z0-9_]*_TOKEN)"
-    # dotenv forms: NAME=value, NAME = value, NAME= "quoted value", NAME='x' # comment.
-    # Unquoted values stop at code punctuation so `X_TOKEN = re.compile(...)` source is no value.
-    r"[ \t]*=[ \t]*(?P<value>\"[^\"\n]*\"|'[^'\n]*'|[^\s#()\[\]{},]*)[ \t\r]*(?:#[^\n]*)?$",
+# A pattern of variable names, not a secret.
+SECRET_NAME = (
+    r"(?P<name>PHOTOBOOTH_ADMIN_PASSWORD|[A-Z0-9_]*_SECRET|[A-Z0-9_]*_TOKEN|[A-Z0-9_]*_PASSWORD)"  # noqa: S105
+)
+# Source code: only literal-looking values, so `X_TOKEN = re.compile(...)` is not a value.
+SOURCE_SECRET_ASSIGNMENT = re.compile(
+    r"^\s*(?:export\s+)?"
+    + SECRET_NAME
+    + r"[ \t]*=[ \t]*(?P<value>\"[^\"\n]*\"|'[^'\n]*'|[^\s#()\[\]{},]*)[ \t\r]*(?:#[^\n]*)?$",
     re.MULTILINE,
+)
+# Everything else (.env, .env.example, config, text): dotenv syntax, parsed by parse_dotenv_value.
+DOTENV_SECRET_NAME = re.compile(r"^[ \t]*(?:export[ \t]+)?" + SECRET_NAME + r"[ \t]*=[ \t]*", re.M)
+SOURCE_SUFFIXES = frozenset(
+    {".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".ps1", ".psm1", ".sh", ".mako"}
 )
 JSON_CLIENT_SECRET = re.compile(r'"client_secret"\s*:\s*"(?P<value>[^"]*)"')
 JSON_CLIENT_ID = re.compile(r'"client_id"\s*:\s*"(?P<value>[^"]*)"')
@@ -108,6 +117,45 @@ def _is_placeholder(value: str) -> bool:
     return bool(PLACEHOLDER.match(value.strip().strip("\"'")))
 
 
+def parse_dotenv_value(text: str, start: int) -> str:
+    """Value at `start` using dotenv rules: quoted values may contain anything (including newlines
+    and `#`); unquoted values run to end of line, minus an inline ` #comment`."""
+    if start < len(text) and text[start] in "\"'":
+        quote = text[start]
+        index = start + 1
+        chars: list[str] = []
+        while index < len(text):
+            char = text[index]
+            if char == "\\" and quote == '"' and index + 1 < len(text):
+                chars.append(text[index + 1])
+                index += 2
+                continue
+            if char == quote:
+                return "".join(chars)
+            chars.append(char)
+            index += 1
+        return "".join(chars)  # unterminated: treat the remainder as the value
+    end = text.find("\n", start)
+    line = text[start:] if end == -1 else text[start:end]
+    comment = re.search(r"[ \t]#", line)
+    if comment:
+        line = line[: comment.start()]
+    elif line.startswith("#"):
+        line = ""
+    return line.strip()
+
+
+def _secret_assignments(path: str, text: str) -> list[tuple[str, str]]:
+    if PurePosixPath(path).suffix.lower() in SOURCE_SUFFIXES:
+        return [
+            (m.group("name"), m.group("value")) for m in SOURCE_SECRET_ASSIGNMENT.finditer(text)
+        ]
+    return [
+        (m.group("name"), parse_dotenv_value(text, m.end()))
+        for m in DOTENV_SECRET_NAME.finditer(text)
+    ]
+
+
 def value_violations(path: str, data: bytes) -> list[Violation]:
     posix = path.replace("\\", "/")
     text = data.decode("utf-8", errors="ignore")
@@ -118,11 +166,9 @@ def value_violations(path: str, data: bytes) -> list[Violation]:
         found.append(Violation(posix, "refresh-token", "OAuth refresh token value"))
     if GOOGLE_ACCESS_TOKEN.search(text):
         found.append(Violation(posix, "access-token", "OAuth access token value"))
-    for match in ENV_SECRET_ASSIGNMENT.finditer(text):
-        if not _is_placeholder(match.group("value")):
-            found.append(
-                Violation(posix, "secret-assignment", f"{match.group('name')} has a value")
-            )
+    for name, value in _secret_assignments(posix, text):
+        if not _is_placeholder(value):
+            found.append(Violation(posix, "secret-assignment", f"{name} has a value"))
     secrets_ = [m.group("value") for m in JSON_CLIENT_SECRET.finditer(text)]
     ids = [m.group("value") for m in JSON_CLIENT_ID.finditer(text)]
     if any(not _is_placeholder(s) for s in secrets_) and any(not _is_placeholder(i) for i in ids):

@@ -15,10 +15,11 @@ class KioskPairingService:
         self._pairing = pairing
 
     def pair(self, code: str | None) -> PairingResult:
-        credential = self._pairing.consume(code)
-        if credential is None:
+        issued = self._pairing.consume(code)
+        if issued is None:
             return PairingResult(outcome=PairingOutcome.REJECTED)
-        return PairingResult(outcome=PairingOutcome.PAIRED, device_credential=credential)
+        token, key = issued
+        return PairingResult(outcome=PairingOutcome.PAIRED, device_credential=token, device_key=key)
 
     def rotate_code(self) -> None:
         """Publish a new code to the runtime file. The code never leaves the server otherwise."""

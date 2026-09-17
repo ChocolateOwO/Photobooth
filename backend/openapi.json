@@ -34,25 +34,13 @@
       },
       "KioskStatusResponse": {
         "properties": {
-          "csrf_token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Csrf Token"
-          },
           "paired": {
             "title": "Paired",
             "type": "boolean"
           }
         },
         "required": [
-          "paired",
-          "csrf_token"
+          "paired"
         ],
         "title": "KioskStatusResponse",
         "type": "object"

@@ -15,7 +15,8 @@ class PairingOutcome(StrEnum):
 @dataclass(frozen=True)
 class PairingResult:
     outcome: PairingOutcome
-    device_credential: str | None = None
+    device_credential: str | None = None  # HttpOnly cookie value
+    device_key: str | None = None  # delivered only via URL fragment to the UI origin
 
 
 class PairingPort(Protocol):
@@ -24,7 +25,8 @@ class PairingPort(Protocol):
     def rotate(self) -> bool:
         """Publish a new code; False when rate limited."""
 
-    def consume(self, code: str | None) -> str | None: ...
+    def consume(self, code: str | None) -> tuple[str, str] | None:
+        """(cookie_token, device_key) for a valid code, else None."""
 
 
 class RotationRejectedError(Exception):

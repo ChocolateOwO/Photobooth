@@ -63,7 +63,11 @@ try {
         if (-not $pyVersion.StartsWith('Python 3.13')) { throw "Python 3.13 required, found $pyVersion" }
         "node $nodeVersion; npm $((& npm.cmd --version).Trim()); $pyVersion"
     }
-    Step 'backend dependencies (pip check)' { Invoke-Native $python @('-m', 'pip', 'check') $backend }
+    Step 'backend dependencies (pip check + exact lock)' {
+        Invoke-Native $python @('-m', 'pip', 'check') $backend
+        Invoke-Native $python @((Join-Path $PSScriptRoot 'guards\python_lock.py'), 'check',
+            '--pyproject', 'pyproject.toml', '--lock', 'requirements-dev.lock') $backend
+    }
     Step 'ruff' {
         Invoke-Native $python @('-m', 'ruff', 'check', 'src', 'tests', 'alembic', '..\scripts') $backend
         Invoke-Native $python @('-m', 'ruff', 'format', '--check', 'src', 'tests', 'alembic', '..\scripts') $backend

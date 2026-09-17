@@ -15,7 +15,12 @@ Dummy\
 
 ## Toolchain
 
-- Python 3.13 venv: `backend\.venv` (`py -3.13 -m venv backend\.venv`, then `backend\.venv\Scripts\python.exe -m pip install -e "backend[dev]"`)
+- Python 3.13 venv from the exact lock (from `backend\`):
+  `py -3.13 -m venv .venv`, `.venv\Scripts\python.exe -m pip install -r requirements-dev.lock`,
+  `.venv\Scripts\python.exe -m pip install --no-deps --no-build-isolation -e .`.
+  `verify.ps1` fails on any drift (`scripts\guards\python_lock.py check`). After an intentional
+  dependency change, install it and regenerate with `python_lock.py write`.
+- Frontend/e2e: `npm ci` (package-lock.json) with Node 24.
 - Node 24 LTS only (`.nvmrc`, `engines`, `engine-strict`). Scripts put `Dummy\tools\node24` first on PATH.
 - `git config --local core.hooksPath .githooks` enables the staged-content guard.
 

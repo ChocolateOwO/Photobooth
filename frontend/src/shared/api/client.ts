@@ -1,11 +1,10 @@
+import { DEVICE_KEY_HEADER, type DeviceKeyStore } from './deviceKey'
 import type { components } from './schema'
 
 export type HealthResponse = components['schemas']['HealthResponse']
 export type VersionResponse = components['schemas']['VersionResponse']
 export type KioskStatusResponse = components['schemas']['KioskStatusResponse']
 export type PingResponse = components['schemas']['PingResponse']
-
-export const CSRF_HEADER = 'X-Photobooth-CSRF'
 
 export class ApiError extends Error {
   readonly status: number
@@ -19,8 +18,13 @@ export class ApiError extends Error {
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
+const noDeviceKey: DeviceKeyStore = { get: () => null, set: () => undefined, clear: () => undefined }
+
 /** Typed client for the kiosk API. Same-origin only; the device cookie travels automatically. */
-export function createApiClient(fetcher: Fetcher = (input, init) => fetch(input, init)) {
+export function createApiClient(
+  fetcher: Fetcher = (input, init) => fetch(input, init),
+  deviceKeys: DeviceKeyStore = noDeviceKey,
+) {
   async function getJson<T>(path: string): Promise<T> {
     const response = await fetcher(path, {
       headers: { Accept: 'application/json' },
@@ -33,13 +37,13 @@ export function createApiClient(fetcher: Fetcher = (input, init) => fetch(input,
   }
 
   /**
-   * Device-authenticated mutation. The browser adds the Origin header; the CSRF token comes from a
-   * same-origin read of /api/kiosk/status (another origin cannot read that response).
+   * Device-authenticated mutation: the browser adds Origin; the device key comes from this
+   * origin's storage (captured at pairing), never from a server response.
    */
   async function postJson<T>(path: string, body?: unknown): Promise<T> {
-    const status = await getJson<KioskStatusResponse>('/api/kiosk/status')
-    if (!status.paired || !status.csrf_token) {
-      throw new ApiError(401, 'kiosk is not paired')
+    const key = deviceKeys.get()
+    if (!key) {
+      throw new ApiError(401, 'kiosk is not paired in this browser')
     }
     const response = await fetcher(path, {
       method: 'POST',
@@ -47,10 +51,13 @@ export function createApiClient(fetcher: Fetcher = (input, init) => fetch(input,
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        [CSRF_HEADER]: status.csrf_token,
+        [DEVICE_KEY_HEADER]: key,
       },
       body: body === undefined ? null : JSON.stringify(body),
     })
+    if (response.status === 401 || response.status === 403) {
+      deviceKeys.clear() // stale pairing (e.g. backend restarted): require re-pairing
+    }
     if (!response.ok) {
       throw new ApiError(response.status, `POST ${path} failed with ${response.status}`)
     }
@@ -61,6 +68,7 @@ export function createApiClient(fetcher: Fetcher = (input, init) => fetch(input,
     health: () => getJson<HealthResponse>('/api/health'),
     version: () => getJson<VersionResponse>('/api/version'),
     kioskStatus: () => getJson<KioskStatusResponse>('/api/kiosk/status'),
+    hasDeviceKey: () => deviceKeys.get() !== null,
     boothPing: () => postJson<PingResponse>('/api/booth/ping'),
   }
 }
