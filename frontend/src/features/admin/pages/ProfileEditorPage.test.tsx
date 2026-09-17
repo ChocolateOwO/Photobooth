@@ -189,3 +189,85 @@ describe('ProfileEditorPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('another live profile already uses this name')
   })
 })
+
+describe('frame selection per layout', () => {
+  it('warns for every enabled layout without a frame and saves the chosen frames', async () => {
+    const server = signedInServer()
+    const strip = server.seedFrame('strip_2x6', 'Strip gold')
+    const print = server.seedFrame('print_4x6', 'Print silver')
+    renderAdmin('/admin/profiles/new', { server })
+
+    await userEvent.type(await screen.findByLabelText('Profile name'), 'Expo')
+    await userEvent.type(screen.getByLabelText('Title'), 'Welcome')
+    // A new profile enables the first layout and has no frame yet.
+    expect(await screen.findByTestId('missing-frame-warning')).toHaveTextContent(
+      'No frame selected for 2x6 photo strip. Photos will print without a frame.',
+    )
+    await userEvent.click(screen.getByRole('checkbox', { name: '4x6 print' }))
+    await waitFor(() => expect(screen.getAllByTestId('missing-frame-warning')).toHaveLength(2))
+
+    await userEvent.selectOptions(screen.getByLabelText('Frame for 2x6 photo strip'), strip.id)
+    await userEvent.selectOptions(screen.getByLabelText('Frame for 4x6 print'), print.id)
+    expect(screen.queryAllByTestId('missing-frame-warning')).toHaveLength(0)
+    expect(screen.getByRole('img', { name: '2x6 photo strip frame preview' })).toHaveAttribute(
+      'src',
+      `/api/admin/frames/${strip.id}/preview/1.jpg`,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    await waitFor(() => expect(server.profiles.size).toBe(1))
+    expect([...server.profiles.values()][0]?.settings.frame_selections).toEqual({
+      strip_2x6: strip.id,
+      print_4x6: print.id,
+    })
+  })
+
+  it('drops the frame when its layout is switched off', async () => {
+    const server = signedInServer()
+    const strip = server.seedFrame('strip_2x6', 'Strip gold')
+    server.seedFrame('print_4x6', 'Print silver')
+    const profile = server.seedProfile({
+      name: 'Expo',
+      enabled_layouts: ['strip_2x6', 'print_4x6'],
+      frame_selections: { strip_2x6: strip.id },
+    })
+    renderAdmin(`/admin/profiles/${profile.id}`, { server })
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Frame for 2x6 photo strip')).toHaveValue(strip.id),
+    )
+    await userEvent.click(screen.getByRole('checkbox', { name: '2x6 photo strip' }))
+    expect(screen.queryByLabelText('Frame for 2x6 photo strip')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved'))
+    expect(server.profiles.get(profile.id)?.settings.frame_selections).toEqual({})
+    expect(server.profiles.get(profile.id)?.settings.enabled_layouts).toEqual(['print_4x6'])
+  })
+
+  it('points to the frame manager when a layout has no frames at all', async () => {
+    renderAdmin('/admin/profiles/new', { server: signedInServer() })
+    expect(await screen.findByText('Upload a frame for this layout first.')).toBeInTheDocument()
+    const links = screen.getAllByRole('link', { name: 'Frames' })
+    expect(links[0]).toHaveAttribute('href', '/admin/frames')
+  })
+
+  it('reports the server reason when a frame does not fit the layout', async () => {
+    const server = signedInServer()
+    const strip = server.seedFrame('strip_2x6', 'Strip gold')
+    const profile = server.seedProfile({
+      name: 'Expo',
+      enabled_layouts: ['strip_2x6'],
+      frame_selections: { strip_2x6: strip.id },
+    })
+    // Another admin moved this frame to a different layout meanwhile.
+    server.frames.set(strip.id, { ...strip, template_key: 'print_3x4' })
+    renderAdmin(`/admin/profiles/${profile.id}`, { server })
+    await waitFor(() => expect(screen.getByLabelText('Profile name')).toHaveValue('Expo'))
+    await userEvent.type(screen.getByLabelText('Title'), '!')
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'that frame does not belong to strip_2x6',
+    )
+    expect(server.profiles.get(profile.id)?.revision).toBe(1)
+  })
+})

@@ -23,6 +23,16 @@ import { AssetPicker } from '../components/AssetPicker'
 import { PreparationPreview } from '../components/PreparationPreview'
 import styles from './ProfileEditorPage.module.css'
 
+/** Frame selections without one layout (no mutation of the current state). */
+function withoutLayout(
+  selections: Record<string, string> | undefined,
+  templateKey: string,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(selections ?? {}).filter(([key]) => key !== templateKey),
+  )
+}
+
 interface ProfileEditorFormProps {
   initialSettings: ProfileSettings
   initialRevision: number
@@ -429,14 +439,14 @@ function ProfileEditorForm({
                         const nextLayouts = checked
                           ? [...current.enabled_layouts.filter((k) => k !== tpl.key), tpl.key]
                           : current.enabled_layouts.filter((k) => k !== tpl.key)
-                        const nextSelections = { ...(current.frame_selections ?? {}) }
-                        if (!checked) {
-                          delete nextSelections[tpl.key]
-                        }
+                        // Switching a layout off also drops its frame: the server refuses a
+                        // selection for a layout that is not enabled.
                         return {
                           ...current,
                           enabled_layouts: nextLayouts,
-                          frame_selections: nextSelections,
+                          frame_selections: checked
+                            ? { ...current.frame_selections }
+                            : withoutLayout(current.frame_selections, tpl.key),
                         }
                       })
                     }}
@@ -456,18 +466,12 @@ function ProfileEditorForm({
                       value={activeFrame ? activeFrame.id : ''}
                       onChange={(e) => {
                         const val = e.target.value
-                        setSettings((current) => {
-                          const nextSelections = { ...(current.frame_selections ?? {}) }
-                          if (!val) {
-                            delete nextSelections[tpl.key]
-                          } else {
-                            nextSelections[tpl.key] = val
-                          }
-                          return {
-                            ...current,
-                            frame_selections: nextSelections,
-                          }
-                        })
+                        setSettings((current) => ({
+                          ...current,
+                          frame_selections: val
+                            ? { ...current.frame_selections, [tpl.key]: val }
+                            : withoutLayout(current.frame_selections, tpl.key),
+                        }))
                       }}
                       className={styles.select}
                       disabled={isDeleted}

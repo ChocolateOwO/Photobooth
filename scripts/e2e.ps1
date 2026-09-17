@@ -43,6 +43,7 @@ try {
     New-Item -ItemType Directory -Force -Path $fixtures | Out-Null
     # Single quotes only: Windows PowerShell 5.1 drops embedded double quotes in native arguments.
     Invoke-Native $python @('-c', 'import sys; from PIL import Image; d=sys.argv[1]; Image.new(''RGBA'',(256,128),(255,176,32,200)).save(d+''/logo.png''); Image.new(''RGB'',(1280,720),(40,90,160)).save(d+''/background.jpg'', quality=90)', $fixtures)
+    Invoke-Native $python @((Join-Path $PSScriptRoot 'guards\make_frame_fixtures.py'), $fixtures)
 
     if (-not $SkipBuild) {
         $env:PHOTOBOOTH_INSTANCE = 'dummy'

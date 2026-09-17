@@ -1,5 +1,6 @@
 import type {
   EventProfile,
+  Frame,
   MediaAsset,
   ProfileSettings,
   TemplateSummary,
@@ -50,6 +51,9 @@ export class FakeAdminServer {
   logoutNetworkFailure = false
   profiles = new Map<string, EventProfile>()
   assets = new Map<string, MediaAsset>()
+  frames = new Map<string, Frame>()
+  /** Frame ids the server refuses to delete, with the reason (profiles still using them). */
+  framesInUse = new Map<string, string>()
   requests: { method: string; path: string; headers: Record<string, string> }[] = []
   templates = [template('strip_2x6', '2x6 photo strip'), template('print_4x6', '4x6 print')]
   private nextId = 1
@@ -57,6 +61,26 @@ export class FakeAdminServer {
   private id(): string {
     const n = String(this.nextId++).padStart(12, '0')
     return `00000000-0000-4000-8000-${n}`
+  }
+
+  seedFrame(templateKey: string, name: string, warnings: string[] = []): Frame {
+    const frame: Frame = {
+      id: this.id(),
+      template_key: templateKey,
+      template_version: 1,
+      name,
+      status: 'valid',
+      width: templateKey === 'strip_2x6' ? 600 : 1200,
+      height: 1800,
+      bytes: 4096,
+      sha256: 'b'.repeat(64),
+      warnings,
+      slot_transparency: [1, 1, 1],
+      created_at: '2026-09-18T10:00:00Z',
+      updated_at: '2026-09-18T10:00:00Z',
+    }
+    this.frames.set(frame.id, frame)
+    return frame
   }
 
   seedProfile(settings: Partial<ProfileSettings> & { name: string }, extra: Partial<EventProfile> = {}) {
@@ -75,6 +99,7 @@ export class FakeAdminServer {
         button_color: '#2F6FD6',
         text_color: '#F4F6F8',
         enabled_layouts: ['strip_2x6'],
+        frame_selections: {},
         countdown_seconds: 5,
         mirror: true,
         inactivity_timeout_s: 120,
@@ -112,6 +137,18 @@ export class FakeAdminServer {
     this.requests.push({ method, path: `${path}${url.search}`, headers })
 
     if (path === '/api/templates' && method === 'GET') return json(this.templates)
+    const specMatch = /^\/api\/templates\/([a-z0-9_]+)$/.exec(path)
+    if (specMatch && method === 'GET') {
+      const template = this.templates.find((t) => t.key === specMatch[1])
+      if (!template) return json({ detail: 'template not found' }, 404)
+      return json({
+        ...template,
+        frame_requirements: [
+          `File: PNG with transparency (RGBA), not animated.`,
+          `Size: exactly ${template.width_px} x ${template.height_px} px.`,
+        ],
+      })
+    }
     if (!path.startsWith('/api/admin/')) return json({ detail: 'Not Found' }, 404)
 
     if (method !== 'GET' && headers[DEVICE_KEY_HEADER] !== DEVICE_KEY) {
@@ -161,6 +198,59 @@ export class FakeAdminServer {
       this.assets.set(asset.id, asset)
       return json(asset, 201)
     }
+    if (path === '/api/admin/frames') {
+      if (method === 'GET') {
+        const templateKey = url.searchParams.get('template_key')
+        const all = [...this.frames.values()]
+        return json(templateKey ? all.filter((f) => f.template_key === templateKey) : all)
+      }
+      const form = init?.body as FormData
+      const templateKey = String(form.get('template_key'))
+      const name = String(form.get('name')).trim()
+      const file = form.get('file') as File
+      if (!this.templates.some((t) => t.key === templateKey)) {
+        return json({ detail: `Unknown photo layout '${templateKey}'.` }, 422)
+      }
+      if (file.type !== 'image/png') {
+        return json({ detail: 'The frame must be a valid PNG file.' }, 422)
+      }
+      if ([...this.frames.values()].some((f) => f.template_key === templateKey && f.name === name)) {
+        return json({ detail: `A frame called '${name}' already exists for this layout.` }, 422)
+      }
+      return json(this.seedFrame(templateKey, name), 201)
+    }
+    const frameMatch = /^\/api\/admin\/frames\/([^/]+)(?:\/(replace|name))?$/.exec(path)
+    if (frameMatch) {
+      const frame = this.frames.get(frameMatch[1] ?? '')
+      if (!frame) return json({ detail: 'frame not found' }, 404)
+      const action = frameMatch[2]
+      if (!action && method === 'GET') return json(frame)
+      if (!action && method === 'DELETE') {
+        const reason = this.framesInUse.get(frame.id)
+        if (reason) {
+          return json({ detail: `this frame is still used by: ${reason}` }, 409)
+        }
+        this.frames.delete(frame.id)
+        return json(null, 204)
+      }
+      if (action === 'replace') {
+        const file = (init?.body as FormData).get('file') as File
+        if (file.type !== 'image/png') {
+          return json({ detail: 'The frame must be a valid PNG file.' }, 422)
+        }
+        const updated = { ...frame, bytes: file.size, sha256: 'c'.repeat(64) }
+        this.frames.set(frame.id, updated)
+        return json(updated)
+      }
+      if (action === 'name' && method === 'PUT') {
+        const body = JSON.parse(String(init?.body)) as { name: string }
+        const name = body.name.trim()
+        if (!name) return json({ detail: 'The frame name must be 1-80 characters.' }, 422)
+        const updated = { ...frame, name }
+        this.frames.set(frame.id, updated)
+        return json(updated)
+      }
+    }
     const assetMatch = /^\/api\/admin\/assets\/([^/]+)$/.exec(path)
     if (assetMatch) {
       const asset = this.assets.get(decodeURIComponent(assetMatch[1] ?? ''))
@@ -173,6 +263,12 @@ export class FakeAdminServer {
         return json(includeDeleted ? all : all.filter((p) => p.deleted_at === null))
       }
       const settings = JSON.parse(String(init?.body)) as ProfileSettings
+      const badFrame = Object.entries(settings.frame_selections ?? {}).find(
+        ([key, frameId]) => this.frames.get(frameId)?.template_key !== key,
+      )
+      if (badFrame) {
+        return json({ detail: `that frame does not belong to ${badFrame[0]}` }, 422)
+      }
       const clash = [...this.profiles.values()].some(
         (p) => p.deleted_at === null && p.settings.name.toLowerCase() === settings.name.toLowerCase(),
       )
@@ -187,6 +283,12 @@ export class FakeAdminServer {
     if (!action && method === 'GET') return json(profile)
     if (!action && method === 'PUT') {
       const body = JSON.parse(String(init?.body)) as ProfileSettings & { revision: number }
+      const mismatch = Object.entries(body.frame_selections ?? {}).find(
+        ([key, frameId]) => this.frames.get(frameId)?.template_key !== key,
+      )
+      if (mismatch) {
+        return json({ detail: `that frame does not belong to ${mismatch[0]}` }, 422)
+      }
       if (body.revision !== profile.revision) {
         return json(
           {
