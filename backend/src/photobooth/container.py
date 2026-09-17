@@ -19,6 +19,7 @@ from photobooth.core.kiosk_pairing import (
 )
 from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
 from photobooth.modules.kiosk.service import KioskPairingService
+from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
 from photobooth.modules.rendering.service import RenderService
 from photobooth.modules.system.domain import AppMetaRepository
@@ -60,8 +61,12 @@ class Container:
         self.template_service = TemplateSpecService(
             JsonTemplateRepository(), PillowTemplateArtist()
         )
+        self.render_queue = RenderQueue(max_pending=4)
         self.render_service = RenderService(
-            PillowPhotoRenderer(), self.template_service, PillowSampleImageFactory()
+            PillowPhotoRenderer(),
+            self.template_service,
+            PillowSampleImageFactory(),
+            self.render_queue,
         )
 
         self.registry = ServiceRegistry()
@@ -79,4 +84,5 @@ class Container:
     def close(self) -> None:
         self.pairing.shutdown()
         self.launcher.clear()
+        self.render_queue.shutdown()
         self.engine.dispose()

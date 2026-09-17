@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import Future
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -14,6 +15,10 @@ JPEG_MEDIA_TYPE = "image/jpeg"
 
 class RenderError(Exception):
     """Inputs can not be rendered (wrong capture set, bad image, bad frame)."""
+
+
+class RenderBusyError(Exception):
+    """The render queue is full; try again shortly."""
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,12 @@ class CaptureSource(Protocol):
 
 class TemplateLookup(Protocol):
     def get(self, key: str, version: int | None = None) -> PhotoTemplate: ...
+
+
+class RenderScheduler(Protocol):
+    """Runs render work off the request path with bounded admission (one render at a time)."""
+
+    def submit[T](self, job: Callable[[], T]) -> Future[T]: ...
 
 
 class SampleImageFactory(Protocol):

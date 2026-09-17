@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from dataclasses import dataclass
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -15,6 +16,7 @@ SAFE_EDGE = (214, 40, 40, 255)
 BRANDING_FILL = (255, 236, 179, 255)
 BRANDING_EDGE = (184, 134, 11, 255)
 TEXT = (20, 20, 20, 255)
+PANEL_FILL = (255, 255, 255, 235)
 
 
 def _png(image: Image.Image, dpi: int) -> bytes:
@@ -68,6 +70,7 @@ class PillowTemplateArtist:
         image = Image.new("RGBA", (width, height), BACKGROUND)
         draw = ImageDraw.Draw(image)
         line = max(2, unit // 8)
+        info = layout_guide_info(template, draw)
 
         if template.branding_area is not None:
             area = template.branding_area
@@ -83,9 +86,12 @@ class PillowTemplateArtist:
             draw.rectangle(
                 [r.x, r.y, r.right - 1, r.bottom - 1], fill=SLOT_FILL, outline=SLOT_EDGE, width=line
             )
+            label_area = r
+            if info.panel and slot.index == template.slots[-1].index:
+                label_area = Rect(r.x, r.y, r.w, info.area.y - r.y)
             _centered_lines(
                 draw,
-                r,
+                label_area,
                 [
                     (f"PHOTO {slot.index}", _font(int(unit * 2.2))),
                     (f"{r.w} x {r.h} px ({slot.aspect_label})", _font(unit)),
@@ -99,39 +105,89 @@ class PillowTemplateArtist:
         _dashed_rect(draw, template.safe_area, SAFE_EDGE, line)
         draw.rectangle([0, 0, width - 1, height - 1], outline=TEXT, width=line)
 
-        info = [
-            (f"{template.name}  (v{template.version})", _font(int(unit * 1.1))),
-            (
-                f"{_num(template.width_in)} x {_num(template.height_in)} in  |  "
-                f"{width} x {height} px  |  {template.dpi} DPI",
-                _font(int(unit * 0.8)),
-            ),
-            (
-                f"Frame: PNG RGBA, photo areas >= "
-                f"{round(template.frame_rules.slot_min_transparency * 100)}% transparent",
-                _font(int(unit * 0.8)),
-            ),
-            (
-                f"Red dashed line = safe area ({template.safe_area_inset} px margin)",
-                _font(int(unit * 0.8)),
-            ),
-        ]
-        if template.outputs_per_session > 1:
-            info.append(
-                (
-                    f"{template.captures_per_session} captures -> "
-                    f"{template.outputs_per_session} outputs, no photo reused",
-                    _font(int(unit * 0.8)),
-                )
+        if info.panel:
+            a = info.area
+            draw.rectangle(
+                [a.x, a.y, a.right - 1, a.bottom - 1], fill=PANEL_FILL, outline=TEXT, width=1
             )
-        info_area = _intersect(
-            template.branding_area or _bottom_margin(template), template.safe_area
-        )
-        if template.branding_area is not None:
-            info.insert(0, ("BRANDING AREA", _font(int(unit * 1.2))))
-        gap = max(2, unit // 4)
-        _centered_lines(draw, info_area, _fit(draw, info, info_area, gap), gap=gap)
+        font = _font(info.font_size)
+        _centered_lines(draw, info.area, [(text, font) for text in info.lines], gap=info.gap)
         return _png(image, template.dpi)
+
+
+def guide_annotations(template: PhotoTemplate) -> list[str]:
+    """Required text on every guide image (also asserted by tests)."""
+    lines = [
+        f"{template.name} (v{template.version})",
+        f"{_num(template.width_in)} x {_num(template.height_in)} in | "
+        f"{template.width_px} x {template.height_px} px | {template.dpi} DPI",
+        f"Frame: PNG RGBA, photo areas >= "
+        f"{round(template.frame_rules.slot_min_transparency * 100)}% transparent",
+        f"Red dashed line = safe area ({template.safe_area_inset} px margin)",
+    ]
+    if template.branding_area is not None:
+        lines.insert(0, "BRANDING AREA (yellow)")
+    if template.outputs_per_session > 1:
+        lines.append(
+            f"{template.captures_per_session} captures -> "
+            f"{template.outputs_per_session} outputs, no photo reused"
+        )
+    return lines
+
+
+@dataclass(frozen=True)
+class GuideInfoLayout:
+    area: Rect
+    panel: bool
+    font_size: int
+    gap: int
+    lines: tuple[str, ...]
+
+
+def layout_guide_info(template: PhotoTemplate, draw: ImageDraw.ImageDraw) -> GuideInfoLayout:
+    """Place ALL required annotations: branding area, then bottom margin, then a panel inside the
+    last photo placeholder. Fonts shrink step by step; nothing is ever silently dropped."""
+    lines = guide_annotations(template)
+    unit = max(12, template.width_px // 30)
+    safe = template.safe_area
+    candidates: list[tuple[Rect, bool]] = []
+    if template.branding_area is not None:
+        candidates.append((_intersect(template.branding_area, safe), False))
+    candidates.append((_intersect(_bottom_margin(template), safe), False))
+    last = template.slots[-1].rect
+    panel_height = int(last.h * 0.42)
+    inset = max(6, unit // 3)
+    candidates.append(
+        (
+            Rect(
+                last.x + inset, last.bottom - panel_height, last.w - 2 * inset, panel_height - inset
+            ),
+            True,
+        )
+    )
+    minimum = max(9, int(unit * 0.4))
+    for area, panel in candidates:
+        size = int(unit * 0.8)
+        while size >= minimum:
+            gap = max(2, size // 4)
+            if _all_fit(draw, lines, _font(size), area, gap):
+                return GuideInfoLayout(area, panel, size, gap, tuple(lines))
+            size -= 1
+    raise ValueError(f"guide annotations do not fit for {template.key}")
+
+
+def _all_fit(
+    draw: ImageDraw.ImageDraw,
+    lines: list[str],
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    area: Rect,
+    gap: int,
+) -> bool:
+    margin = 2 * gap + 8
+    boxes = [draw.textbbox((0, 0), text, font=font) for text in lines]
+    total = sum(b[3] - b[1] for b in boxes) + gap * (len(lines) - 1)
+    widest = max(b[2] - b[0] for b in boxes)
+    return total <= area.h - margin and widest <= area.w - margin
 
 
 def _num(value: float) -> str:
@@ -147,25 +203,3 @@ def _intersect(a: Rect, b: Rect) -> Rect:
 def _bottom_margin(template: PhotoTemplate) -> Rect:
     top = max(slot.rect.bottom for slot in template.slots)
     return Rect(0, top, template.width_px, template.height_px - top)
-
-
-def _fit(
-    draw: ImageDraw.ImageDraw,
-    lines: list[tuple[str, ImageFont.FreeTypeFont | ImageFont.ImageFont]],
-    area: Rect,
-    gap: int,
-) -> list[tuple[str, ImageFont.FreeTypeFont | ImageFont.ImageFont]]:
-    """Keep only the lines that fit inside the area with margins (most important first)."""
-    kept: list[tuple[str, ImageFont.FreeTypeFont | ImageFont.ImageFont]] = []
-    used: float = 0
-    margin = 2 * gap + 8
-    for text, font in lines:
-        box = draw.textbbox((0, 0), text, font=font)
-        height = box[3] - box[1] + (gap if kept else 0)
-        if used + height > area.h - margin or box[2] - box[0] > area.w - margin:
-            if not kept:
-                continue
-            break
-        kept.append((text, font))
-        used += height
-    return kept

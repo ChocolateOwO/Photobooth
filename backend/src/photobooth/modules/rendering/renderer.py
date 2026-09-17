@@ -18,7 +18,57 @@ from photobooth.modules.rendering.domain import (
 MAX_INPUT_PIXELS = 50_000_000  # decompression-bomb guard for captures and frames
 JPEG_QUALITY = 95
 CANVAS_BACKGROUND = (255, 255, 255)
-_SRGB_ICC = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+_SRGB_PROFILE = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
+_SRGB_ICC = _SRGB_PROFILE.tobytes()
+
+
+def to_srgb(
+    image: Image.Image, what: str, keep_alpha: bool, icc: bytes | None = None
+) -> Image.Image:
+    """Color-manage an input into sRGB (RGB, or RGBA when `keep_alpha`).
+
+    Embedded ICC profiles (e.g. Adobe RGB, Display P3, gray, tagged CMYK) are converted, not just
+    relabelled; untagged RGB/gray is treated as sRGB; untagged CMYK is rejected.
+    """
+    has_alpha = image.mode in ("RGBA", "LA", "PA") or (
+        image.mode == "P" and "transparency" in image.info
+    )
+    alpha = image.convert("RGBA").getchannel("A") if (keep_alpha and has_alpha) else None
+    icc = icc or image.info.get("icc_profile")
+    if icc:
+        try:
+            source = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+        except (OSError, ImageCms.PyCMSError) as exc:
+            raise RenderError(f"{what} has an unreadable ICC profile: {exc}") from exc
+        base = image
+        if image.mode in ("RGBA", "P", "PA"):
+            base = image.convert("RGB")
+        elif image.mode == "LA":
+            base = image.convert("L")
+        try:
+            converted = ImageCms.profileToProfile(
+                base,
+                source,
+                _SRGB_PROFILE,
+                renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                outputMode="RGB",
+            )
+        except (OSError, ValueError, ImageCms.PyCMSError) as exc:
+            raise RenderError(
+                f"{what} has an ICC profile that does not match its pixels: {exc}"
+            ) from exc
+        assert converted is not None
+        result = converted
+    elif image.mode == "CMYK":
+        raise RenderError(f"{what} is CMYK without an ICC profile; provide sRGB or a tagged image")
+    else:
+        result = image.convert("RGB")
+    if alpha is not None:
+        result = result.convert("RGBA")
+        result.putalpha(alpha)
+    elif keep_alpha:
+        result = result.convert("RGBA")
+    return result
 
 
 def _open(data: bytes, what: str) -> Image.Image:
@@ -52,8 +102,13 @@ class PillowPhotoRenderer(PhotoRenderer):
             capture_id = assignment.capture.capture_id
             if capture_id not in job.images:
                 raise RenderError(f"missing image for capture {capture_id}")
-            photo = ImageOps.exif_transpose(_open(job.images[capture_id], f"capture {capture_id}"))
-            photo = photo.convert("RGB")
+            opened = _open(job.images[capture_id], f"capture {capture_id}")
+            photo = to_srgb(
+                ImageOps.exif_transpose(opened),
+                f"capture {capture_id}",
+                keep_alpha=False,
+                icc=opened.info.get("icc_profile"),  # read before any transpose copy
+            )
             if job.mirror:
                 photo = ImageOps.mirror(photo)
             rect = assignment.slot.rect
@@ -69,9 +124,8 @@ class PillowPhotoRenderer(PhotoRenderer):
                     f"frame must be {template.width_px}x{template.height_px}, got "
                     f"{frame.width}x{frame.height}"
                 )
-            canvas = Image.alpha_composite(canvas.convert("RGBA"), frame.convert("RGBA")).convert(
-                "RGB"
-            )
+            frame_rgba = to_srgb(frame, "frame", keep_alpha=True)
+            canvas = Image.alpha_composite(canvas.convert("RGBA"), frame_rgba).convert("RGB")
 
         buffer = io.BytesIO()
         canvas.save(

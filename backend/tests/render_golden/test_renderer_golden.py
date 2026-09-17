@@ -8,6 +8,7 @@ import pytest
 from PIL import Image, ImageCms
 
 from photobooth.modules.rendering.domain import CaptureRef, RenderError
+from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import (
     MAX_INPUT_PIXELS,
     PillowPhotoRenderer,
@@ -23,6 +24,7 @@ SERVICE = RenderService(
     PillowPhotoRenderer(),
     TemplateSpecService(TEMPLATES, PillowTemplateArtist()),
     PillowSampleImageFactory(),
+    RenderQueue(max_pending=4),
 )
 COLORS = {
     1: (220, 30, 30),
@@ -202,8 +204,87 @@ def test_unreadable_and_oversized_inputs_are_rejected() -> None:
 
 
 def test_sample_preview_uses_numbered_unique_captures_per_strip() -> None:
-    strip2 = SERVICE.render_sample("strip_2x6", 2)
+    strip2 = SERVICE.render_sample("strip_2x6", 2).result(timeout=60)
     assert strip2.capture_ids == ("sample-4", "sample-5", "sample-6")
     assert _decode(strip2.data).size == (600, 1800)
     with pytest.raises(RenderError):
         SERVICE.render_sample("strip_2x6", 3)
+
+
+# --- colour management (P2-R02) -------------------------------------------------------------
+
+
+def _tagged(
+    color: tuple[int, int, int], mode: str = "RGB", size: tuple[int, int] = (1200, 900)
+) -> bytes:
+    from tests.render_golden.icc import adobe_rgb_profile
+
+    buffer = io.BytesIO()
+    Image.new(mode, size, color if mode == "RGB" else (*color, 255)).save(
+        buffer, format="PNG", icc_profile=adobe_rgb_profile()
+    )
+    return buffer.getvalue()
+
+
+def _expected_srgb(color: tuple[int, int, int]) -> tuple[int, ...]:
+    from tests.render_golden.icc import adobe_rgb_profile
+
+    source = ImageCms.ImageCmsProfile(io.BytesIO(adobe_rgb_profile()))
+    srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
+    converted = ImageCms.profileToProfile(
+        Image.new("RGB", (1, 1), color),
+        source,
+        srgb,
+        renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+        outputMode="RGB",
+    )
+    assert converted is not None
+    return tuple(converted.getpixel((0, 0)))
+
+
+def test_tagged_wide_gamut_capture_is_converted_to_srgb_not_relabelled() -> None:
+    template = TEMPLATES.get("print_3x4")
+    adobe_green = (40, 200, 40)
+    expected = _expected_srgb(adobe_green)
+    assert not _close(expected, adobe_green)  # the conversion is material for this colour
+    captures = [CaptureRef("a", 1), CaptureRef("b", 2)]
+    tagged = _tagged(adobe_green)
+    (output,) = SERVICE.render_session(template, captures, DictSource({"a": tagged, "b": tagged}))
+    pixel = _decode(output.data).getpixel(_center(template.slots[0].rect))
+    assert _close(pixel, expected), (pixel, expected)  # type: ignore[arg-type]
+    assert not _close(pixel, adobe_green)
+
+
+def test_tagged_frame_is_converted_and_keeps_its_transparency() -> None:
+    from tests.render_golden.icc import adobe_rgb_profile
+
+    template = TEMPLATES.get("print_3x4")
+    border = (180, 60, 120)
+    frame = Image.new("RGBA", (900, 1200), (*border, 255))
+    for slot in template.slots:
+        r = slot.rect
+        frame.paste((0, 0, 0, 0), (r.x, r.y, r.right, r.bottom))
+    buffer = io.BytesIO()
+    frame.save(buffer, format="PNG", icc_profile=adobe_rgb_profile())
+    captures, source = _session(2)
+    (output,) = SERVICE.render_session(template, captures, source, frame_png=buffer.getvalue())
+    image = _decode(output.data)
+    assert _close(image.getpixel((5, 5)), _expected_srgb(border))  # type: ignore[arg-type]
+    assert _close(image.getpixel(_center(template.slots[0].rect)), COLORS[1])
+
+
+def test_untagged_cmyk_and_broken_profiles_are_rejected() -> None:
+    template = TEMPLATES.get("print_3x4")
+    captures = [CaptureRef("a", 1), CaptureRef("b", 2)]
+    cmyk = io.BytesIO()
+    Image.new("CMYK", (800, 600), (0, 100, 100, 0)).save(cmyk, format="JPEG")
+    with pytest.raises(RenderError, match="CMYK without an ICC profile"):
+        SERVICE.render_session(
+            template, captures, DictSource({"a": cmyk.getvalue(), "b": cmyk.getvalue()})
+        )
+    broken = io.BytesIO()
+    Image.new("RGB", (800, 600), (1, 2, 3)).save(broken, format="PNG", icc_profile=b"not a profile")
+    with pytest.raises(RenderError, match="ICC profile"):
+        SERVICE.render_session(
+            template, captures, DictSource({"a": broken.getvalue(), "b": broken.getvalue()})
+        )
