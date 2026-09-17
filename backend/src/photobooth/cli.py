@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import json
 import logging
 import os
@@ -23,6 +24,7 @@ from photobooth.core.migrations import Migrator
 from photobooth.core.sqlite_backup import SqliteBackupService
 from photobooth.core.web import ServiceRegistry
 from photobooth.main import KioskAppOptions, create_delivery_app, create_kiosk_app
+from photobooth.modules.auth.domain import PasswordPolicyError
 from photobooth.modules.system.repository import SqlAppMetaRepository
 
 log = logging.getLogger("photobooth")
@@ -202,6 +204,37 @@ def cmd_init_env(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_new_password(args: argparse.Namespace) -> str:
+    if args.password_stdin:
+        return sys.stdin.readline().rstrip("\r\n")
+    first = getpass.getpass("New admin password: ")
+    if getpass.getpass("Repeat password: ") != first:
+        raise PasswordPolicyError("passwords do not match")
+    return first
+
+
+def cmd_admin_set_password(args: argparse.Namespace) -> int:
+    """Create the admin user or replace its password (Argon2id). The booth must be stopped, so
+    no running process keeps sessions made with the old password."""
+    settings, guard = _load(args)
+    with InstanceLock(settings.lock_path):
+        migrator = Migrator(settings.db_path)
+        if migrator.current_revision() != migrator.head_revision():
+            raise InstanceGuardError("database", "database is not at head; run 'db-upgrade' first")
+        container = Container(settings)
+        try:
+            guard.check_database(container.app_meta)
+            try:
+                user = container.auth_service.set_password(args.username, _read_new_password(args))
+            except PasswordPolicyError as exc:
+                print(f"photobooth: {exc}", file=sys.stderr)
+                return 2
+        finally:
+            container.close()
+    print(json.dumps({"username": user.username, "instance": settings.instance}))
+    return 0
+
+
 def cmd_export_openapi(args: argparse.Namespace) -> int:
     app = create_kiosk_app(ServiceRegistry(), KioskAppOptions())
     text = json.dumps(app.openapi(), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
@@ -231,6 +264,12 @@ def build_parser() -> argparse.ArgumentParser:
     down.set_defaults(func=cmd_db_downgrade)
     with_env("db-check", "verify instance stamp and head revision").set_defaults(func=cmd_db_check)
     with_env("backup", "online backup + verification").set_defaults(func=cmd_backup)
+    pw = with_env("admin-set-password", "create the admin user or change its password")
+    pw.add_argument("--username", default="admin")
+    pw.add_argument(
+        "--password-stdin", action="store_true", help="read the password from the first stdin line"
+    )
+    pw.set_defaults(func=cmd_admin_set_password)
 
     init = sub.add_parser("init-env", help="write an instance env file")
     init.add_argument("--instance", required=True, choices=["dummy", "main"])

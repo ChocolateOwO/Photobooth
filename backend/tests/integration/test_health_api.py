@@ -20,7 +20,7 @@ def test_version_contract(kiosk_client: TestClient) -> None:
     assert body["app_version"] == "0.1.0"
     assert body["api_version"] == 1
     assert body["instance"] == "dummy"
-    assert body["schema_revision"] == "0001_baseline"
+    assert body["schema_revision"] == "0002_admin_profiles"
 
 
 def test_health_reports_database_error(container: Container) -> None:
@@ -51,4 +51,15 @@ def test_openapi_lists_only_expected_public_paths(kiosk_client: TestClient) -> N
         "/api/templates/{key}/blank.png",
         "/api/templates/{key}/guide.png",
         "/api/render/samples/{key}/{output_index}.jpg",
+        "/api/admin/auth/login",
+        "/api/admin/auth/session",
+        "/api/admin/auth/logout",
+        "/api/admin/assets",
+        "/api/admin/assets/{asset_id}",
+        "/api/admin/assets/{asset_id}/content",
+        "/api/admin/profiles",
+        "/api/admin/profiles/{profile_id}",
+        "/api/admin/profiles/{profile_id}/duplicate",
+        "/api/admin/profiles/{profile_id}/activate",
+        "/api/admin/profiles/{profile_id}/restore",
     }

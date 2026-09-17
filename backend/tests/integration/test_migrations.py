@@ -25,7 +25,7 @@ def _all_revisions() -> list[str]:
 
 
 def test_single_linear_head_is_baseline() -> None:
-    assert _all_revisions()[0] == "0001_baseline"
+    assert _all_revisions() == ["0001_baseline", "0002_admin_profiles"]
     migrator = Migrator(Path("unused.sqlite"))
     assert migrator.head_revision() == _all_revisions()[-1]
 

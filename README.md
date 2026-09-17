@@ -34,6 +34,7 @@ Dummy\
 | Full gate | `... -File scripts\verify.ps1` |
 | E2E only | `... -File scripts\e2e.ps1` |
 | Secret guard | `... -File scripts\check-staged.ps1 -Tracked` |
+| Set admin password (booth stopped) | `backend\.venv\Scripts\python.exe -m photobooth admin-set-password --env-file ..\config\photobooth.env --expect-root <Dummy root> --expect-profile dev` |
 | Patch dry run | `... -File scripts\make-patch.ps1 -Number 001 -Slug project-foundation -Commit <sha> -DryRun` |
 
 ## Ports
@@ -66,6 +67,22 @@ Spec API, blank PNG, guide PNG, renderer and (later) frame validator all read th
 Renderer: each capture is center cover-cropped into its slot, optional RGBA frame composited on top,
 exported as sRGB JPEG q95 with 300 DPI metadata. A session must supply exactly the template's captures;
 a capture is never placed twice.
+
+## Admin and Event Profiles (Phase 3, backend only)
+
+All routes need the paired device and an admin session; mutations also need Origin, the device key and
+`X-Photobooth-Admin-CSRF` (returned by login and `GET /api/admin/auth/session`).
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/admin/auth/login`, `GET .../session`, `POST .../logout` | Argon2id login, device-bound session cookie |
+| `POST /api/admin/assets` (multipart `kind`=logo/background, `file`) | validated PNG/JPEG upload |
+| `GET /api/admin/assets/{id}`, `GET /api/admin/assets/{id}/content` | metadata, image bytes |
+| `GET/POST /api/admin/profiles` (`?include_deleted=true`) | list, create |
+| `GET/PUT/DELETE /api/admin/profiles/{id}` (PUT body and DELETE query carry `revision`) | read, edit, soft delete |
+| `POST /api/admin/profiles/{id}/duplicate`, `/activate`, `/restore` | copy, make the only active profile, undelete |
+
+Frames are not uploaded here: organizers make finished transparent PNG frames outside the app (Phase 5).
 
 ## Security groundwork
 

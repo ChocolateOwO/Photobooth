@@ -15,6 +15,8 @@ dependencies = [
     "sqlalchemy>=2.0.36,<2.1",
     "alembic>=1.14",
     "pillow>=11",
+    "argon2-cffi>=23.1",
+    "python-multipart>=0.0.18",
 ]
 
 [project.optional-dependencies]
@@ -93,6 +95,9 @@ containers = [
     "photobooth.modules.kiosk",
     "photobooth.modules.templates",
     "photobooth.modules.rendering",
+    "photobooth.modules.assets",
+    "photobooth.modules.auth",
+    "photobooth.modules.event_profiles",
 ]
 layers = ["api", "service", "domain"]
 exhaustive = false
@@ -107,6 +112,12 @@ source_modules = [
     "photobooth.modules.kiosk.service",
     "photobooth.modules.templates.api",
     "photobooth.modules.templates.service",
+    "photobooth.modules.assets.api",
+    "photobooth.modules.assets.service",
+    "photobooth.modules.auth.api",
+    "photobooth.modules.auth.service",
+    "photobooth.modules.event_profiles.api",
+    "photobooth.modules.event_profiles.service",
     "photobooth.modules.rendering.service",
 ]
 forbidden_modules = [
@@ -115,7 +126,17 @@ forbidden_modules = [
     "photobooth.modules.templates.repository",
     "photobooth.modules.templates.imaging",
     "photobooth.modules.rendering.renderer",
+    "photobooth.modules.rendering.queue",
+    "photobooth.modules.storage.local",
+    "photobooth.modules.assets.repository",
+    "photobooth.modules.assets.inspector",
+    "photobooth.modules.auth.repository",
+    "photobooth.modules.auth.hasher",
+    "photobooth.modules.auth.sessions",
+    "photobooth.modules.event_profiles.repository",
     "PIL",
+    "argon2",
+    "sqlalchemy",
 ]
 
 [[tool.importlinter.contracts]]
@@ -126,6 +147,10 @@ source_modules = [
     "photobooth.modules.kiosk.domain",
     "photobooth.modules.templates.domain",
     "photobooth.modules.rendering.domain",
+    "photobooth.modules.storage.domain",
+    "photobooth.modules.assets.domain",
+    "photobooth.modules.auth.domain",
+    "photobooth.modules.event_profiles.domain",
 ]
 forbidden_modules = [
     "fastapi",
@@ -133,6 +158,7 @@ forbidden_modules = [
     "sqlalchemy",
     "uvicorn",
     "PIL",
+    "argon2",
     "photobooth.core.db",
     "photobooth.core.config",
 ]
@@ -145,6 +171,9 @@ modules = [
     "photobooth.modules.system",
     "photobooth.modules.kiosk",
     "photobooth.modules.templates",
+    "photobooth.modules.auth",
+    "photobooth.modules.event_profiles",
+    "photobooth.modules.storage",
 ]
 
 [[tool.importlinter.contracts]]
@@ -158,6 +187,10 @@ forbidden_modules = [
     "photobooth.modules.templates.imaging",
     "photobooth.modules.system",
     "photobooth.modules.kiosk",
+    "photobooth.modules.auth",
+    "photobooth.modules.event_profiles",
+    "photobooth.modules.assets",
+    "photobooth.modules.storage",
 ]
 
 [[tool.importlinter.contracts]]
@@ -165,3 +198,17 @@ name = "Templates never import rendering"
 type = "forbidden"
 source_modules = ["photobooth.modules.templates"]
 forbidden_modules = ["photobooth.modules.rendering"]
+
+[[tool.importlinter.contracts]]
+name = "Assets depend only on the storage domain"
+type = "forbidden"
+source_modules = ["photobooth.modules.assets"]
+forbidden_modules = [
+    "photobooth.modules.storage.local",
+    "photobooth.modules.system",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.templates",
+    "photobooth.modules.rendering",
+    "photobooth.modules.auth",
+    "photobooth.modules.event_profiles",
+]

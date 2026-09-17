@@ -4,6 +4,199 @@
  */
 
 export interface paths {
+    "/api/admin/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Asset */
+        post: operations["upload_asset_api_admin_assets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/assets/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Asset Metadata */
+        get: operations["asset_metadata_api_admin_assets__asset_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/assets/{asset_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Asset Content */
+        get: operations["asset_content_api_admin_assets__asset_id__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_api_admin_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_admin_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current Session */
+        get: operations["current_session_api_admin_auth_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Profiles */
+        get: operations["list_profiles_api_admin_profiles_get"];
+        put?: never;
+        /** Create Profile */
+        post: operations["create_profile_api_admin_profiles_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/profiles/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Profile */
+        get: operations["get_profile_api_admin_profiles__profile_id__get"];
+        /** Update Profile */
+        put: operations["update_profile_api_admin_profiles__profile_id__put"];
+        post?: never;
+        /**
+         * Delete Profile
+         * @description Soft delete: the row and its assets stay; it can be restored.
+         */
+        delete: operations["delete_profile_api_admin_profiles__profile_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/profiles/{profile_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate Profile */
+        post: operations["activate_profile_api_admin_profiles__profile_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/profiles/{profile_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Duplicate Profile */
+        post: operations["duplicate_profile_api_admin_profiles__profile_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/profiles/{profile_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Profile */
+        post: operations["restore_profile_api_admin_profiles__profile_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/booth/ping": {
         parameters: {
             query?: never;
@@ -178,6 +371,49 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AssetKind
+         * @enum {string}
+         */
+        AssetKind: "logo" | "background";
+        /** Body_upload_asset_api_admin_assets_post */
+        Body_upload_asset_api_admin_assets_post: {
+            /** File */
+            file: string;
+            kind: components["schemas"]["AssetKind"];
+        };
+        /**
+         * DeliveryMode
+         * @enum {string}
+         */
+        DeliveryMode: "local_link";
+        /** DuplicateBody */
+        DuplicateBody: {
+            /** Name */
+            name?: string | null;
+        };
+        /** EventProfileResponse */
+        EventProfileResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Deleted At */
+            deleted_at: string | null;
+            /** Id */
+            id: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Revision */
+            revision: number;
+            settings: components["schemas"]["ProfileSettingsBody"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** FrameRulesModel */
         FrameRulesModel: {
             /** Animated */
@@ -220,10 +456,208 @@ export interface components {
             /** Paired */
             paired: boolean;
         };
+        /** LoginRequest */
+        LoginRequest: {
+            /** Password */
+            password: string;
+            /** Username */
+            username: string;
+        };
+        /**
+         * MediaAssetResponse
+         * @description Stored asset metadata. The storage key and client file name are never exposed.
+         */
+        MediaAssetResponse: {
+            /** Bytes */
+            bytes: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Height */
+            height: number;
+            /** Id */
+            id: string;
+            kind: components["schemas"]["AssetKind"];
+            /** Mime */
+            mime: string;
+            /** Sha256 */
+            sha256: string;
+            /** Width */
+            width: number;
+        };
         /** PingResponse */
         PingResponse: {
             /** Ok */
             ok: boolean;
+        };
+        /** ProblemResponse */
+        ProblemResponse: {
+            /** Detail */
+            detail: string;
+        };
+        /**
+         * ProfileSettingsBody
+         * @description Every field an organizer can set. Unknown fields are refused.
+         */
+        ProfileSettingsBody: {
+            /** Background Asset Id */
+            background_asset_id?: string | null;
+            /**
+             * Background Color
+             * @default #101418
+             * @example #2F6FD6
+             */
+            background_color: string;
+            /**
+             * Button Color
+             * @default #2F6FD6
+             * @example #2F6FD6
+             */
+            button_color: string;
+            /**
+             * Countdown Seconds
+             * @default 5
+             * @constant
+             */
+            countdown_seconds: 5;
+            /** @default local_link */
+            delivery_mode: components["schemas"]["DeliveryMode"];
+            /** Enabled Layouts */
+            enabled_layouts: string[];
+            /**
+             * Inactivity Timeout S
+             * @default 120
+             */
+            inactivity_timeout_s: number;
+            /** Logo Asset Id */
+            logo_asset_id?: string | null;
+            /**
+             * Mirror
+             * @default true
+             */
+            mirror: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Primary Color
+             * @default #2F6FD6
+             * @example #2F6FD6
+             */
+            primary_color: string;
+            /** @default per_photo */
+            retake_mode: components["schemas"]["RetakeMode"];
+            /**
+             * Secondary Color
+             * @default #FFB020
+             * @example #2F6FD6
+             */
+            secondary_color: string;
+            /**
+             * Start Button Text
+             * @default Start
+             */
+            start_button_text: string;
+            /**
+             * Subtitle
+             * @description Preparation screen text
+             * @default
+             */
+            subtitle: string;
+            /**
+             * Text Color
+             * @default #F4F6F8
+             * @example #2F6FD6
+             */
+            text_color: string;
+            /**
+             * Title
+             * @description Preparation screen title
+             */
+            title: string;
+        };
+        /** ProfileUpdateBody */
+        ProfileUpdateBody: {
+            /** Background Asset Id */
+            background_asset_id?: string | null;
+            /**
+             * Background Color
+             * @default #101418
+             * @example #2F6FD6
+             */
+            background_color: string;
+            /**
+             * Button Color
+             * @default #2F6FD6
+             * @example #2F6FD6
+             */
+            button_color: string;
+            /**
+             * Countdown Seconds
+             * @default 5
+             * @constant
+             */
+            countdown_seconds: 5;
+            /** @default local_link */
+            delivery_mode: components["schemas"]["DeliveryMode"];
+            /** Enabled Layouts */
+            enabled_layouts: string[];
+            /**
+             * Inactivity Timeout S
+             * @default 120
+             */
+            inactivity_timeout_s: number;
+            /** Logo Asset Id */
+            logo_asset_id?: string | null;
+            /**
+             * Mirror
+             * @default true
+             */
+            mirror: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Primary Color
+             * @default #2F6FD6
+             * @example #2F6FD6
+             */
+            primary_color: string;
+            /** @default per_photo */
+            retake_mode: components["schemas"]["RetakeMode"];
+            /**
+             * Revision
+             * @description Revision the edit was based on (optimistic lock)
+             */
+            revision: number;
+            /**
+             * Secondary Color
+             * @default #FFB020
+             * @example #2F6FD6
+             */
+            secondary_color: string;
+            /**
+             * Start Button Text
+             * @default Start
+             */
+            start_button_text: string;
+            /**
+             * Subtitle
+             * @description Preparation screen text
+             * @default
+             */
+            subtitle: string;
+            /**
+             * Text Color
+             * @default #F4F6F8
+             * @example #2F6FD6
+             */
+            text_color: string;
+            /**
+             * Title
+             * @description Preparation screen title
+             */
+            title: string;
         };
         /** RectModel */
         RectModel: {
@@ -235,6 +669,20 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /**
+         * RetakeMode
+         * @enum {string}
+         */
+        RetakeMode: "none" | "per_photo" | "all";
+        /** SessionResponse */
+        SessionResponse: {
+            /** Csrf Token */
+            csrf_token: string;
+            /** Expires In Seconds */
+            expires_in_seconds: number;
+            /** Username */
+            username: string;
         };
         /** SlotModel */
         SlotModel: {
@@ -370,6 +818,577 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    upload_asset_api_admin_assets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_asset_api_admin_assets_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAssetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    asset_metadata_api_admin_assets__asset_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAssetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    asset_content_api_admin_assets__asset_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
+                    "image/png": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_api_admin_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_admin_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    current_session_api_admin_auth_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+        };
+    };
+    list_profiles_api_admin_profiles_get: {
+        parameters: {
+            query?: {
+                include_deleted?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventProfileResponse"][];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_profile_api_admin_profiles_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileSettingsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventProfileResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_profile_api_admin_profiles__profile_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventProfileResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_profile_api_admin_profiles__profile_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdateBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventProfileResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_profile_api_admin_profiles__profile_id__delete: {
+        parameters: {
+            query: {
+                revision: number;
+            };
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventProfileResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_profile_api_admin_profiles__profile_id__activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventProfileResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_profile_api_admin_profiles__profile_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DuplicateBody"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventProfileResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_profile_api_admin_profiles__profile_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventProfileResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     booth_ping_api_booth_ping_post: {
         parameters: {
             query?: never;

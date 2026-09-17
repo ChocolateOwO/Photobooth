@@ -1,6 +1,111 @@
 {
   "components": {
     "schemas": {
+      "AssetKind": {
+        "enum": [
+          "logo",
+          "background"
+        ],
+        "title": "AssetKind",
+        "type": "string"
+      },
+      "Body_upload_asset_api_admin_assets_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AssetKind"
+          }
+        },
+        "required": [
+          "kind",
+          "file"
+        ],
+        "title": "Body_upload_asset_api_admin_assets_post",
+        "type": "object"
+      },
+      "DeliveryMode": {
+        "enum": [
+          "local_link"
+        ],
+        "title": "DeliveryMode",
+        "type": "string"
+      },
+      "DuplicateBody": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "DuplicateBody",
+        "type": "object"
+      },
+      "EventProfileResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ProfileSettingsBody"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "settings",
+          "is_active",
+          "revision",
+          "created_at",
+          "updated_at",
+          "deleted_at"
+        ],
+        "title": "EventProfileResponse",
+        "type": "object"
+      },
       "FrameRulesModel": {
         "properties": {
           "animated": {
@@ -101,6 +206,77 @@
         "title": "KioskStatusResponse",
         "type": "object"
       },
+      "LoginRequest": {
+        "properties": {
+          "password": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          },
+          "username": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "MediaAssetResponse": {
+        "description": "Stored asset metadata. The storage key and client file name are never exposed.",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AssetKind"
+          },
+          "mime": {
+            "title": "Mime",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "mime",
+          "width",
+          "height",
+          "bytes",
+          "sha256",
+          "created_at"
+        ],
+        "title": "MediaAssetResponse",
+        "type": "object"
+      },
       "PingResponse": {
         "properties": {
           "ok": {
@@ -112,6 +288,315 @@
           "ok"
         ],
         "title": "PingResponse",
+        "type": "object"
+      },
+      "ProblemResponse": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ProblemResponse",
+        "type": "object"
+      },
+      "ProfileSettingsBody": {
+        "additionalProperties": false,
+        "description": "Every field an organizer can set. Unknown fields are refused.",
+        "properties": {
+          "background_asset_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Background Asset Id"
+          },
+          "background_color": {
+            "default": "#101418",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "button_color": {
+            "default": "#2F6FD6",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Button Color",
+            "type": "string"
+          },
+          "countdown_seconds": {
+            "const": 5,
+            "default": 5,
+            "title": "Countdown Seconds",
+            "type": "integer"
+          },
+          "delivery_mode": {
+            "$ref": "#/components/schemas/DeliveryMode",
+            "default": "local_link"
+          },
+          "enabled_layouts": {
+            "items": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Enabled Layouts",
+            "type": "array"
+          },
+          "inactivity_timeout_s": {
+            "default": 120,
+            "maximum": 900.0,
+            "minimum": 30.0,
+            "title": "Inactivity Timeout S",
+            "type": "integer"
+          },
+          "logo_asset_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Asset Id"
+          },
+          "mirror": {
+            "default": true,
+            "title": "Mirror",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "primary_color": {
+            "default": "#2F6FD6",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Primary Color",
+            "type": "string"
+          },
+          "retake_mode": {
+            "$ref": "#/components/schemas/RetakeMode",
+            "default": "per_photo"
+          },
+          "secondary_color": {
+            "default": "#FFB020",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Secondary Color",
+            "type": "string"
+          },
+          "start_button_text": {
+            "default": "Start",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Start Button Text",
+            "type": "string"
+          },
+          "subtitle": {
+            "default": "",
+            "description": "Preparation screen text",
+            "maxLength": 240,
+            "title": "Subtitle",
+            "type": "string"
+          },
+          "text_color": {
+            "default": "#F4F6F8",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Text Color",
+            "type": "string"
+          },
+          "title": {
+            "description": "Preparation screen title",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "enabled_layouts"
+        ],
+        "title": "ProfileSettingsBody",
+        "type": "object"
+      },
+      "ProfileUpdateBody": {
+        "additionalProperties": false,
+        "properties": {
+          "background_asset_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Background Asset Id"
+          },
+          "background_color": {
+            "default": "#101418",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "button_color": {
+            "default": "#2F6FD6",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Button Color",
+            "type": "string"
+          },
+          "countdown_seconds": {
+            "const": 5,
+            "default": 5,
+            "title": "Countdown Seconds",
+            "type": "integer"
+          },
+          "delivery_mode": {
+            "$ref": "#/components/schemas/DeliveryMode",
+            "default": "local_link"
+          },
+          "enabled_layouts": {
+            "items": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Enabled Layouts",
+            "type": "array"
+          },
+          "inactivity_timeout_s": {
+            "default": 120,
+            "maximum": 900.0,
+            "minimum": 30.0,
+            "title": "Inactivity Timeout S",
+            "type": "integer"
+          },
+          "logo_asset_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Asset Id"
+          },
+          "mirror": {
+            "default": true,
+            "title": "Mirror",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "primary_color": {
+            "default": "#2F6FD6",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Primary Color",
+            "type": "string"
+          },
+          "retake_mode": {
+            "$ref": "#/components/schemas/RetakeMode",
+            "default": "per_photo"
+          },
+          "revision": {
+            "description": "Revision the edit was based on (optimistic lock)",
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "secondary_color": {
+            "default": "#FFB020",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Secondary Color",
+            "type": "string"
+          },
+          "start_button_text": {
+            "default": "Start",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Start Button Text",
+            "type": "string"
+          },
+          "subtitle": {
+            "default": "",
+            "description": "Preparation screen text",
+            "maxLength": 240,
+            "title": "Subtitle",
+            "type": "string"
+          },
+          "text_color": {
+            "default": "#F4F6F8",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Text Color",
+            "type": "string"
+          },
+          "title": {
+            "description": "Preparation screen title",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "enabled_layouts",
+          "revision"
+        ],
+        "title": "ProfileUpdateBody",
         "type": "object"
       },
       "RectModel": {
@@ -140,6 +625,38 @@
           "h"
         ],
         "title": "RectModel",
+        "type": "object"
+      },
+      "RetakeMode": {
+        "enum": [
+          "none",
+          "per_photo",
+          "all"
+        ],
+        "title": "RetakeMode",
+        "type": "string"
+      },
+      "SessionResponse": {
+        "properties": {
+          "csrf_token": {
+            "title": "Csrf Token",
+            "type": "string"
+          },
+          "expires_in_seconds": {
+            "title": "Expires In Seconds",
+            "type": "integer"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "csrf_token",
+          "expires_in_seconds"
+        ],
+        "title": "SessionResponse",
         "type": "object"
       },
       "SlotModel": {
@@ -516,6 +1033,744 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/assets": {
+      "post": {
+        "operationId": "upload_asset_api_admin_assets_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_asset_api_admin_assets_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaAssetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Asset",
+        "tags": [
+          "admin-assets"
+        ]
+      }
+    },
+    "/api/admin/assets/{asset_id}": {
+      "get": {
+        "operationId": "asset_metadata_api_admin_assets__asset_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaAssetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Asset Metadata",
+        "tags": [
+          "admin-assets"
+        ]
+      }
+    },
+    "/api/admin/assets/{asset_id}/content": {
+      "get": {
+        "operationId": "asset_content_api_admin_assets__asset_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {},
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Asset Content",
+        "tags": [
+          "admin-assets"
+        ]
+      }
+    },
+    "/api/admin/auth/login": {
+      "post": {
+        "operationId": "login_api_admin_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "admin-auth"
+        ]
+      }
+    },
+    "/api/admin/auth/logout": {
+      "post": {
+        "operationId": "logout_api_admin_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "admin-auth"
+        ]
+      }
+    },
+    "/api/admin/auth/session": {
+      "get": {
+        "operationId": "current_session_api_admin_auth_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Current Session",
+        "tags": [
+          "admin-auth"
+        ]
+      }
+    },
+    "/api/admin/profiles": {
+      "get": {
+        "operationId": "list_profiles_api_admin_profiles_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_deleted",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Deleted",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EventProfileResponse"
+                  },
+                  "title": "Response List Profiles Api Admin Profiles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Profiles",
+        "tags": [
+          "admin-profiles"
+        ]
+      },
+      "post": {
+        "operationId": "create_profile_api_admin_profiles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileSettingsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Profile",
+        "tags": [
+          "admin-profiles"
+        ]
+      }
+    },
+    "/api/admin/profiles/{profile_id}": {
+      "delete": {
+        "description": "Soft delete: the row and its assets stay; it can be restored.",
+        "operationId": "delete_profile_api_admin_profiles__profile_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Revision",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Profile",
+        "tags": [
+          "admin-profiles"
+        ]
+      },
+      "get": {
+        "operationId": "get_profile_api_admin_profiles__profile_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Profile",
+        "tags": [
+          "admin-profiles"
+        ]
+      },
+      "put": {
+        "operationId": "update_profile_api_admin_profiles__profile_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdateBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Profile",
+        "tags": [
+          "admin-profiles"
+        ]
+      }
+    },
+    "/api/admin/profiles/{profile_id}/activate": {
+      "post": {
+        "operationId": "activate_profile_api_admin_profiles__profile_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Profile",
+        "tags": [
+          "admin-profiles"
+        ]
+      }
+    },
+    "/api/admin/profiles/{profile_id}/duplicate": {
+      "post": {
+        "operationId": "duplicate_profile_api_admin_profiles__profile_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DuplicateBody"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Duplicate Profile",
+        "tags": [
+          "admin-profiles"
+        ]
+      }
+    },
+    "/api/admin/profiles/{profile_id}/restore": {
+      "post": {
+        "operationId": "restore_profile_api_admin_profiles__profile_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Profile",
+        "tags": [
+          "admin-profiles"
+        ]
+      }
+    },
     "/api/booth/ping": {
       "post": {
         "operationId": "booth_ping_api_booth_ping_post",

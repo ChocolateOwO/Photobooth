@@ -2,15 +2,35 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import URL, Engine, create_engine, event
+from sqlalchemy import URL, DateTime, Dialect, Engine, TypeDecorator, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM tables."""
+
+
+class UtcDateTime(TypeDecorator[datetime]):
+    """Stores aware datetimes as UTC and returns them aware (SQLite keeps no offset)."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError("naive datetime refused; use an aware UTC datetime")
+        return value.astimezone(UTC).replace(tzinfo=None)
+
+    def process_result_value(self, value: datetime | None, dialect: Dialect) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def sqlite_url(db_path: Path) -> URL:

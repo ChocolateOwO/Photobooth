@@ -6,6 +6,7 @@ import secrets
 import time
 
 from photobooth import API_VERSION, __version__
+from photobooth.core.admin_gate import AdminAuthenticator, AdminCookieSettings
 from photobooth.core.config import AppSettings
 from photobooth.core.db import create_sqlite_engine
 from photobooth.core.kiosk_pairing import (
@@ -18,10 +19,22 @@ from photobooth.core.kiosk_pairing import (
     RuntimeSecretFile,
 )
 from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
+from photobooth.modules.assets.inspector import PillowImageInspector
+from photobooth.modules.assets.repository import SqlAssetRepository
+from photobooth.modules.assets.service import AssetService
+from photobooth.modules.auth.api import AdminAuthGate
+from photobooth.modules.auth.domain import LoginThrottle
+from photobooth.modules.auth.hasher import Argon2PasswordHasher
+from photobooth.modules.auth.repository import SqlAdminUserRepository
+from photobooth.modules.auth.service import AuthService
+from photobooth.modules.auth.sessions import InMemoryAdminSessionStore
+from photobooth.modules.event_profiles.repository import SqlEventProfileRepository
+from photobooth.modules.event_profiles.service import EventProfileService
 from photobooth.modules.kiosk.service import KioskPairingService
 from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
 from photobooth.modules.rendering.service import RenderService
+from photobooth.modules.storage.local import LocalStorageProvider
 from photobooth.modules.system.domain import AppMetaRepository
 from photobooth.modules.system.repository import SqlAppMetaRepository
 from photobooth.modules.system.service import SystemIdentity, SystemService
@@ -69,6 +82,21 @@ class Container:
             self.render_queue,
         )
 
+        self.storage = LocalStorageProvider(settings.storage_dir)
+        self.asset_service = AssetService(
+            SqlAssetRepository(self.engine), self.storage, PillowImageInspector()
+        )
+        self.auth_service = AuthService(
+            SqlAdminUserRepository(self.engine),
+            Argon2PasswordHasher(),
+            InMemoryAdminSessionStore(),
+            LoginThrottle(clock),
+            monotonic=clock,
+        )
+        self.profile_service = EventProfileService(
+            SqlEventProfileRepository(self.engine), self.asset_service, self.template_service
+        )
+
         self.registry = ServiceRegistry()
         self.registry.register(SystemService, self.system_service)
         self.registry.register(KioskPairingService, self.kiosk_pairing_service)
@@ -76,6 +104,13 @@ class Container:
         self.registry.register(RenderService, self.render_service)
         self.registry.register(DeviceCredentialRegistry, self.device_credentials)
         self.registry.register(LauncherCredential, self.launcher)
+        self.registry.register(AssetService, self.asset_service)
+        self.registry.register(AuthService, self.auth_service)
+        self.registry.register(EventProfileService, self.profile_service)
+        self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))
+        self.registry.register(
+            AdminCookieSettings, AdminCookieSettings(f"pb_admin_{settings.instance}")
+        )
         self.registry.register(
             DeviceCookieSettings,
             DeviceCookieSettings(settings.device_cookie_name, settings.allowed_origins),

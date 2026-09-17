@@ -5,8 +5,11 @@ alembic==1.20.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1
+argon2-cffi==25.1.0
+argon2-cffi-bindings==26.1.0
 ast-serialize==0.11.2
 certifi==2026.7.22
+cffi==2.1.1
 click==8.5.0
 colorama==0.4.6
 fastapi==0.141.1
@@ -29,12 +32,14 @@ packaging==26.3
 pathspec==1.1.1
 pillow==12.3.0
 pluggy==1.6.0
+pycparser==3.0
 pydantic==2.13.5
 pydantic-core==2.46.5
 pydantic-settings==2.15.0
 pygments==2.21.0
 pytest==9.1.1
 python-dotenv==1.2.3
+python-multipart==0.0.32
 rich==15.0.0
 ruff==0.16.8
 setuptools==84.0.0
