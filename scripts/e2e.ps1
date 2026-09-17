@@ -27,6 +27,22 @@ try {
     Invoke-Native $python @('-m', 'photobooth', 'db-upgrade', '--env-file', $envFile,
         '--expect-root', $root, '--expect-profile', 'e2e')
 
+    # Throwaway admin account for this e2e instance only (random password, never written to disk).
+    $adminPassword = 'e2e-' + [guid]::NewGuid().ToString('N')
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $adminPassword | & $python -m photobooth admin-set-password --env-file $envFile `
+            --expect-root $root --expect-profile e2e --username admin --password-stdin
+        if ($LASTEXITCODE -ne 0) { throw "admin-set-password exited with $LASTEXITCODE" }
+    }
+    finally { $ErrorActionPreference = $previousPreference }
+
+    # Upload fixtures: a small transparent PNG logo and a JPEG background.
+    $fixtures = Join-Path $root 'fixtures'
+    New-Item -ItemType Directory -Force -Path $fixtures | Out-Null
+    Invoke-Native $python @('-c', 'import sys; from PIL import Image; d=sys.argv[1]; Image.new("RGBA",(256,128),(255,176,32,200)).save(d+"/logo.png"); Image.new("RGB",(1280,720),(40,90,160)).save(d+"/background.jpg", quality=90)', $fixtures)
+
     if (-not $SkipBuild) {
         $env:PHOTOBOOTH_INSTANCE = 'dummy'
         Invoke-Native 'npm.cmd' @('run', 'build') $frontend
@@ -40,11 +56,19 @@ try {
     $env:PHOTOBOOTH_E2E_PYTHON = $python
     $env:PHOTOBOOTH_E2E_FRONTEND_DIR = $frontend
     $env:PHOTOBOOTH_E2E_INSTANCE_ROOT = $root
+    $env:PHOTOBOOTH_E2E_ADMIN_PASSWORD = $adminPassword
+    $env:PHOTOBOOTH_E2E_FIXTURES = $fixtures
     Push-Location $e2eDir
     $ErrorActionPreference = 'Continue'
     try {
-        & npx.cmd playwright test
+        # Phase 1: everything except the restart checks. Playwright stops the backend at the end.
+        & npx.cmd playwright test --grep-invert '@after-restart'
         $exitCode = $LASTEXITCODE
+        if ($exitCode -eq 0) {
+            # Phase 2: a fresh backend process on the same instance data proves persistence.
+            & npx.cmd playwright test --grep '@after-restart'
+            $exitCode = $LASTEXITCODE
+        }
     }
     finally {
         $ErrorActionPreference = 'Stop'
