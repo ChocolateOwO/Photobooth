@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from argon2 import PasswordHasher as Argon2
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from photobooth.container import Container
 from photobooth.core.config import AppSettings
+from photobooth.core.migrations import Migrator
 from photobooth.main import KioskAppOptions, create_kiosk_app
 from photobooth.modules.auth.domain import (
     InvalidCredentialsError,
@@ -27,6 +29,7 @@ from photobooth.modules.auth.service import (
     AuthService,
 )
 from photobooth.modules.auth.sessions import InMemoryAdminSessionStore
+from tests.conftest import make_settings
 from tests.integration.admin_support import (
     CSRF_HEADER,
     PASSWORD,
@@ -65,6 +68,33 @@ def test_password_policy(container: Container, username: str, password: str) -> 
         container.auth_service.set_password(username, password)
     with pytest.raises(PasswordPolicyError):
         container.auth_service.set_password("adminuser", "adminuser")
+
+
+@pytest.mark.parametrize(
+    ("instance", "profile", "short_allowed"),
+    [
+        ("dummy", "dev", True),
+        ("dummy", "test", False),
+        ("dummy", "e2e", False),
+        ("main", "prod", False),
+    ],
+)
+def test_short_passwords_only_on_the_dummy_dev_instance(
+    thai_root: Path, instance: str, profile: str, short_allowed: bool
+) -> None:
+    settings = make_settings(thai_root, instance=instance, profile=profile)
+    Migrator(settings.db_path).upgrade("head")
+    container = Container(settings)
+    try:
+        if short_allowed:
+            container.auth_service.set_password(USERNAME, "admin123")
+            with pytest.raises(PasswordPolicyError):
+                container.auth_service.set_password(USERNAME, "short7!")
+        else:
+            with pytest.raises(PasswordPolicyError):
+                container.auth_service.set_password(USERNAME, "admin123")
+    finally:
+        container.close()
 
 
 def test_login_sets_http_only_strict_cookie_and_returns_csrf(

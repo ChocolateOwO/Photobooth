@@ -24,7 +24,11 @@ from photobooth.modules.assets.inspector import PillowImageInspector
 from photobooth.modules.assets.repository import SqlAssetRepository
 from photobooth.modules.assets.service import AssetService
 from photobooth.modules.auth.api import AdminAuthGate
-from photobooth.modules.auth.domain import LoginThrottle
+from photobooth.modules.auth.domain import (
+    DEV_MIN_PASSWORD_LENGTH,
+    MIN_PASSWORD_LENGTH,
+    LoginThrottle,
+)
 from photobooth.modules.auth.hasher import Argon2PasswordHasher
 from photobooth.modules.auth.repository import SqlAdminUserRepository
 from photobooth.modules.auth.service import AuthService
@@ -93,6 +97,11 @@ class Container:
             InMemoryAdminSessionStore(),
             LoginThrottle(clock),
             monotonic=clock,
+            min_password_length=(
+                DEV_MIN_PASSWORD_LENGTH
+                if settings.instance == "dummy" and settings.profile == "dev"
+                else MIN_PASSWORD_LENGTH
+            ),
         )
         self.profile_service = EventProfileService(
             SqlEventProfileRepository(self.engine), self.asset_service, self.template_service

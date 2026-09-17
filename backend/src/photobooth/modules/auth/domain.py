@@ -12,6 +12,8 @@ from datetime import datetime
 from typing import Protocol
 
 MIN_PASSWORD_LENGTH = 12
+# Dummy dev profile only (user decision 2026-09-17): short local test passwords such as admin123.
+DEV_MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 256
 USERNAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,31}$")
 
@@ -44,9 +46,11 @@ def normalize_username(username: str) -> str:
     return value
 
 
-def check_password_policy(password: str, username: str) -> None:
-    if len(password) < MIN_PASSWORD_LENGTH:
-        raise PasswordPolicyError(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
+def check_password_policy(
+    password: str, username: str, min_length: int = MIN_PASSWORD_LENGTH
+) -> None:
+    if len(password) < min_length:
+        raise PasswordPolicyError(f"password must be at least {min_length} characters")
     if len(password) > MAX_PASSWORD_LENGTH:
         raise PasswordPolicyError(f"password must be at most {MAX_PASSWORD_LENGTH} characters")
     if password.strip().lower() == username.lower():

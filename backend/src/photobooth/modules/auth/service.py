@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from photobooth.modules.auth.domain import (
+    MIN_PASSWORD_LENGTH,
     AdminSession,
     AdminSessionStore,
     AdminUser,
@@ -64,8 +65,10 @@ class AuthService:
         throttle: LoginThrottle,
         monotonic: Callable[[], float] = time.monotonic,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        min_password_length: int = MIN_PASSWORD_LENGTH,
     ) -> None:
         self._users = users
+        self._min_password_length = min_password_length
         self._hasher = hasher
         self._sessions = sessions
         self._throttle = throttle
@@ -76,7 +79,7 @@ class AuthService:
 
     def set_password(self, username: str, password: str) -> AdminUser:
         name = normalize_username(username)
-        check_password_policy(password, name)
+        check_password_policy(password, name, self._min_password_length)
         now = self._now()
         user = self._users.upsert_password(
             AdminUser(
