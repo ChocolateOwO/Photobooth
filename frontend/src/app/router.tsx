@@ -1,9 +1,30 @@
-import { createBrowserRouter } from 'react-router'
+import { createBrowserRouter, Outlet } from 'react-router'
 
+import { AdminAuthProvider } from '../features/admin/api/AdminAuthProvider'
+import { AdminGate } from '../features/admin/pages/AdminGate'
+import { ProfileEditorPage } from '../features/admin/pages/ProfileEditorPage'
+import { ProfileListPage } from '../features/admin/pages/ProfileListPage'
 import { SystemHomePage } from '../features/system/SystemHomePage'
 import { buildInstance } from '../shared/config/instance'
 
-export const router = createBrowserRouter([
+export const routes = [
   { path: '/', element: <SystemHomePage instance={buildInstance} /> },
+  {
+    path: '/admin',
+    element: (
+      <AdminAuthProvider>
+        <AdminGate>
+          <Outlet />
+        </AdminGate>
+      </AdminAuthProvider>
+    ),
+    children: [
+      { index: true, element: <ProfileListPage /> },
+      { path: 'profiles/new', element: <ProfileEditorPage /> },
+      { path: 'profiles/:profileId', element: <ProfileEditorPage /> },
+    ],
+  },
   { path: '*', element: <SystemHomePage instance={buildInstance} /> },
-])
+]
+
+export const router = createBrowserRouter(routes)
