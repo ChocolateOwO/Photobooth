@@ -108,6 +108,7 @@ export function AdminGate({ children }: { children: ReactNode }) {
                 name="username"
                 type="text"
                 autoComplete="username"
+                placeholder="Your admin username"
                 value={usernameInput}
                 onChange={(e) => setUsernameInput(e.target.value)}
                 className={styles.input}
@@ -123,6 +124,7 @@ export function AdminGate({ children }: { children: ReactNode }) {
                 name="password"
                 type="password"
                 autoComplete="current-password"
+                placeholder="Your admin password"
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
                 className={styles.input}

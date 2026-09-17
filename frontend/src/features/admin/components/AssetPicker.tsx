@@ -99,12 +99,19 @@ export function AssetPicker({
         id={inputId}
         type="file"
         accept="image/png,image/jpeg"
+        aria-describedby={`help-asset-${kind}`}
         onChange={(e) => {
           void handleFileChange(e)
         }}
         disabled={disabled || uploadMutation.isPending}
         className={styles.fileInput}
       />
+
+      <p id={`help-asset-${kind}`} className={styles.helperText}>
+        {isLogo
+          ? 'PNG or JPEG, up to 5 MB. A transparent PNG works best.'
+          : 'PNG or JPEG, up to 12 MB. A 16:9 image fills the screen best.'}
+      </p>
 
       {uploadMutation.isPending && <p className={styles.uploading}>Uploading…</p>}
 

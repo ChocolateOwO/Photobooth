@@ -197,11 +197,16 @@ function ProfileEditorForm({
               id="field-profile-name"
               type="text"
               maxLength={TEXT_LIMITS.name}
+              placeholder="e.g. Chiang Mai Expo 2026"
+              aria-describedby="help-profile-name"
               value={settings.name}
               onChange={(e) => setSettings((current) => ({ ...current, name: e.target.value }))}
               className={styles.input}
               disabled={isDeleted}
             />
+            <p id="help-profile-name" className={styles.helperText}>
+              Only admins see this name. It helps you find the profile later.
+            </p>
           </div>
         </section>
 
@@ -216,6 +221,7 @@ function ProfileEditorForm({
               id="field-title"
               type="text"
               maxLength={TEXT_LIMITS.title}
+              placeholder="e.g. Get ready for your photo!"
               value={settings.title}
               onChange={(e) => setSettings((current) => ({ ...current, title: e.target.value }))}
               className={styles.input}
@@ -230,6 +236,7 @@ function ProfileEditorForm({
             <textarea
               id="field-subtitle"
               maxLength={TEXT_LIMITS.subtitle}
+              placeholder="e.g. Look at the camera and strike a pose."
               value={settings.subtitle}
               onChange={(e) => setSettings((current) => ({ ...current, subtitle: e.target.value }))}
               className={styles.textarea}
@@ -245,6 +252,7 @@ function ProfileEditorForm({
               id="field-start-button-text"
               type="text"
               maxLength={TEXT_LIMITS.startButtonText}
+              placeholder="e.g. Start taking photos"
               value={settings.start_button_text}
               onChange={(e) => setSettings((current) => ({ ...current, start_button_text: e.target.value }))}
               className={styles.input}
@@ -256,6 +264,9 @@ function ProfileEditorForm({
         {/* Colors Section */}
         <section className={styles.formSection}>
           <h2 className={styles.sectionHeading}>Colors</h2>
+          <p id="help-colors" className={styles.helperText}>
+            Pick a color with each swatch. Colors are saved as hex values, e.g. #2F6FD6.
+          </p>
           <div className={styles.colorGrid}>
             <div className={styles.colorField}>
               <label htmlFor="color-background" className={styles.label}>
@@ -265,6 +276,7 @@ function ProfileEditorForm({
                 <input
                   id="color-background"
                   type="color"
+                  aria-describedby="help-colors"
                   value={settings.background_color}
                   onChange={(e) =>
                     setSettings((current) => ({ ...current, background_color: e.target.value.toUpperCase() }))
@@ -284,6 +296,7 @@ function ProfileEditorForm({
                 <input
                   id="color-primary"
                   type="color"
+                  aria-describedby="help-colors"
                   value={settings.primary_color}
                   onChange={(e) =>
                     setSettings((current) => ({ ...current, primary_color: e.target.value.toUpperCase() }))
@@ -303,6 +316,7 @@ function ProfileEditorForm({
                 <input
                   id="color-secondary"
                   type="color"
+                  aria-describedby="help-colors"
                   value={settings.secondary_color}
                   onChange={(e) =>
                     setSettings((current) => ({ ...current, secondary_color: e.target.value.toUpperCase() }))
@@ -322,6 +336,7 @@ function ProfileEditorForm({
                 <input
                   id="color-button"
                   type="color"
+                  aria-describedby="help-colors"
                   value={settings.button_color}
                   onChange={(e) =>
                     setSettings((current) => ({ ...current, button_color: e.target.value.toUpperCase() }))
@@ -341,6 +356,7 @@ function ProfileEditorForm({
                 <input
                   id="color-text"
                   type="color"
+                  aria-describedby="help-colors"
                   value={settings.text_color}
                   onChange={(e) =>
                     setSettings((current) => ({ ...current, text_color: e.target.value.toUpperCase() }))
@@ -381,11 +397,15 @@ function ProfileEditorForm({
         {/* Photo Layouts Section */}
         <section className={styles.formSection}>
           <h2 className={styles.sectionHeading}>Photo layouts</h2>
+          <p id="help-layouts" className={styles.helperText}>
+            Choose one or more print layouts guests can pick from.
+          </p>
           {templates.map((tpl) => (
             <label key={tpl.key} className={styles.checkboxLabel}>
               <input
                 type="checkbox"
                 value={tpl.key}
+                aria-describedby="help-layouts"
                 checked={settings.enabled_layouts.includes(tpl.key)}
                 onChange={(e) => {
                   const checked = e.target.checked
@@ -415,6 +435,7 @@ function ProfileEditorForm({
           <label className={styles.checkboxLabel}>
             <input
               type="checkbox"
+              aria-describedby="help-mirror"
               checked={settings.mirror}
               onChange={(e) => setSettings((current) => ({ ...current, mirror: e.target.checked }))}
               disabled={isDeleted}
@@ -422,6 +443,9 @@ function ProfileEditorForm({
             />
             Mirror the camera preview
           </label>
+          <p id="help-mirror" className={styles.helperText}>
+            When on, the live camera preview works like a mirror.
+          </p>
 
           <div className={styles.field}>
             <label htmlFor="field-inactivity-timeout" className={styles.label}>
@@ -432,6 +456,8 @@ function ProfileEditorForm({
               type="number"
               min={INACTIVITY_LIMITS.min}
               max={INACTIVITY_LIMITS.max}
+              placeholder="e.g. 120"
+              aria-describedby="help-inactivity"
               value={settings.inactivity_timeout_s}
               onChange={(e) => {
                 const num = parseInt(e.target.value, 10)
@@ -443,11 +469,18 @@ function ProfileEditorForm({
               className={styles.input}
               disabled={isDeleted}
             />
+            <p id="help-inactivity" className={styles.helperText}>
+              After this many seconds without a touch, the booth goes back to the start screen (30–900).
+            </p>
           </div>
 
           <p className={styles.readOnlyText}>Countdown: 5 seconds before each photo</p>
 
-          <fieldset className={styles.fieldset} disabled={isDeleted}>
+          <fieldset
+            className={styles.fieldset}
+            disabled={isDeleted}
+            aria-describedby="help-retakes"
+          >
             <legend className={styles.legend}>Retakes</legend>
             <label className={styles.radioLabel}>
               <input
@@ -483,6 +516,9 @@ function ProfileEditorForm({
               Retake all photos
             </label>
           </fieldset>
+          <p id="help-retakes" className={styles.helperText}>
+            Choose whether guests may redo photos before their result is made.
+          </p>
 
           <p className={styles.readOnlyText}>Delivery: QR code link on the local network</p>
         </section>

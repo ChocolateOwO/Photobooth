@@ -128,6 +128,19 @@
   border-color: var(--pb-color-primary);
 }
 
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--pb-color-muted);
+  opacity: 1;
+}
+
+.helperText {
+  color: var(--pb-color-muted);
+  font-size: 16px;
+  line-height: 1.4;
+  margin: 0;
+}
+
 .colorGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

@@ -33,6 +33,13 @@
   cursor: default;
 }
 
+.helperText {
+  color: var(--pb-color-muted);
+  font-size: 16px;
+  line-height: 1.4;
+  margin: 0;
+}
+
 .uploading {
   font-weight: 600;
   color: var(--pb-color-dummy);

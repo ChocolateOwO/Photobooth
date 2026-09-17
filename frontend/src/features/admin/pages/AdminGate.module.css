@@ -69,6 +69,11 @@
   border-color: var(--pb-color-primary);
 }
 
+.input::placeholder {
+  color: var(--pb-color-muted);
+  opacity: 1;
+}
+
 .alert {
   margin-bottom: var(--pb-space);
   padding: var(--pb-space);
