@@ -170,9 +170,10 @@ test('a stale edit is refused and can be reloaded', async ({ page, context }) =>
 
   await page.getByLabel('Subtitle').fill('My older edit')
   await page.getByRole('button', { name: 'Save profile' }).click()
-  await expect(page.getByRole('alert')).toContainText(
-    'This profile was changed somewhere else. Reload to get the latest version.',
-  )
+  // (The hand-picked button colour of this profile also shows a contrast warning alert.)
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'changed somewhere else' }),
+  ).toContainText('This profile was changed somewhere else. Reload to get the latest version.')
   await page.getByRole('button', { name: 'Reload latest' }).click()
   await expect(page.getByLabel('Subtitle')).toHaveValue('Changed in the other tab')
   await page.getByLabel('Subtitle').fill(PERSISTED.subtitle)

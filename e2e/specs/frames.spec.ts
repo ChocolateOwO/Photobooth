@@ -276,6 +276,8 @@ test('frames and selections survive a backend restart @after-restart', async ({ 
   await page.goto('/admin/frames')
   await expect(frameCard(page, RENAMED_STRIP)).toHaveCount(1)
   await expect(frameCard(page, LAYOUTS[1].frame)).toHaveCount(1)
+  // Images load lazily: bring the card (below the built-in frames) into view.
+  await frameCard(page, RENAMED_STRIP).scrollIntoViewIfNeeded()
   await expect
     .poll(
       () =>

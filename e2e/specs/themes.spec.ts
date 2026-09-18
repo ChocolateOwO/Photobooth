@@ -91,8 +91,8 @@ test('a new profile starts with an accessible preset and built-in frames', async
   await expect(page.getByRole('radio', { name: new RegExp(`^${fallback?.name ?? ''}`) })).toBeChecked()
   await expect(page.getByTestId('contrast-ok')).toBeVisible()
   await expect(
-    page.getByLabel('Frame for 2x6 photo strip', { exact: true }).locator('option:checked'),
-  ).toHaveText('Midnight (Built-in)')
+    page.getByLabel('Frame for 3x4 print', { exact: true }).locator('option:checked'),
+  ).toHaveText('Midnight (Built-in)') // the first layout starts with the default frame
   await expectPreviewTokens(page, fallback?.tokens ?? {})
   // The admin shell keeps its own colours.
   await expect(page.getByRole('heading', { name: 'New Event Profile' })).toHaveCSS('color', 'rgb(244, 246, 248)')
@@ -126,9 +126,12 @@ test('presets, background colours, undo, advanced colours and saving', async ({ 
   expect(darkText).not.toBe(rgb(gold?.tokens.heading ?? ''))
 
   await page.getByLabel('Background image').setInputFiles(join(fixturesDir, 'bg_dark.jpg'))
-  await expect(swatches).not.toHaveText(lightSwatches)
+  // The new background gives a new palette and light text on a dark page.
+  await expect
+    .poll(() => heading.evaluate((el) => getComputedStyle(el).color), { timeout: 15_000 })
+    .not.toBe(darkText)
+  expect(await swatches.innerText()).not.toBe(lightSwatches)
   const lightText = await heading.evaluate((el) => getComputedStyle(el).color)
-  expect(lightText).not.toBe(darkText)
 
   // Undo returns to the theme before the last extraction (the light one).
   await page.getByRole('button', { name: 'Undo extracted theme' }).click()
