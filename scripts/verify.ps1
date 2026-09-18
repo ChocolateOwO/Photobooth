@@ -50,6 +50,33 @@ function Get-Counts {
     return ''
 }
 
+function Invoke-Vitest {
+    # Vitest gives its worker a fixed 60 s to load the jsdom environment and report "started"; on
+    # this machine that intermittently takes longer. Only that start failure, with no test run at
+    # all, is retried once. Any failing or erroring test fails the step immediately.
+    param([string] $Directory)
+    Push-Location $Directory
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $lines = New-Object System.Collections.Generic.List[string]
+        & npm.cmd test 2>&1 | ForEach-Object { $line = "$_"; $lines.Add($line); $line }
+        $exit = $LASTEXITCODE
+        $text = $lines -join "`n"
+        $workerDidNotStart = ($text -match 'Failed to start \w+ worker') -and ($text -match 'Tests\s+no tests')
+        if ($exit -ne 0 -and $workerDidNotStart) {
+            'vitest: the worker did not start within Vitest''s fixed timeout (no test ran); retrying once'
+            & npm.cmd test 2>&1 | ForEach-Object { "$_" }
+            $exit = $LASTEXITCODE
+        }
+        if ($exit -ne 0) { throw "npm.cmd test exited with $exit" }
+    }
+    finally {
+        $ErrorActionPreference = $previous
+        Pop-Location
+    }
+}
+
 $overall = 'failed'
 # Capture the candidate before any check: a record may only certify this exact commit and a clean tree.
 $startCommit = (& git -C $app rev-parse HEAD).Trim()
@@ -122,7 +149,7 @@ try {
     }
     Step 'frontend typecheck (tsc strict)' { Invoke-Native 'npm.cmd' @('run', 'typecheck') $frontend }
     Step 'frontend eslint' { Invoke-Native 'npm.cmd' @('run', 'lint') $frontend }
-    Step 'frontend vitest' { Invoke-Native 'npm.cmd' @('test') $frontend }
+    Step 'frontend vitest' { Invoke-Vitest $frontend }
     Step 'frontend vite production build' {
         $env:PHOTOBOOTH_INSTANCE = 'dummy'
         Invoke-Native 'npm.cmd' @('run', 'build') $frontend
