@@ -59,6 +59,16 @@ def test_upload_logo_and_background_then_read_back(
     assert content.content == png((128, 64))
 
 
+def _uploaded_files(container: Container) -> list[Path]:
+    """Stored files except the packaged built-in frames (always present, under assets/frame)."""
+    frames = container.settings.storage_dir / "assets" / "frame"
+    return [
+        p
+        for p in container.settings.storage_dir.rglob("*")
+        if p.is_file() and frames not in p.parents
+    ]
+
+
 def test_duplicate_upload_returns_the_same_asset(
     kiosk_client: TestClient, container: Container
 ) -> None:
@@ -66,8 +76,7 @@ def test_duplicate_upload_returns_the_same_asset(
     _, first = _upload(kiosk_client, headers, "logo", png())
     status, second = _upload(kiosk_client, headers, "logo", png(), "other-name.png")
     assert status == 201 and second["id"] == first["id"]
-    files = [p for p in container.settings.storage_dir.rglob("*") if p.is_file()]
-    assert len(files) == 1
+    assert len(_uploaded_files(container)) == 1
 
 
 def test_client_filename_and_paths_are_ignored(
@@ -108,7 +117,7 @@ def test_invalid_uploads_are_refused_and_nothing_is_stored(
         assert status == 422, (kind, content_type, body)
     assert _upload(kiosk_client, headers, "frame", png())[0] == 422  # frames are Phase 5
     assert _upload(kiosk_client, headers, "../logo", png())[0] == 422
-    assert not [p for p in container.settings.storage_dir.rglob("*") if p.is_file()]
+    assert not _uploaded_files(container)
 
 
 def test_oversized_upload_is_refused_with_413(

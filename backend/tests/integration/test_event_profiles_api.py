@@ -15,6 +15,7 @@ from photobooth.core.config import AppSettings
 from photobooth.core.migrations import Migrator
 from photobooth.main import KioskAppOptions, create_kiosk_app
 from photobooth.modules.event_profiles.domain import ProfileConflictError, ProfileSettings
+from photobooth.modules.themes.domain import DEFAULT_PRESET, PRESETS
 from tests.integration.admin_support import jpeg, login, png
 
 BASE = "/api/admin/profiles"
@@ -26,11 +27,6 @@ def body(name: str = "Wedding", **overrides: Any) -> dict[str, Any]:
         "title": "Welcome to the booth",
         "subtitle": "Tap start when you are ready",
         "start_button_text": "Start",
-        "background_color": "#101418",
-        "primary_color": "#2f6fd6",
-        "secondary_color": "#FFB020",
-        "button_color": "#2F6FD6",
-        "text_color": "#F4F6F8",
         "enabled_layouts": ["strip_2x6", "print_4x6"],
         "countdown_seconds": 5,
         "mirror": True,
@@ -71,7 +67,9 @@ def test_create_get_list_update(kiosk_client: TestClient, admin: dict[str, str])
     settings = created["settings"]
     assert created["revision"] == 1 and created["is_active"] is False
     assert created["deleted_at"] is None
-    assert settings["primary_color"] == "#2F6FD6"  # normalized
+    # No theme sent: the default preset, complete.
+    assert settings["theme"]["preset"] == DEFAULT_PRESET
+    assert settings["theme"]["tokens"] == PRESETS[DEFAULT_PRESET].tokens
     assert settings["enabled_layouts"] == ["strip_2x6", "print_4x6"]  # order kept
     assert settings["logo_asset_id"] == logo and settings["background_asset_id"] == background
     assert settings["mirror"] is False and settings["countdown_seconds"] == 5
@@ -112,8 +110,12 @@ def test_stale_revision_is_rejected(kiosk_client: TestClient, admin: dict[str, s
         {"enabled_layouts": ["../strip"]},
         {"inactivity_timeout_s": 5},
         {"inactivity_timeout_s": 5000},
-        {"primary_color": "red"},
-        {"primary_color": "#12345"},
+        {"theme": {"tokens": {**PRESETS[DEFAULT_PRESET].tokens, "heading": "red"}}},
+        {"theme": {"tokens": {**PRESETS[DEFAULT_PRESET].tokens, "heading": "#12345"}}},
+        {"theme": {"tokens": {"heading": "#FFFFFF"}}},
+        {"theme": {"tokens": PRESETS[DEFAULT_PRESET].tokens, "preset": "no_such_preset"}},
+        {"theme": {"tokens": PRESETS[DEFAULT_PRESET].tokens, "source": "magic"}},
+        {"theme": {"tokens": {**PRESETS[DEFAULT_PRESET].tokens, "sparkle": "#FFFFFF"}}},
         {"retake_mode": "sometimes"},
         {"delivery_mode": "email"},
         {"name": ""},

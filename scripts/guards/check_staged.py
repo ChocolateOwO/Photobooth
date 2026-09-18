@@ -21,7 +21,13 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 MAX_BYTES = 5 * 1024 * 1024
-BINARY_ALLOWED_PREFIXES = ("backend/tests/fixtures/", "e2e/fixtures/", "frontend/public/")
+# Binary files only in fixtures, public web assets and the packaged built-in frame library.
+BINARY_ALLOWED_PREFIXES = (
+    "backend/tests/fixtures/",
+    "e2e/fixtures/",
+    "frontend/public/",
+    "backend/src/photobooth/frames_data/builtin/",
+)
 
 # ---- path rules -------------------------------------------------------------------------------
 SENSITIVE_NAME_PATTERNS = (

@@ -8,6 +8,7 @@ import {
   type SessionListener,
 } from './adminClient'
 import type { Fetcher } from './client'
+import { defaultTheme } from '../../features/admin/testing/fakeAdminServer'
 import { DEVICE_KEY_HEADER, type DeviceKeyStore } from './deviceKey'
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -59,13 +60,15 @@ describe('createAdminApiClient', () => {
     expect(headersOf(callOf(fetcher, 0))[DEVICE_KEY_HEADER]).toBe('k'.repeat(43))
     expect(headersOf(callOf(fetcher, 0))[ADMIN_CSRF_HEADER]).toBeUndefined()
 
-    await api.createProfile(newProfileSettings(['strip_2x6']))
+    await api.createProfile(newProfileSettings(['strip_2x6'], defaultTheme(), { strip_2x6: 'f-mid' }))
     const createHeaders = headersOf(callOf(fetcher, 1))
     expect(createHeaders[ADMIN_CSRF_HEADER]).toBe(SESSION.csrf_token)
     expect(createHeaders[DEVICE_KEY_HEADER]).toBe('k'.repeat(43))
     expect(JSON.parse(String(callOf(fetcher, 1)[1]?.body))).toMatchObject({
       countdown_seconds: 5,
       enabled_layouts: ['strip_2x6'],
+      frame_selections: { strip_2x6: 'f-mid' },
+      theme: { source: 'preset', preset: 'midnight_blue' },
     })
   })
 
@@ -156,7 +159,7 @@ describe('createAdminApiClient', () => {
   it('sends the revision with updates and deletes', async () => {
     const fetcher = vi.fn<Fetcher>(async () => json({ id: 'p1' }))
     const api = createAdminApiClient(fetcher, keyStore())
-    await api.updateProfile('p1', newProfileSettings(['a']), 3)
+    await api.updateProfile('p1', newProfileSettings(['a'], defaultTheme(), {}), 3)
     await api.deleteProfile('p1', 4)
     expect(callOf(fetcher, 0)[1]?.method).toBe('PUT')
     expect(JSON.parse(String(callOf(fetcher, 0)[1]?.body))).toMatchObject({ revision: 3 })
@@ -273,6 +276,17 @@ describe('frames', () => {
       kind: 'conflict',
       messages: ['this frame is still used by: Wedding'],
     })
+  })
+
+  it('reads the theme catalogue and asks the server to extract a theme', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => json({ tokens: {}, palette: [] }))
+    const api = createAdminApiClient(fetcher, keyStore())
+    await api.themeCatalog()
+    await api.extractTheme('asset-1')
+    expect(callOf(fetcher, 0)[0]).toBe('/api/admin/themes')
+    expect(callOf(fetcher, 1)[0]).toBe('/api/admin/themes/extract')
+    expect(callOf(fetcher, 1)[1]?.method).toBe('POST')
+    expect(JSON.parse(String(callOf(fetcher, 1)[1]?.body))).toEqual({ background_asset_id: 'asset-1' })
   })
 
   it('builds same-origin URLs for the frame file, its preview and the template downloads', () => {

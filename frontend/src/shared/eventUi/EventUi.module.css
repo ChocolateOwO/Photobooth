@@ -1,0 +1,194 @@
+/* Event-facing UI: colours come only from the event theme tokens (--ev-*). No literal colours. */
+
+.screen {
+  background-color: var(--ev-background);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: var(--ev-body);
+  font-family: inherit;
+}
+
+.heading {
+  margin: 0;
+  color: var(--ev-heading);
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.body {
+  margin: 0;
+  color: var(--ev-body);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.muted {
+  margin: 0;
+  color: var(--ev-muted);
+  line-height: 1.4;
+}
+
+.link {
+  color: var(--ev-link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link:focus-visible,
+.button:focus-visible,
+.input:focus-visible {
+  outline: 3px solid var(--ev-focus-ring);
+  outline-offset: 3px;
+}
+
+.button {
+  min-height: 48px;
+  min-width: 96px;
+  padding: 10px 24px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+}
+
+.primary {
+  background-color: var(--ev-primary-bg);
+  color: var(--ev-primary-text);
+}
+
+.primary:hover:not(:disabled),
+.primary[data-demo-state='hover'] {
+  background-color: var(--ev-primary-hover);
+}
+
+.primary:active:not(:disabled),
+.primary[data-demo-state='pressed'] {
+  background-color: var(--ev-primary-pressed);
+}
+
+.primary:disabled {
+  background-color: var(--ev-primary-disabled-bg);
+  color: var(--ev-primary-disabled-text);
+}
+
+.secondary {
+  background-color: var(--ev-secondary-bg);
+  color: var(--ev-secondary-text);
+}
+
+.secondary:hover:not(:disabled),
+.secondary[data-demo-state='hover'] {
+  background-color: var(--ev-secondary-hover);
+}
+
+.secondary:active:not(:disabled),
+.secondary[data-demo-state='pressed'] {
+  background-color: var(--ev-secondary-pressed);
+}
+
+.secondary:disabled {
+  background-color: var(--ev-secondary-disabled-bg);
+  color: var(--ev-secondary-disabled-text);
+}
+
+.danger {
+  background-color: var(--ev-danger-bg);
+  color: var(--ev-danger-text);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ev-body);
+}
+
+.fieldLabel {
+  color: var(--ev-body);
+  font-weight: 600;
+}
+
+.input {
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 2px solid var(--ev-input-border);
+  border-radius: 12px;
+  background-color: var(--ev-input-bg);
+  color: var(--ev-input-text);
+  font: inherit;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.input::placeholder {
+  color: var(--ev-placeholder);
+  opacity: 1;
+}
+
+.input:focus,
+.input[data-demo-focus] {
+  border-color: var(--ev-input-focus-border);
+}
+
+.card {
+  background-color: var(--ev-surface);
+  color: var(--ev-body);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.message {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.success {
+  background-color: var(--ev-success-bg);
+  color: var(--ev-success-text);
+}
+
+.warning {
+  background-color: var(--ev-warning-bg);
+  color: var(--ev-warning-text);
+}
+
+.error {
+  background-color: var(--ev-error-bg);
+  color: var(--ev-error-text);
+}
+
+.info {
+  background-color: var(--ev-info-bg);
+  color: var(--ev-info-text);
+}
+
+.backdrop {
+  background-color: color-mix(in srgb, var(--ev-overlay) 65%, transparent);
+  padding: 16px;
+  border-radius: 16px;
+}
+
+.dialog {
+  background-color: var(--ev-surface);
+  color: var(--ev-body);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dialogTitle {
+  margin: 0;
+  color: var(--ev-heading);
+  font-weight: 700;
+}

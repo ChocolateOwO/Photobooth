@@ -1,0 +1,334 @@
+/* Admin-shell styling for the theme editor. The previews inside use the event theme. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pb-space);
+  padding: var(--pb-space);
+  background-color: var(--pb-color-surface);
+  border-radius: var(--pb-radius);
+  min-width: 0;
+}
+
+.sectionHeading {
+  margin: 0;
+  font-size: 22px;
+  color: var(--pb-color-text);
+}
+
+.subHeading {
+  margin: 0;
+  font-size: 18px;
+  color: var(--pb-color-text);
+}
+
+.helper {
+  margin: 0;
+  color: var(--pb-color-muted);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.fieldset {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--pb-radius);
+  padding: 12px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.legend {
+  padding: 0 6px;
+  font-weight: 700;
+  color: var(--pb-color-text);
+}
+
+.presetGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.presetCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--pb-radius);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  background-color: var(--pb-color-bg);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.presetCard[data-selected] {
+  border-color: var(--pb-color-primary);
+  box-shadow: 0 0 0 2px var(--pb-color-primary);
+}
+
+.presetCard:focus-within {
+  outline: 3px solid var(--pb-color-primary);
+  outline-offset: 2px;
+}
+
+.presetRadio {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 22px;
+  height: 22px;
+}
+
+.presetName {
+  font-weight: 700;
+  color: var(--pb-color-text);
+  padding-right: 32px;
+}
+
+.presetDescription {
+  color: var(--pb-color-muted);
+  font-size: 14px;
+}
+
+.presetSample {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.presetSampleHeading {
+  color: var(--ev-heading);
+  font-weight: 800;
+  font-size: 22px;
+}
+
+.presetSampleText {
+  color: var(--ev-body);
+  font-size: 14px;
+}
+
+.presetSampleButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.presetSampleButtons button {
+  min-height: 36px;
+  min-width: 0;
+  padding: 6px 14px;
+  font-size: 14px;
+}
+
+.swatches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.swatchItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  display: inline-block;
+}
+
+.swatchHex {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--pb-color-muted);
+}
+
+.extractPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.extracted {
+  margin: 0;
+  font-weight: 700;
+  color: var(--pb-color-text);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.actionButton {
+  min-height: var(--pb-touch-target);
+}
+
+.alert {
+  padding: 12px;
+  border-radius: var(--pb-radius);
+  border: 2px solid var(--pb-color-error);
+  color: var(--pb-color-error);
+  background-color: rgba(255, 107, 112, 0.15);
+}
+
+.advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.advanced[open] {
+  padding-bottom: 4px;
+}
+
+.advanced > * + * {
+  margin-top: 12px;
+}
+
+.summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--pb-color-text);
+  min-height: var(--pb-touch-target);
+  display: flex;
+  align-items: center;
+}
+
+.colourRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.colourText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.colourLabel {
+  font-weight: 600;
+  color: var(--pb-color-text);
+}
+
+.colourDescription {
+  color: var(--pb-color-muted);
+  font-size: 14px;
+}
+
+.colourWarning {
+  color: var(--pb-color-error);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.colourInputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.colourPicker {
+  width: 56px;
+  height: 44px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: transparent;
+}
+
+.hexInput {
+  width: 110px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background-color: var(--pb-color-bg);
+  color: var(--pb-color-text);
+  font: inherit;
+  font-family: ui-monospace, monospace;
+}
+
+.examples {
+  padding: 12px;
+  border-radius: var(--pb-radius);
+}
+
+.examplesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.exampleCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exampleButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+}
+
+.exampleButtons button {
+  min-width: 0;
+  padding: 8px 16px;
+}
+
+.exampleInputs,
+.exampleMessages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contrastWarning {
+  padding: 12px;
+  border-radius: var(--pb-radius);
+  border: 2px solid var(--pb-color-error);
+  background-color: rgba(255, 107, 112, 0.12);
+  color: var(--pb-color-text);
+}
+
+.contrastWarning ul {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.contrastWarning p {
+  margin: 4px 0;
+}
+
+.contrastTitle {
+  font-weight: 700;
+  color: var(--pb-color-error);
+}
+
+.contrastOk {
+  margin: 0;
+  color: var(--pb-color-muted);
+}

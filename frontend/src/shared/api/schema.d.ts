@@ -310,6 +310,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/themes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Theme Catalog
+         * @description Every semantic colour token, the contrast rules and the preset palettes.
+         */
+        get: operations["theme_catalog_api_admin_themes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/themes/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Extract Theme
+         * @description A complete accessible theme from the dominant colours of an uploaded background image.
+         *
+         *     Runs locally; the image is read, never changed. Nothing is saved until the profile is saved.
+         */
+        post: operations["extract_theme_api_admin_themes_extract_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/booth/ping": {
         parameters: {
             query?: never;
@@ -489,6 +531,17 @@ export interface components {
          * @enum {string}
          */
         AssetKind: "logo" | "background" | "frame";
+        /** ContrastRuleInfo */
+        ContrastRuleInfo: {
+            /** Background */
+            background: string;
+            /** Foreground */
+            foreground: string;
+            /** Minimum */
+            minimum: number;
+            /** What */
+            what: string;
+        };
         /**
          * DeliveryMode
          * @enum {string}
@@ -514,7 +567,7 @@ export interface components {
             is_active: boolean;
             /** Revision */
             revision: number;
-            settings: components["schemas"]["ProfileSettingsBody"];
+            settings: components["schemas"]["ProfileSettingsResponse"];
             /**
              * Updated At
              * Format: date-time
@@ -522,10 +575,59 @@ export interface components {
             updated_at: string;
         };
         /**
+         * EventThemeBody
+         * @description Complete event theme: one colour per semantic token (every key in `tokens` is required).
+         */
+        EventThemeBody: {
+            /**
+             * Palette
+             * @description Swatches extracted from the background image (source=extracted)
+             */
+            palette?: string[];
+            /** Preset */
+            preset?: string | null;
+            /** @default custom */
+            source: components["schemas"]["ThemeSource"];
+            /**
+             * Tokens
+             * @description Every semantic token, e.g. background, primary_bg, primary_text, ...
+             */
+            tokens: {
+                [key: string]: string;
+            };
+        };
+        /** ExtractBody */
+        ExtractBody: {
+            /** Background Asset Id */
+            background_asset_id: string;
+        };
+        /** ExtractedTheme */
+        ExtractedTheme: {
+            /**
+             * Message
+             * @default Colors extracted from background
+             */
+            message: string;
+            /** Palette */
+            palette: string[];
+            /** Preset */
+            preset: string | null;
+            source: components["schemas"]["ThemeSource"];
+            /** Tokens */
+            tokens: {
+                [key: string]: string;
+            };
+        };
+        /**
          * FrameResponse
          * @description A validated frame. The stored file itself is served by `/content`.
          */
         FrameResponse: {
+            /**
+             * Builtin
+             * @description Packaged with the app; can not be replaced or deleted
+             */
+            builtin: boolean;
             /** Bytes */
             bytes: number;
             /**
@@ -533,6 +635,11 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Family
+             * @description Built-in family id, e.g. midnight; null for uploads
+             */
+            family: string | null;
             /** Height */
             height: number;
             /** Id */
@@ -637,6 +744,24 @@ export interface components {
             /** Ok */
             ok: boolean;
         };
+        /** PresetInfo */
+        PresetInfo: {
+            /** Description */
+            description: string;
+            /**
+             * Frame Family
+             * @description Built-in frame family that suits this preset
+             */
+            frame_family: string;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Tokens */
+            tokens: {
+                [key: string]: string;
+            };
+        };
         /** ProblemResponse */
         ProblemResponse: {
             /** Detail */
@@ -650,17 +775,61 @@ export interface components {
             /** Background Asset Id */
             background_asset_id?: string | null;
             /**
-             * Background Color
-             * @default #101418
-             * @example #2F6FD6
+             * Countdown Seconds
+             * @default 5
+             * @constant
              */
-            background_color: string;
+            countdown_seconds: 5;
+            /** @default local_link */
+            delivery_mode: components["schemas"]["DeliveryMode"];
+            /** Enabled Layouts */
+            enabled_layouts: string[];
+            /** Frame Selections */
+            frame_selections?: {
+                [key: string]: string;
+            };
             /**
-             * Button Color
-             * @default #2F6FD6
-             * @example #2F6FD6
+             * Inactivity Timeout S
+             * @default 120
              */
-            button_color: string;
+            inactivity_timeout_s: number;
+            /** Logo Asset Id */
+            logo_asset_id?: string | null;
+            /**
+             * Mirror
+             * @default true
+             */
+            mirror: boolean;
+            /** Name */
+            name: string;
+            /** @default per_photo */
+            retake_mode: components["schemas"]["RetakeMode"];
+            /**
+             * Start Button Text
+             * @default Start
+             */
+            start_button_text: string;
+            /**
+             * Subtitle
+             * @description Preparation screen text
+             * @default
+             */
+            subtitle: string;
+            /** @description Omit to use the default preset theme */
+            theme?: components["schemas"]["EventThemeBody"] | null;
+            /**
+             * Title
+             * @description Preparation screen title
+             */
+            title: string;
+        };
+        /**
+         * ProfileSettingsResponse
+         * @description Stored settings; the theme is always present.
+         */
+        ProfileSettingsResponse: {
+            /** Background Asset Id */
+            background_asset_id?: string | null;
             /**
              * Countdown Seconds
              * @default 5
@@ -689,20 +858,8 @@ export interface components {
             mirror: boolean;
             /** Name */
             name: string;
-            /**
-             * Primary Color
-             * @default #2F6FD6
-             * @example #2F6FD6
-             */
-            primary_color: string;
             /** @default per_photo */
             retake_mode: components["schemas"]["RetakeMode"];
-            /**
-             * Secondary Color
-             * @default #FFB020
-             * @example #2F6FD6
-             */
-            secondary_color: string;
             /**
              * Start Button Text
              * @default Start
@@ -714,12 +871,7 @@ export interface components {
              * @default
              */
             subtitle: string;
-            /**
-             * Text Color
-             * @default #F4F6F8
-             * @example #2F6FD6
-             */
-            text_color: string;
+            theme: components["schemas"]["EventThemeBody"];
             /**
              * Title
              * @description Preparation screen title
@@ -731,18 +883,6 @@ export interface components {
             /** Background Asset Id */
             background_asset_id?: string | null;
             /**
-             * Background Color
-             * @default #101418
-             * @example #2F6FD6
-             */
-            background_color: string;
-            /**
-             * Button Color
-             * @default #2F6FD6
-             * @example #2F6FD6
-             */
-            button_color: string;
-            /**
              * Countdown Seconds
              * @default 5
              * @constant
@@ -770,12 +910,6 @@ export interface components {
             mirror: boolean;
             /** Name */
             name: string;
-            /**
-             * Primary Color
-             * @default #2F6FD6
-             * @example #2F6FD6
-             */
-            primary_color: string;
             /** @default per_photo */
             retake_mode: components["schemas"]["RetakeMode"];
             /**
@@ -783,12 +917,6 @@ export interface components {
              * @description Revision the edit was based on (optimistic lock)
              */
             revision: number;
-            /**
-             * Secondary Color
-             * @default #FFB020
-             * @example #2F6FD6
-             */
-            secondary_color: string;
             /**
              * Start Button Text
              * @default Start
@@ -800,12 +928,8 @@ export interface components {
              * @default
              */
             subtitle: string;
-            /**
-             * Text Color
-             * @default #F4F6F8
-             * @example #2F6FD6
-             */
-            text_color: string;
+            /** @description Omit to use the default preset theme */
+            theme?: components["schemas"]["EventThemeBody"] | null;
             /**
              * Title
              * @description Preparation screen title
@@ -940,6 +1064,33 @@ export interface components {
             width_in: number;
             /** Width Px */
             width_px: number;
+        };
+        /** ThemeCatalogResponse */
+        ThemeCatalogResponse: {
+            /** Contrast Rules */
+            contrast_rules: components["schemas"]["ContrastRuleInfo"][];
+            /** Default Preset */
+            default_preset: string;
+            /** Presets */
+            presets: components["schemas"]["PresetInfo"][];
+            /** Tokens */
+            tokens: components["schemas"]["TokenInfo"][];
+        };
+        /**
+         * ThemeSource
+         * @enum {string}
+         */
+        ThemeSource: "preset" | "extracted" | "custom";
+        /** TokenInfo */
+        TokenInfo: {
+            /** Description */
+            description: string;
+            /** Group */
+            group: string;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -1788,6 +1939,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    theme_catalog_api_admin_themes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThemeCatalogResponse"];
+                };
+            };
+        };
+    };
+    extract_theme_api_admin_themes_extract_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtractBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtractedTheme"];
                 };
             };
             /** @description Validation Error */

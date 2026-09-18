@@ -125,8 +125,15 @@ test('choose a frame per enabled layout in a profile', async ({ page }) => {
       await checkbox.check()
     }
   }
-  // Every enabled layout without a frame is clearly marked.
-  await expect(page.getByTestId('missing-frame-warning')).toHaveCount(3)
+  // Every enabled layout starts with a built-in frame of the same family.
+  await expect(page.getByTestId('missing-frame-warning')).toHaveCount(0)
+  for (const layout of LAYOUTS) {
+    const select = page.getByLabel(`Frame for ${layout.name}`, { exact: true })
+    await expect(select.locator('option:checked')).toHaveText('Midnight (Built-in)')
+  }
+  // Choosing no frame is still possible and clearly marked.
+  await page.getByLabel(`Frame for ${LAYOUTS[0].name}`, { exact: true }).selectOption({ label: 'No frame selected' })
+  await expect(page.getByTestId('missing-frame-warning')).toHaveCount(1)
   await expect(page.getByTestId('missing-frame-warning').first()).toContainText(
     `No frame selected for ${LAYOUTS[0].name}. Photos will print without a frame.`,
   )

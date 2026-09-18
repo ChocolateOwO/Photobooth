@@ -85,6 +85,21 @@ class AssetService:
             self._storage.delete(StorageKey(asset.storage_key))
         return True
 
+    def ensure_stored(self, asset_id: str, data: bytes) -> bool:
+        """Put the packaged bytes of an existing asset row into storage when they are missing.
+
+        Used for built-in frames: their rows come from a migration, their files ship with the app.
+        The bytes must match the recorded sha256, so nothing else can be written this way.
+        """
+        asset = self.get(asset_id)
+        if hashlib.sha256(data).hexdigest() != asset.sha256:
+            raise AssetValidationError(f"packaged content does not match asset {asset_id}")
+        key = StorageKey(asset.storage_key)
+        if self._storage.exists(key):
+            return False
+        self._storage.put(key, data)
+        return True
+
     def get(self, asset_id: str) -> MediaAsset:
         asset = self._repository.get(asset_id)
         if asset is None:

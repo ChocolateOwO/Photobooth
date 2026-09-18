@@ -1,15 +1,34 @@
 import type {
   EventProfile,
+  ExtractedTheme,
   Frame,
   MediaAsset,
   ProfileSettings,
   TemplateSummary,
 } from '../../../shared/api/adminClient'
-import { ADMIN_CSRF_HEADER } from '../../../shared/api/adminClient'
+import { ADMIN_CSRF_HEADER, presetTheme } from '../../../shared/api/adminClient'
 import type { Fetcher } from '../../../shared/api/client'
 import { DEVICE_KEY_HEADER } from '../../../shared/api/deviceKey'
+import { THEME_CATALOG } from './themeCatalog.fixture'
 
 export const DEVICE_KEY = 'k'.repeat(43)
+
+export const BUILTIN_FAMILIES = [
+  ['minimal_light', 'Minimal Light'],
+  ['midnight', 'Midnight'],
+  ['celebration_gold', 'Celebration Gold'],
+] as const
+
+export function presetById(id: string) {
+  const preset = THEME_CATALOG.presets.find((p) => p.id === id)
+  if (!preset) throw new Error(`unknown preset ${id}`)
+  return preset
+}
+
+/** The default preset theme, as the backend stores it for a new profile. */
+export function defaultTheme() {
+  return presetTheme(presetById(THEME_CATALOG.default_preset))
+}
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(status === 204 ? null : JSON.stringify(body), {
@@ -58,16 +77,57 @@ export class FakeAdminServer {
   frameListFailures = 0
   /** When set, the frame list waits for this promise (simulates a slow list). */
   frameListGate: Promise<void> | null = null
+  /** Background asset ids colours were extracted from, in order. */
+  extractedFrom: string[] = []
+  /** When set, extraction fails with this plain reason (422). */
+  extractFailure: string | null = null
+  /** What extraction returns (a complete accessible theme with its swatches). */
+  extractResult: ExtractedTheme = {
+    tokens: { ...presetById('neon_party').tokens },
+    source: 'extracted',
+    preset: null,
+    palette: ['#140B2E', '#D946EF', '#22D3EE'],
+    message: 'Colors extracted from background',
+  }
   requests: { method: string; path: string; headers: Record<string, string> }[] = []
   templates = [template('strip_2x6', '2x6 photo strip'), template('print_4x6', '4x6 print')]
   private nextId = 1
+
+  constructor(options: { builtins?: boolean } = {}) {
+    if (options.builtins ?? true) {
+      for (const [family, name] of BUILTIN_FAMILIES) {
+        for (const t of this.templates) {
+          this.seedFrame(t.key, name, [], { builtin: true, family })
+        }
+      }
+    }
+  }
+
+  /** The built-in frame of a family for a layout. */
+  builtin(family: string, templateKey: string): Frame {
+    const frame = [...this.frames.values()].find(
+      (f) => f.builtin && f.family === family && f.template_key === templateKey,
+    )
+    if (!frame) throw new Error(`no built-in ${family} for ${templateKey}`)
+    return frame
+  }
+
+  /** Frames an admin uploaded (the built-in library is always there). */
+  customFrames(): Frame[] {
+    return [...this.frames.values()].filter((f) => !f.builtin)
+  }
 
   private id(): string {
     const n = String(this.nextId++).padStart(12, '0')
     return `00000000-0000-4000-8000-${n}`
   }
 
-  seedFrame(templateKey: string, name: string, warnings: string[] = []): Frame {
+  seedFrame(
+    templateKey: string,
+    name: string,
+    warnings: string[] = [],
+    extra: Partial<Frame> = {},
+  ): Frame {
     const frame: Frame = {
       id: this.id(),
       template_key: templateKey,
@@ -82,6 +142,9 @@ export class FakeAdminServer {
       slot_transparency: [1, 1, 1],
       created_at: '2026-09-18T10:00:00Z',
       updated_at: '2026-09-18T10:00:00Z',
+      builtin: false,
+      family: null,
+      ...extra,
     }
     this.frames.set(frame.id, frame)
     return frame
@@ -97,11 +160,7 @@ export class FakeAdminServer {
         start_button_text: 'Start',
         logo_asset_id: null,
         background_asset_id: null,
-        background_color: '#101418',
-        primary_color: '#2F6FD6',
-        secondary_color: '#FFB020',
-        button_color: '#2F6FD6',
-        text_color: '#F4F6F8',
+        theme: defaultTheme(),
         enabled_layouts: ['strip_2x6'],
         frame_selections: {},
         countdown_seconds: 5,
@@ -141,6 +200,9 @@ export class FakeAdminServer {
     this.requests.push({ method, path: `${path}${url.search}`, headers })
 
     if (path === '/api/templates' && method === 'GET') return json(this.templates)
+    if (path === '/api/admin/themes' && method === 'GET' && this.signedIn) {
+      return json(THEME_CATALOG)
+    }
     const specMatch = /^\/api\/templates\/([a-z0-9_]+)$/.exec(path)
     if (specMatch && method === 'GET') {
       const template = this.templates.find((t) => t.key === specMatch[1])
@@ -228,12 +290,27 @@ export class FakeAdminServer {
       }
       return json(this.seedFrame(templateKey, name), 201)
     }
+    if (path === '/api/admin/themes/extract' && method === 'POST') {
+      const body = JSON.parse(String(init?.body)) as { background_asset_id: string }
+      this.extractedFrom.push(body.background_asset_id)
+      if (this.extractFailure) return json({ detail: this.extractFailure }, 422)
+      return json(this.extractResult)
+    }
     const frameMatch = /^\/api\/admin\/frames\/([^/]+)(?:\/(replace|name))?$/.exec(path)
     if (frameMatch) {
       const frame = this.frames.get(frameMatch[1] ?? '')
       if (!frame) return json({ detail: 'frame not found' }, 404)
       const action = frameMatch[2]
       if (!action && method === 'GET') return json(frame)
+      if (frame.builtin) {
+        return json(
+          {
+            detail:
+              'Built-in frames can not be changed or deleted. Upload your own frame to use a different design.',
+          },
+          409,
+        )
+      }
       if (!action && method === 'DELETE') {
         const reason = this.framesInUse.get(frame.id)
         if (reason) {

@@ -45,11 +45,7 @@ class EventProfileService:
             title=settings.title.strip(),
             subtitle=settings.subtitle.strip(),
             start_button_text=settings.start_button_text.strip(),
-            background_color=settings.background_color.upper(),
-            primary_color=settings.primary_color.upper(),
-            secondary_color=settings.secondary_color.upper(),
-            button_color=settings.button_color.upper(),
-            text_color=settings.text_color.upper(),
+            theme=settings.theme.normalized(),
         )
         problems = normalized.problems()
         known_layouts = {t.key for t in self._templates.list_latest()}

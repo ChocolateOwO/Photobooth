@@ -65,6 +65,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
         container = Container(settings)
         try:
             guard.check_database(container.app_meta)
+            migrator = Migrator(settings.db_path)
+            if migrator.current_revision() == migrator.head_revision():
+                container.restore_builtin_files()
             kiosk_spec, delivery_spec = listener_specs(settings)
             kiosk_app = create_kiosk_app(
                 container.registry,
@@ -131,10 +134,14 @@ def cmd_db_upgrade(args: argparse.Namespace) -> int:
     with InstanceLock(settings.lock_path):
         # Unstamped (fresh) databases are initialized and stamped; foreign ones are never touched.
         _refuse_foreign_database(settings, require_stamp=False)
-        Migrator(settings.db_path).upgrade(args.revision)
+        migrator = Migrator(settings.db_path)
+        migrator.upgrade(args.revision)
         container = Container(settings)
         try:
             stamped = container.system_service.stamp_instance()
+            if migrator.current_revision() == migrator.head_revision():
+                # Built-in frame rows exist from 0004 on; their packaged files go into storage.
+                container.restore_builtin_files()
         finally:
             container.close()
     print(json.dumps({"db": str(settings.db_path), "revision": args.revision, "instance": stamped}))

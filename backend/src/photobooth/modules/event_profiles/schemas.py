@@ -15,12 +15,56 @@ from photobooth.modules.event_profiles.domain import (
     ProfileSettings,
     RetakeMode,
 )
+from photobooth.modules.themes.domain import (
+    PALETTE_MAX,
+    TOKEN_KEYS,
+    EventTheme,
+    ThemeSource,
+    default_theme,
+)
 
 Color = Annotated[str, Field(pattern=r"^#[0-9A-Fa-f]{6}$", examples=["#2F6FD6"])]
 AssetId = Annotated[
     str, Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 ]
 LayoutKey = Annotated[str, Field(pattern=r"^[a-z0-9_]{1,64}$")]
+TokenKey = Annotated[str, Field(pattern=r"^[a-z_]{1,40}$")]
+
+
+class EventThemeBody(BaseModel):
+    """Complete event theme: one colour per semantic token (every key in `tokens` is required)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tokens: dict[TokenKey, Color] = Field(
+        min_length=len(TOKEN_KEYS),
+        max_length=len(TOKEN_KEYS),
+        description="Every semantic token, e.g. background, primary_bg, primary_text, ...",
+    )
+    source: ThemeSource = ThemeSource.CUSTOM
+    preset: str | None = Field(default=None, max_length=40)
+    palette: list[Color] = Field(
+        default_factory=list,
+        max_length=PALETTE_MAX,
+        description="Swatches extracted from the background image (source=extracted)",
+    )
+
+    def to_domain(self) -> EventTheme:
+        return EventTheme(
+            tokens=dict(self.tokens),
+            source=self.source,
+            preset=self.preset,
+            palette=tuple(self.palette),
+        )
+
+    @classmethod
+    def of(cls, theme: EventTheme) -> EventThemeBody:
+        return cls(
+            tokens=dict(theme.tokens),
+            source=theme.source,
+            preset=theme.preset,
+            palette=list(theme.palette),
+        )
 
 
 class ProfileSettingsBody(BaseModel):
@@ -34,11 +78,9 @@ class ProfileSettingsBody(BaseModel):
     start_button_text: str = Field(default="Start", min_length=1, max_length=40)
     logo_asset_id: AssetId | None = None
     background_asset_id: AssetId | None = None
-    background_color: Color = "#101418"
-    primary_color: Color = "#2F6FD6"
-    secondary_color: Color = "#FFB020"
-    button_color: Color = "#2F6FD6"
-    text_color: Color = "#F4F6F8"
+    theme: EventThemeBody | None = Field(
+        default=None, description="Omit to use the default preset theme"
+    )
     enabled_layouts: list[LayoutKey] = Field(min_length=1, max_length=16)
     # Chosen frame per layout; a layout may be missing here, which means "no frame selected".
     frame_selections: dict[LayoutKey, AssetId] = Field(default_factory=dict, max_length=16)
@@ -56,11 +98,7 @@ class ProfileSettingsBody(BaseModel):
             start_button_text=self.start_button_text,
             logo_asset_id=self.logo_asset_id,
             background_asset_id=self.background_asset_id,
-            background_color=self.background_color,
-            primary_color=self.primary_color,
-            secondary_color=self.secondary_color,
-            button_color=self.button_color,
-            text_color=self.text_color,
+            theme=default_theme() if self.theme is None else self.theme.to_domain(),
             enabled_layouts=tuple(self.enabled_layouts),
             frame_selections=tuple(sorted(self.frame_selections.items())),
             countdown_seconds=self.countdown_seconds,
@@ -79,11 +117,7 @@ class ProfileSettingsBody(BaseModel):
             start_button_text=settings.start_button_text,
             logo_asset_id=settings.logo_asset_id,
             background_asset_id=settings.background_asset_id,
-            background_color=settings.background_color,
-            primary_color=settings.primary_color,
-            secondary_color=settings.secondary_color,
-            button_color=settings.button_color,
-            text_color=settings.text_color,
+            theme=EventThemeBody.of(settings.theme),
             enabled_layouts=list(settings.enabled_layouts),
             frame_selections=dict(settings.frame_selections),
             mirror=settings.mirror,
@@ -91,6 +125,12 @@ class ProfileSettingsBody(BaseModel):
             retake_mode=settings.retake_mode,
             delivery_mode=settings.delivery_mode,
         )
+
+
+class ProfileSettingsResponse(ProfileSettingsBody):
+    """Stored settings; the theme is always present."""
+
+    theme: EventThemeBody  # narrowed: never omitted in responses
 
 
 class ProfileUpdateBody(ProfileSettingsBody):
@@ -105,7 +145,7 @@ class DuplicateBody(BaseModel):
 
 class EventProfileResponse(BaseModel):
     id: str
-    settings: ProfileSettingsBody
+    settings: ProfileSettingsResponse
     is_active: bool
     revision: int
     created_at: datetime
@@ -116,7 +156,7 @@ class EventProfileResponse(BaseModel):
     def of(cls, profile: EventProfile) -> EventProfileResponse:
         return cls(
             id=profile.id,
-            settings=ProfileSettingsBody.of(profile.settings),
+            settings=ProfileSettingsResponse.of(profile.settings),
             is_active=profile.is_active,
             revision=profile.revision,
             created_at=profile.created_at,

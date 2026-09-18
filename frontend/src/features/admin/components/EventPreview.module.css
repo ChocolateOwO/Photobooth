@@ -1,0 +1,110 @@
+/* Layout only. Event colours come from the event theme inside EventScreen; the frame around the
+   mock-ups and the captions belong to the admin shell. */
+
+.previewSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.previewHeading,
+.phoneHeading {
+  margin: 0;
+  color: var(--pb-color-text);
+  font-size: 20px;
+}
+
+.phoneHeading {
+  font-size: 18px;
+  margin-top: 8px;
+}
+
+.wideScreen,
+.phoneScreen {
+  border-radius: var(--pb-radius);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.wideScreen {
+  padding: 20px;
+  min-height: 320px;
+}
+
+.phoneScreen {
+  padding: 12px;
+}
+
+.wideGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.phoneGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.welcome,
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.logo {
+  max-height: 56px;
+  max-width: 180px;
+  object-fit: contain;
+  align-self: flex-start;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.frameFigure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.frameImage {
+  max-width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  align-self: center;
+}
+
+.frameCaption {
+  text-align: center;
+}
+
+.phoneFrame {
+  width: 100%;
+  max-width: 360px;
+  align-self: center;
+}
+
+.caption {
+  margin: 0;
+  color: var(--pb-color-muted);
+  font-size: 16px;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .wideGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

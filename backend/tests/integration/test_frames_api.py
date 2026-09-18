@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
@@ -11,12 +12,18 @@ from photobooth.container import Container
 from photobooth.core.config import AppSettings
 from photobooth.core.migrations import Migrator
 from photobooth.main import KioskAppOptions, create_kiosk_app
+from photobooth.modules.frames.builtin import builtin_frames
 from photobooth.modules.templates.repository import JsonTemplateRepository
 from tests.integration.admin_support import login
 from tests.unit.test_frame_validator import frame_png
 
 TEMPLATES = {t.key: t for t in JsonTemplateRepository().latest()}
 BASE = "/api/admin/frames"
+
+
+def custom(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Only the frames an admin uploaded (the built-in library is always there)."""
+    return [frame for frame in frames if not frame["builtin"]]
 
 
 def upload(
@@ -50,9 +57,10 @@ def test_upload_lists_and_serves_the_original_bytes(
     assert frame["name"] == "Blue border" and frame["status"] == "valid"
     assert frame["warnings"] == [] and frame["slot_transparency"] == [1.0, 1.0, 1.0]
 
-    listed = kiosk_client.get(BASE).json()
+    listed = custom(kiosk_client.get(BASE).json())
     assert [f["id"] for f in listed] == [frame["id"]]
-    assert kiosk_client.get(f"{BASE}?template_key=print_3x4").json() == []
+    assert frame["builtin"] is False and frame["family"] is None
+    assert custom(kiosk_client.get(f"{BASE}?template_key=print_3x4").json()) == []
 
     content = kiosk_client.get(f"{BASE}/{frame['id']}/content")
     assert content.status_code == 200
@@ -104,7 +112,7 @@ def test_wrong_layout_size_and_opaque_slots_are_refused(
     for bad_name in ("", "   ", "x" * 81, "bad\u0000name"):
         status, body = upload(kiosk_client, headers, name=bad_name)
         assert status == 422, (bad_name, body)
-    assert kiosk_client.get(BASE).json() == []
+    assert custom(kiosk_client.get(BASE).json()) == []
 
 
 def test_client_file_names_and_paths_are_ignored(
@@ -181,8 +189,11 @@ def test_replace_and_rename_keep_the_frame_id(
 
 
 def _frame_files(container: Container) -> list[str]:
+    """Stored frame files other than the packaged built-in ones."""
+    builtin = {hashlib.sha256(frame.read()).hexdigest() for frame in builtin_frames()}
     root = container.settings.storage_dir / "assets" / "frame"
-    return sorted(p.name for p in root.rglob("*") if p.is_file()) if root.exists() else []
+    files = sorted(p.name for p in root.rglob("*") if p.is_file()) if root.exists() else []
+    return [name for name in files if name.removesuffix(".png") not in builtin]
 
 
 def test_stored_frame_files_are_removed_when_nothing_uses_them(

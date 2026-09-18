@@ -15,6 +15,7 @@ export const adminKeys = {
   templates: () => ['templates'] as const,
   templateSpec: (key: string) => ['templates', key] as const,
   frames: (templateKey?: string) => [...ADMIN_QUERY_ROOT, 'frames', templateKey ?? 'all'] as const,
+  themes: () => [...ADMIN_QUERY_ROOT, 'themes'] as const,
 }
 
 const noRetry = { retry: false } as const
@@ -117,11 +118,12 @@ export function useTemplateSpec(key: string | undefined) {
   })
 }
 
-export function useFrames(templateKey?: string) {
+export function useFrames(templateKey?: string, options: { enabled?: boolean } = {}) {
   const api = useAdminApi()
   return useQuery({
     queryKey: adminKeys.frames(templateKey),
     queryFn: () => api.listFrames(templateKey),
+    enabled: options.enabled ?? true,
     ...noRetry,
   })
 }
@@ -162,6 +164,25 @@ export function useDeleteFrame() {
     mutationFn: (id: string) => api.deleteFrame(id),
     // A deleted frame can change profile views too.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ADMIN_QUERY_ROOT }),
+  })
+}
+
+/** Token list, contrast rules and presets (fixed for a running booth). */
+export function useThemeCatalog() {
+  const api = useAdminApi()
+  return useQuery({
+    queryKey: adminKeys.themes(),
+    queryFn: () => api.themeCatalog(),
+    staleTime: Infinity,
+    ...noRetry,
+  })
+}
+
+/** Extract a theme from an uploaded background (a proposal; the profile is saved separately). */
+export function useExtractTheme() {
+  const api = useAdminApi()
+  return useMutation({
+    mutationFn: (backgroundAssetId: string) => api.extractTheme(backgroundAssetId),
   })
 }
 

@@ -3,7 +3,14 @@ import { DEVICE_KEY_HEADER, type DeviceKeyStore } from './deviceKey'
 import type { components } from './schema'
 
 type Schemas = components['schemas']
-export type ProfileSettings = Schemas['ProfileSettingsBody']
+/** Stored/edited settings: the theme is always complete (the API also accepts it omitted). */
+export type ProfileSettings = Schemas['ProfileSettingsResponse']
+export type EventTheme = Schemas['EventThemeBody']
+export type ThemeCatalog = Schemas['ThemeCatalogResponse']
+export type ThemePreset = Schemas['PresetInfo']
+export type ThemeTokenInfo = Schemas['TokenInfo']
+export type ContrastRule = Schemas['ContrastRuleInfo']
+export type ExtractedTheme = Schemas['ExtractedTheme']
 export type EventProfile = Schemas['EventProfileResponse']
 export type MediaAsset = Schemas['MediaAssetResponse']
 export type AssetKind = Schemas['AssetKind']
@@ -250,6 +257,14 @@ export function createAdminApiClient(
 
     templates: () => send<TemplateSummary[]>('GET', '/api/templates'),
 
+    // --- Event themes: semantic colour tokens, presets, extraction from a background ---
+    themeCatalog: () => send<ThemeCatalog>('GET', '/api/admin/themes'),
+    /** Proposes a complete accessible theme from the background's colours (nothing is saved). */
+    extractTheme: (backgroundAssetId: string) =>
+      send<ExtractedTheme>('POST', '/api/admin/themes/extract', {
+        json: { background_asset_id: backgroundAssetId },
+      }),
+
     listProfiles: (includeDeleted = false) =>
       send<EventProfile[]>('GET', `/api/admin/profiles${includeDeleted ? '?include_deleted=true' : ''}`),
     getProfile: (id: string) => send<EventProfile>('GET', profilePath(id)),
@@ -320,8 +335,16 @@ export function createAdminApiClient(
 
 export type AdminApiClient = ReturnType<typeof createAdminApiClient>
 
-/** Backend defaults for a new profile. `layouts` should come from GET /api/templates. */
-export function newProfileSettings(layouts: string[]): ProfileSettings {
+/**
+ * A new profile: the default preset theme and, for the first layout, the built-in frame that
+ * suits that preset. `layouts` comes from GET /api/templates, `theme` from GET /api/admin/themes.
+ */
+export function newProfileSettings(
+  layouts: string[],
+  theme: EventTheme,
+  frameSelections: Record<string, string>,
+): ProfileSettings {
+  const enabled = layouts.slice(0, 1)
   return {
     name: '',
     title: '',
@@ -329,17 +352,20 @@ export function newProfileSettings(layouts: string[]): ProfileSettings {
     start_button_text: 'Start',
     logo_asset_id: null,
     background_asset_id: null,
-    background_color: '#101418',
-    primary_color: '#2F6FD6',
-    secondary_color: '#FFB020',
-    button_color: '#2F6FD6',
-    text_color: '#F4F6F8',
-    enabled_layouts: layouts.slice(0, 1),
-    frame_selections: {},
+    theme,
+    enabled_layouts: enabled,
+    frame_selections: Object.fromEntries(
+      enabled.flatMap((key) => (frameSelections[key] ? [[key, frameSelections[key]]] : [])),
+    ),
     countdown_seconds: 5,
     mirror: true,
     inactivity_timeout_s: 120,
     retake_mode: 'per_photo',
     delivery_mode: 'local_link',
   }
+}
+
+/** The theme of a preset, marked as chosen from that preset. */
+export function presetTheme(preset: ThemePreset): EventTheme {
+  return { tokens: { ...preset.tokens }, source: 'preset', preset: preset.id, palette: [] }
 }

@@ -102,8 +102,10 @@ def test_upgrade_seed_constraints_downgrade_upgrade(thai_root: Path) -> None:
     assert {"event_profiles", "media_assets"} <= _tables(db)
     assert migrator.current_revision() == "0002_admin_profiles"
 
-    migrator.upgrade("head")
+    migrator.upgrade("0003_frames")
     assert _tables(db) >= PHASE5_TABLES
     with sqlite3.connect(db) as conn:
         conn.execute("PRAGMA foreign_keys=ON")
         _seed_frame(conn, suffix="2")  # the tables are usable again after the round trip
+    migrator.upgrade("head")  # and later revisions carry that data forward (see 0004 tests)
+    assert migrator.current_revision() == migrator.head_revision()

@@ -104,6 +104,8 @@ def test_upgrade_seed_downgrade_upgrade(thai_root: Path) -> None:
     assert "app_meta" in _tables(db)
     assert migrator.current_revision() == "0001_baseline"
 
-    migrator.upgrade("head")
+    migrator.upgrade("0002_admin_profiles")
     assert _tables(db) >= PHASE3_TABLES
     _seed(db)  # clean tables again after the round trip
+    migrator.upgrade("head")  # later revisions carry the seeded rows forward
+    assert migrator.current_revision() == migrator.head_revision()

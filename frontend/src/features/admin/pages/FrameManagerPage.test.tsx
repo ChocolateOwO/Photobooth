@@ -58,7 +58,7 @@ describe('FrameManagerPage', () => {
     await userEvent.click(screen.getAllByRole('button', { name: 'Upload frame' })[0] as HTMLElement)
 
     expect(await screen.findByRole('status')).toHaveTextContent('Gold border was added.')
-    const frame = [...server.frames.values()][0]
+    const frame = server.customFrames()[0]
     expect(frame?.template_key).toBe('strip_2x6')
     const gold = card('Gold border')
     expect(within(gold).getByRole('img', { name: 'Gold border frame file' })).toHaveAttribute(
@@ -93,7 +93,7 @@ describe('FrameManagerPage', () => {
     await userEvent.upload(fileInput, png())
     await userEvent.click(screen.getAllByRole('button', { name: 'Upload frame' })[0] as HTMLElement)
     expect(await screen.findByRole('alert')).toHaveTextContent('Enter a frame name.')
-    expect(server.frames.size).toBe(0)
+    expect(server.customFrames()).toHaveLength(0)
   })
 
   it('shows the server reason when a frame is rejected or already exists', async () => {
@@ -174,7 +174,7 @@ describe('FrameManagerPage', () => {
     renderAdmin('/admin/frames', { server })
     await screen.findByRole('heading', { name: 'Frame 6' })
     const previews = screen.getAllByRole('img', { name: /sample output$/ })
-    expect(previews).toHaveLength(6)
+    expect(previews).toHaveLength(6 + 6) // six uploads plus the six built-in frames
     for (const preview of previews) expect(preview).toHaveAttribute('loading', 'lazy')
   })
 
@@ -206,7 +206,7 @@ describe('FrameManagerPage', () => {
     ).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(server.frames.size).toBe(1)
+    expect(server.customFrames()).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: 'Delete Gold' }))
     await userEvent.click(
@@ -215,13 +215,13 @@ describe('FrameManagerPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'this frame is still used by: Wedding',
     )
-    expect(server.frames.size).toBe(1)
+    expect(server.customFrames()).toHaveLength(1)
 
     server.framesInUse.delete(frame.id)
     await userEvent.click(screen.getByRole('button', { name: 'Delete Gold' }))
     await userEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete frame' }),
     )
-    await waitFor(() => expect(server.frames.size).toBe(0))
+    await waitFor(() => expect(server.customFrames()).toHaveLength(0))
   })
 })

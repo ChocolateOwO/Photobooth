@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -10,11 +9,12 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
+from photobooth.modules.themes.domain import EventTheme, default_theme
+
 COUNTDOWN_SECONDS = 5  # fixed in the MVP (plan: countdown locked to 5 s)
 NAME_MAX_LENGTH = 80
 INACTIVITY_MIN_S = 30
 INACTIVITY_MAX_S = 900
-HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 class RetakeMode(StrEnum):
@@ -54,11 +54,8 @@ class ProfileSettings:
     start_button_text: str = "Start"
     logo_asset_id: str | None = None
     background_asset_id: str | None = None
-    background_color: str = "#101418"
-    primary_color: str = "#2F6FD6"
-    secondary_color: str = "#FFB020"
-    button_color: str = "#2F6FD6"
-    text_color: str = "#F4F6F8"
+    # Complete semantic colour set for every event-facing element (see themes.domain).
+    theme: EventTheme = field(default_factory=default_theme)
     enabled_layouts: tuple[str, ...] = field(default=("strip_2x6",))
     # One chosen frame per enabled layout: ((template_key, frame_id), ...). A layout may be left
     # without a frame; the admin UI shows that clearly.
@@ -87,15 +84,7 @@ class ProfileSettings:
                 found.append(f"{label} must be {low}-{high} characters")
             if any(ord(ch) < 32 for ch in value):
                 found.append(f"{label} must not contain control characters")
-        for label, color in (
-            ("background_color", self.background_color),
-            ("primary_color", self.primary_color),
-            ("secondary_color", self.secondary_color),
-            ("button_color", self.button_color),
-            ("text_color", self.text_color),
-        ):
-            if not HEX_COLOR.fullmatch(color):
-                found.append(f"{label} must be a #RRGGBB color")
+        found.extend(self.theme.problems())
         if not self.enabled_layouts:
             found.append("at least one layout must be enabled")
         if len(set(self.enabled_layouts)) != len(self.enabled_layouts):

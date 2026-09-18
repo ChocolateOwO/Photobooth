@@ -7,11 +7,13 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
+from photobooth.modules.frames.builtin import BuiltinFrame, builtin_frames
 from photobooth.modules.frames.domain import (
     AssetStore,
     FrameAsset,
     FrameInUseError,
     FrameNotFoundError,
+    FrameReadOnlyError,
     FrameRepository,
     FrameStatus,
     FrameValidationError,
@@ -113,7 +115,7 @@ class FrameService:
 
     def replace_file(self, frame_id: str, data: bytes) -> FrameAsset:
         """Swap in a corrected file. Profile selections keep working; old bytes stay untouched."""
-        frame = self.get(frame_id)
+        frame = self._custom(frame_id)
         template = self._templates.get(frame.template_key, frame.template_version)
         report = self._validator.validate(data, template)
         asset = self._assets.upload("frame", data)
@@ -124,16 +126,39 @@ class FrameService:
         return updated
 
     def rename(self, frame_id: str, name: str) -> FrameAsset:
-        self.get(frame_id)
+        self._custom(frame_id)
         return self._repository.rename(frame_id, check_frame_name(name), self._clock())
 
     def delete(self, frame_id: str) -> None:
-        frame = self.get(frame_id)
+        frame = self._custom(frame_id)
         used_by = self._usage.names_using_frame(frame_id)
         if used_by:
             raise FrameInUseError(used_by)
         self._repository.delete(frame_id)
         self._discard(frame.media_asset_id)
+
+    def _custom(self, frame_id: str) -> FrameAsset:
+        """The frame, when the admin may change it (built-in frames are read-only)."""
+        frame = self.get(frame_id)
+        if frame.builtin:
+            raise FrameReadOnlyError()
+        return frame
+
+    def ensure_builtin_files(self, catalog: tuple[BuiltinFrame, ...] | None = None) -> int:
+        """Put the packaged PNG of every built-in frame into storage when it is missing.
+
+        The rows come from migration 0004; the bytes ship with the app. Returns how many files
+        were written. Packaged bytes that do not match the recorded sha256 raise instead of being
+        stored, so a damaged package is noticed at start-up.
+        """
+        written = 0
+        for builtin in catalog if catalog is not None else builtin_frames():
+            frame = self._repository.get(builtin.id)
+            if frame is None or not frame.builtin:
+                continue
+            if self._assets.ensure_stored(frame.media_asset_id, builtin.read()):
+                written += 1
+        return written
 
     def _discard(self, asset_id: str) -> None:
         """Delete the stored file when no frame and no Event Profile point at it any more."""

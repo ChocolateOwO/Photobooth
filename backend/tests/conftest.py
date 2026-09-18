@@ -59,6 +59,7 @@ def container(settings: AppSettings) -> Iterator[Container]:
     Migrator(settings.db_path).upgrade("head")
     built = Container(settings)
     built.system_service.stamp_instance()
+    built.restore_builtin_files()
     try:
         yield built
     finally:

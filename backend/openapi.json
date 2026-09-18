@@ -10,6 +10,34 @@
         "title": "AssetKind",
         "type": "string"
       },
+      "ContrastRuleInfo": {
+        "properties": {
+          "background": {
+            "title": "Background",
+            "type": "string"
+          },
+          "foreground": {
+            "title": "Foreground",
+            "type": "string"
+          },
+          "minimum": {
+            "title": "Minimum",
+            "type": "number"
+          },
+          "what": {
+            "title": "What",
+            "type": "string"
+          }
+        },
+        "required": [
+          "foreground",
+          "background",
+          "minimum",
+          "what"
+        ],
+        "title": "ContrastRuleInfo",
+        "type": "object"
+      },
       "DeliveryMode": {
         "enum": [
           "local_link"
@@ -69,7 +97,7 @@
             "type": "integer"
           },
           "settings": {
-            "$ref": "#/components/schemas/ProfileSettingsBody"
+            "$ref": "#/components/schemas/ProfileSettingsResponse"
           },
           "updated_at": {
             "format": "date-time",
@@ -89,9 +117,130 @@
         "title": "EventProfileResponse",
         "type": "object"
       },
+      "EventThemeBody": {
+        "additionalProperties": false,
+        "description": "Complete event theme: one colour per semantic token (every key in `tokens` is required).",
+        "properties": {
+          "palette": {
+            "description": "Swatches extracted from the background image (source=extracted)",
+            "items": {
+              "examples": [
+                "#2F6FD6"
+              ],
+              "pattern": "^#[0-9A-Fa-f]{6}$",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Palette",
+            "type": "array"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ThemeSource",
+            "default": "custom"
+          },
+          "tokens": {
+            "description": "Every semantic token, e.g. background, primary_bg, primary_text, ...",
+            "maxProperties": 35,
+            "minProperties": 35,
+            "patternProperties": {
+              "^[a-z_]{1,40}$": {
+                "examples": [
+                  "#2F6FD6"
+                ],
+                "pattern": "^#[0-9A-Fa-f]{6}$",
+                "type": "string"
+              }
+            },
+            "title": "Tokens",
+            "type": "object"
+          }
+        },
+        "required": [
+          "tokens"
+        ],
+        "title": "EventThemeBody",
+        "type": "object"
+      },
+      "ExtractBody": {
+        "additionalProperties": false,
+        "properties": {
+          "background_asset_id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Background Asset Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "background_asset_id"
+        ],
+        "title": "ExtractBody",
+        "type": "object"
+      },
+      "ExtractedTheme": {
+        "properties": {
+          "message": {
+            "default": "Colors extracted from background",
+            "title": "Message",
+            "type": "string"
+          },
+          "palette": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Palette",
+            "type": "array"
+          },
+          "preset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preset"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ThemeSource"
+          },
+          "tokens": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tokens",
+            "type": "object"
+          }
+        },
+        "required": [
+          "tokens",
+          "source",
+          "preset",
+          "palette"
+        ],
+        "title": "ExtractedTheme",
+        "type": "object"
+      },
       "FrameResponse": {
         "description": "A validated frame. The stored file itself is served by `/content`.",
         "properties": {
+          "builtin": {
+            "description": "Packaged with the app; can not be replaced or deleted",
+            "title": "Builtin",
+            "type": "boolean"
+          },
           "bytes": {
             "title": "Bytes",
             "type": "integer"
@@ -100,6 +249,18 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Built-in family id, e.g. midnight; null for uploads",
+            "title": "Family"
           },
           "height": {
             "title": "Height",
@@ -166,7 +327,9 @@
           "warnings",
           "slot_transparency",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "builtin",
+          "family"
         ],
         "title": "FrameResponse",
         "type": "object"
@@ -355,6 +518,43 @@
         "title": "PingResponse",
         "type": "object"
       },
+      "PresetInfo": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "frame_family": {
+            "description": "Built-in frame family that suits this preset",
+            "title": "Frame Family",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tokens": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Tokens",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "frame_family",
+          "tokens"
+        ],
+        "title": "PresetInfo",
+        "type": "object"
+      },
       "ProblemResponse": {
         "properties": {
           "detail": {
@@ -384,24 +584,6 @@
             ],
             "title": "Background Asset Id"
           },
-          "background_color": {
-            "default": "#101418",
-            "examples": [
-              "#2F6FD6"
-            ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Background Color",
-            "type": "string"
-          },
-          "button_color": {
-            "default": "#2F6FD6",
-            "examples": [
-              "#2F6FD6"
-            ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Button Color",
-            "type": "string"
-          },
           "countdown_seconds": {
             "const": 5,
             "default": 5,
@@ -463,27 +645,9 @@
             "title": "Name",
             "type": "string"
           },
-          "primary_color": {
-            "default": "#2F6FD6",
-            "examples": [
-              "#2F6FD6"
-            ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Primary Color",
-            "type": "string"
-          },
           "retake_mode": {
             "$ref": "#/components/schemas/RetakeMode",
             "default": "per_photo"
-          },
-          "secondary_color": {
-            "default": "#FFB020",
-            "examples": [
-              "#2F6FD6"
-            ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Secondary Color",
-            "type": "string"
           },
           "start_button_text": {
             "default": "Start",
@@ -499,14 +663,16 @@
             "title": "Subtitle",
             "type": "string"
           },
-          "text_color": {
-            "default": "#F4F6F8",
-            "examples": [
-              "#2F6FD6"
+          "theme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventThemeBody"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Text Color",
-            "type": "string"
+            "description": "Omit to use the default preset theme"
           },
           "title": {
             "description": "Preparation screen title",
@@ -524,8 +690,9 @@
         "title": "ProfileSettingsBody",
         "type": "object"
       },
-      "ProfileUpdateBody": {
+      "ProfileSettingsResponse": {
         "additionalProperties": false,
+        "description": "Stored settings; the theme is always present.",
         "properties": {
           "background_asset_id": {
             "anyOf": [
@@ -538,24 +705,6 @@
               }
             ],
             "title": "Background Asset Id"
-          },
-          "background_color": {
-            "default": "#101418",
-            "examples": [
-              "#2F6FD6"
-            ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Background Color",
-            "type": "string"
-          },
-          "button_color": {
-            "default": "#2F6FD6",
-            "examples": [
-              "#2F6FD6"
-            ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Button Color",
-            "type": "string"
           },
           "countdown_seconds": {
             "const": 5,
@@ -618,33 +767,9 @@
             "title": "Name",
             "type": "string"
           },
-          "primary_color": {
-            "default": "#2F6FD6",
-            "examples": [
-              "#2F6FD6"
-            ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Primary Color",
-            "type": "string"
-          },
           "retake_mode": {
             "$ref": "#/components/schemas/RetakeMode",
             "default": "per_photo"
-          },
-          "revision": {
-            "description": "Revision the edit was based on (optimistic lock)",
-            "minimum": 1.0,
-            "title": "Revision",
-            "type": "integer"
-          },
-          "secondary_color": {
-            "default": "#FFB020",
-            "examples": [
-              "#2F6FD6"
-            ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Secondary Color",
-            "type": "string"
           },
           "start_button_text": {
             "default": "Start",
@@ -660,14 +785,136 @@
             "title": "Subtitle",
             "type": "string"
           },
-          "text_color": {
-            "default": "#F4F6F8",
-            "examples": [
-              "#2F6FD6"
-            ],
-            "pattern": "^#[0-9A-Fa-f]{6}$",
-            "title": "Text Color",
+          "theme": {
+            "$ref": "#/components/schemas/EventThemeBody"
+          },
+          "title": {
+            "description": "Preparation screen title",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
             "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "theme",
+          "enabled_layouts"
+        ],
+        "title": "ProfileSettingsResponse",
+        "type": "object"
+      },
+      "ProfileUpdateBody": {
+        "additionalProperties": false,
+        "properties": {
+          "background_asset_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Background Asset Id"
+          },
+          "countdown_seconds": {
+            "const": 5,
+            "default": 5,
+            "title": "Countdown Seconds",
+            "type": "integer"
+          },
+          "delivery_mode": {
+            "$ref": "#/components/schemas/DeliveryMode",
+            "default": "local_link"
+          },
+          "enabled_layouts": {
+            "items": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "title": "Enabled Layouts",
+            "type": "array"
+          },
+          "frame_selections": {
+            "maxProperties": 16,
+            "patternProperties": {
+              "^[a-z0-9_]{1,64}$": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              }
+            },
+            "title": "Frame Selections",
+            "type": "object"
+          },
+          "inactivity_timeout_s": {
+            "default": 120,
+            "maximum": 900.0,
+            "minimum": 30.0,
+            "title": "Inactivity Timeout S",
+            "type": "integer"
+          },
+          "logo_asset_id": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Asset Id"
+          },
+          "mirror": {
+            "default": true,
+            "title": "Mirror",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "retake_mode": {
+            "$ref": "#/components/schemas/RetakeMode",
+            "default": "per_photo"
+          },
+          "revision": {
+            "description": "Revision the edit was based on (optimistic lock)",
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "start_button_text": {
+            "default": "Start",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Start Button Text",
+            "type": "string"
+          },
+          "subtitle": {
+            "default": "",
+            "description": "Preparation screen text",
+            "maxLength": 240,
+            "title": "Subtitle",
+            "type": "string"
+          },
+          "theme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventThemeBody"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omit to use the default preset theme"
           },
           "title": {
             "description": "Preparation screen title",
@@ -1036,6 +1283,80 @@
           "links"
         ],
         "title": "TemplateSummary",
+        "type": "object"
+      },
+      "ThemeCatalogResponse": {
+        "properties": {
+          "contrast_rules": {
+            "items": {
+              "$ref": "#/components/schemas/ContrastRuleInfo"
+            },
+            "title": "Contrast Rules",
+            "type": "array"
+          },
+          "default_preset": {
+            "title": "Default Preset",
+            "type": "string"
+          },
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/PresetInfo"
+            },
+            "title": "Presets",
+            "type": "array"
+          },
+          "tokens": {
+            "items": {
+              "$ref": "#/components/schemas/TokenInfo"
+            },
+            "title": "Tokens",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tokens",
+          "contrast_rules",
+          "presets",
+          "default_preset"
+        ],
+        "title": "ThemeCatalogResponse",
+        "type": "object"
+      },
+      "ThemeSource": {
+        "enum": [
+          "preset",
+          "extracted",
+          "custom"
+        ],
+        "title": "ThemeSource",
+        "type": "string"
+      },
+      "TokenInfo": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "group",
+          "label",
+          "description"
+        ],
+        "title": "TokenInfo",
         "type": "object"
       },
       "ValidationError": {
@@ -2265,6 +2586,70 @@
         "summary": "Restore Profile",
         "tags": [
           "admin-profiles"
+        ]
+      }
+    },
+    "/api/admin/themes": {
+      "get": {
+        "description": "Every semantic colour token, the contrast rules and the preset palettes.",
+        "operationId": "theme_catalog_api_admin_themes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThemeCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Theme Catalog",
+        "tags": [
+          "admin-themes"
+        ]
+      }
+    },
+    "/api/admin/themes/extract": {
+      "post": {
+        "description": "A complete accessible theme from the dominant colours of an uploaded background image.\n\nRuns locally; the image is read, never changed. Nothing is saved until the profile is saved.",
+        "operationId": "extract_theme_api_admin_themes_extract_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractedTheme"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Extract Theme",
+        "tags": [
+          "admin-themes"
         ]
       }
     },

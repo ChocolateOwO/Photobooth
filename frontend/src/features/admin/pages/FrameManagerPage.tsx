@@ -99,6 +99,7 @@ function FrameCardItem({
     <li data-testid="frame-card" className={styles.frameCard}>
       <div className={styles.frameHeader}>
         <h3 className={styles.frameName}>{frame.name}</h3>
+        {frame.builtin && <span className={styles.builtinBadge}>Built-in</span>}
         <span className={styles.dimensions}>
           {frame.width} × {frame.height} px
         </span>
@@ -141,7 +142,11 @@ function FrameCardItem({
       )}
 
       <div className={styles.cardActions}>
-        {isRenaming ? (
+        {frame.builtin ? (
+          <p className={styles.builtinNote}>
+            Ready to use. Built-in frames can not be replaced, renamed or deleted.
+          </p>
+        ) : isRenaming ? (
           <div className={styles.renameRow}>
             <div className={styles.renameField}>
               <label htmlFor={`rename-name-${frame.id}`} className={styles.label}>
@@ -248,6 +253,8 @@ function TemplateFrameSection({ template, frames, framesState }: TemplateFrameSe
   const [isDeleting, setIsDeleting] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const builtinFrames = frames.filter((f) => f.builtin)
+  const customFrames = frames.filter((f) => !f.builtin)
 
   const clearAlerts = () => {
     setClientError(null)
@@ -482,13 +489,34 @@ function TemplateFrameSection({ template, frames, framesState }: TemplateFrameSe
         </div>
       )}
 
+      {framesState === 'ready' && builtinFrames.length > 0 && (
+        <>
+          <h3 className={styles.listHeading}>Built-in frames</h3>
+          <ul className={styles.framesList} aria-label={`Built-in frames for ${template.name}`}>
+            {builtinFrames.map((frame) => (
+              <FrameCardItem
+                key={frame.id}
+                frame={frame}
+                onReplaceFile={handleReplaceFile}
+                onRename={handleRename}
+                onDeleteRequest={handleDeleteRequest}
+                onClientError={setClientError}
+                onServerErrors={setServerErrors}
+                onClearStatus={() => setUploadStatus(null)}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {framesState === 'ready' && <h3 className={styles.listHeading}>Your frames</h3>}
       {framesState === 'loading' ? (
         <p className={styles.loadingText}>Loading frames…</p>
-      ) : framesState === 'error' ? null : frames.length === 0 ? (
+      ) : framesState === 'error' ? null : customFrames.length === 0 ? (
         <p className={styles.emptyText}>No frames uploaded for this layout yet.</p>
       ) : (
-        <ul className={styles.framesList}>
-          {frames.map((frame) => (
+        <ul className={styles.framesList} aria-label={`Your frames for ${template.name}`}>
+          {customFrames.map((frame) => (
             <FrameCardItem
               key={frame.id}
               frame={frame}

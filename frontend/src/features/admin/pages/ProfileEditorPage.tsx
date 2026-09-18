@@ -1,27 +1,34 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 
 import {
   AdminApiError,
   INACTIVITY_LIMITS,
   newProfileSettings,
+  presetTheme,
   TEXT_LIMITS,
   type EventProfile,
+  type EventTheme,
   type ProfileSettings,
   type TemplateSummary,
+  type ThemeCatalog,
 } from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import { BigButton } from '../../../shared/ui/BigButton'
 import {
   useCreateProfile,
+  useExtractTheme,
   useFrames,
   useProfile,
   useTemplates,
+  useThemeCatalog,
   useUpdateProfile,
 } from '../api/hooks'
 import { AssetPicker } from '../components/AssetPicker'
-import { PreparationPreview } from '../components/PreparationPreview'
+import { EventPreview } from '../components/EventPreview'
 import { RetryingImage } from '../components/RetryingImage'
+import { ThemeEditor } from '../components/ThemeEditor'
+import { builtinFrameFor, preferredFamily } from '../frameDefaults'
 import styles from './ProfileEditorPage.module.css'
 
 /** Frame selections without one layout (no mutation of the current state). */
@@ -35,6 +42,7 @@ function withoutLayout(
 }
 
 interface ProfileEditorFormProps {
+  catalog: ThemeCatalog
   initialSettings: ProfileSettings
   initialRevision: number
   templates: TemplateSummary[]
@@ -45,6 +53,7 @@ interface ProfileEditorFormProps {
 }
 
 function ProfileEditorForm({
+  catalog,
   initialSettings,
   initialRevision,
   templates,
@@ -67,7 +76,12 @@ function ProfileEditorForm({
   const [isSaving, setIsSaving] = useState(false)
   // Saving while an image upload is in flight would store the previous asset id.
   const [uploading, setUploading] = useState({ logo: false, background: false })
-  const uploadPending = uploading.logo || uploading.background
+  const extractMutation = useExtractTheme()
+  // Saving mid-upload would store the previous asset; mid-extraction, the previous theme.
+  const uploadPending = uploading.logo || uploading.background || extractMutation.isPending
+  const [themeHistory, setThemeHistory] = useState<EventTheme[]>([])
+  const [extractError, setExtractError] = useState<string | null>(null)
+  const themeRef = useRef(initialSettings.theme)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [clientErrors, setClientErrors] = useState<string[] | null>(null)
   const [serverErrors, setServerErrors] = useState<string[] | null>(null)
@@ -75,6 +89,42 @@ function ProfileEditorForm({
     message: string
     serverMessage?: string
   } | null>(null)
+
+  useEffect(() => {
+    themeRef.current = settings.theme // read by the extraction handler (an event, after render)
+  }, [settings.theme])
+
+  /** Apply a theme made from the background's colours; the previous theme can be restored. */
+  const extractFrom = async (assetId: string) => {
+    setExtractError(null)
+    try {
+      const extracted = await extractMutation.mutateAsync(assetId)
+      const previous = themeRef.current
+      setThemeHistory((history) => [...history, previous])
+      setSettings((current) => ({
+        ...current,
+        theme: {
+          tokens: extracted.tokens,
+          source: 'extracted',
+          preset: null,
+          palette: extracted.palette,
+        },
+      }))
+    } catch (err: unknown) {
+      setExtractError(
+        err instanceof AdminApiError
+          ? `Colours could not be taken from the background: ${err.message}`
+          : 'Colours could not be taken from the background.',
+      )
+    }
+  }
+
+  const undoExtraction = () => {
+    const previous = themeHistory[themeHistory.length - 1]
+    if (!previous) return
+    setThemeHistory((history) => history.slice(0, -1))
+    setSettings((current) => ({ ...current, theme: previous }))
+  }
 
   const validate = (): string[] => {
     const errors: string[] = []
@@ -284,114 +334,22 @@ function ProfileEditorForm({
           </div>
         </section>
 
-        {/* Colors Section */}
-        <section className={styles.formSection}>
-          <h2 className={styles.sectionHeading}>Colors</h2>
-          <p id="help-colors" className={styles.helperText}>
-            Pick a color with each swatch. Colors are saved as hex values, e.g. #2F6FD6.
-          </p>
-          <div className={styles.colorGrid}>
-            <div className={styles.colorField}>
-              <label htmlFor="color-background" className={styles.label}>
-                Background color
-              </label>
-              <div className={styles.colorInputWrapper}>
-                <input
-                  id="color-background"
-                  type="color"
-                  aria-describedby="help-colors"
-                  value={settings.background_color}
-                  onChange={(e) =>
-                    setSettings((current) => ({ ...current, background_color: e.target.value.toUpperCase() }))
-                  }
-                  className={styles.colorInput}
-                  disabled={isDeleted}
-                />
-                <span className={styles.colorHex}>{settings.background_color}</span>
-              </div>
-            </div>
-
-            <div className={styles.colorField}>
-              <label htmlFor="color-primary" className={styles.label}>
-                Primary color
-              </label>
-              <div className={styles.colorInputWrapper}>
-                <input
-                  id="color-primary"
-                  type="color"
-                  aria-describedby="help-colors"
-                  value={settings.primary_color}
-                  onChange={(e) =>
-                    setSettings((current) => ({ ...current, primary_color: e.target.value.toUpperCase() }))
-                  }
-                  className={styles.colorInput}
-                  disabled={isDeleted}
-                />
-                <span className={styles.colorHex}>{settings.primary_color}</span>
-              </div>
-            </div>
-
-            <div className={styles.colorField}>
-              <label htmlFor="color-secondary" className={styles.label}>
-                Secondary color
-              </label>
-              <div className={styles.colorInputWrapper}>
-                <input
-                  id="color-secondary"
-                  type="color"
-                  aria-describedby="help-colors"
-                  value={settings.secondary_color}
-                  onChange={(e) =>
-                    setSettings((current) => ({ ...current, secondary_color: e.target.value.toUpperCase() }))
-                  }
-                  className={styles.colorInput}
-                  disabled={isDeleted}
-                />
-                <span className={styles.colorHex}>{settings.secondary_color}</span>
-              </div>
-            </div>
-
-            <div className={styles.colorField}>
-              <label htmlFor="color-button" className={styles.label}>
-                Button color
-              </label>
-              <div className={styles.colorInputWrapper}>
-                <input
-                  id="color-button"
-                  type="color"
-                  aria-describedby="help-colors"
-                  value={settings.button_color}
-                  onChange={(e) =>
-                    setSettings((current) => ({ ...current, button_color: e.target.value.toUpperCase() }))
-                  }
-                  className={styles.colorInput}
-                  disabled={isDeleted}
-                />
-                <span className={styles.colorHex}>{settings.button_color}</span>
-              </div>
-            </div>
-
-            <div className={styles.colorField}>
-              <label htmlFor="color-text" className={styles.label}>
-                Text color
-              </label>
-              <div className={styles.colorInputWrapper}>
-                <input
-                  id="color-text"
-                  type="color"
-                  aria-describedby="help-colors"
-                  value={settings.text_color}
-                  onChange={(e) =>
-                    setSettings((current) => ({ ...current, text_color: e.target.value.toUpperCase() }))
-                  }
-                  className={styles.colorInput}
-                  disabled={isDeleted}
-                />
-                <span className={styles.colorHex}>{settings.text_color}</span>
-              </div>
-            </div>
-          </div>
-        </section>
+        <ThemeEditor
+          theme={settings.theme}
+          onChange={(theme) => setSettings((current) => ({ ...current, theme }))}
+          catalog={catalog}
+          hasBackground={Boolean(settings.background_asset_id)}
+          extraction={{
+            reextract: () => {
+              if (settings.background_asset_id) void extractFrom(settings.background_asset_id)
+            },
+            undo: undoExtraction,
+            canUndo: themeHistory.length > 0,
+            pending: extractMutation.isPending,
+            error: extractError,
+          }}
+          disabled={isDeleted}
+        />
 
         {/* Images Section */}
         <section className={styles.formSection}>
@@ -406,7 +364,12 @@ function ProfileEditorForm({
           <AssetPicker
             kind="background"
             assetId={settings.background_asset_id}
-            onChange={(id) => setSettings((current) => ({ ...current, background_asset_id: id }))}
+            onChange={(id) => {
+              const changed = id !== null && id !== settings.background_asset_id
+              setSettings((current) => ({ ...current, background_asset_id: id }))
+              // A new or replaced background proposes its own colours at once.
+              if (changed) void extractFrom(id)
+            }}
             onUploadingChange={(active) => setUploading((u) => ({ ...u, background: active }))}
             disabled={isDeleted || isSaving}
           />
@@ -443,13 +406,20 @@ function ProfileEditorForm({
                         const nextLayouts = checked
                           ? [...current.enabled_layouts.filter((k) => k !== tpl.key), tpl.key]
                           : current.enabled_layouts.filter((k) => k !== tpl.key)
-                        // Switching a layout off also drops its frame: the server refuses a
-                        // selection for a layout that is not enabled.
+                        // Switching a layout on picks a matching built-in frame; switching it off
+                        // drops its frame (the server refuses a frame for a layout that is off).
+                        const fallback =
+                          checked && frames && !current.frame_selections?.[tpl.key]
+                            ? builtinFrameFor(frames, tpl.key, preferredFamily(current, frames, catalog))
+                            : undefined
                         return {
                           ...current,
                           enabled_layouts: nextLayouts,
                           frame_selections: checked
-                            ? { ...current.frame_selections }
+                            ? {
+                                ...current.frame_selections,
+                                ...(fallback ? { [tpl.key]: fallback.id } : {}),
+                              }
                             : withoutLayout(current.frame_selections, tpl.key),
                         }
                       })
@@ -484,11 +454,28 @@ function ProfileEditorForm({
                       {framesUnavailable && currentFrameId && (
                         <option value={currentFrameId}>Saved frame (loading frames…)</option>
                       )}
-                      {layoutFrames.map((frame) => (
-                        <option key={frame.id} value={frame.id}>
-                          {frame.name}
-                        </option>
-                      ))}
+                      {layoutFrames.some((f) => f.builtin) && (
+                        <optgroup label="Built-in">
+                          {layoutFrames
+                            .filter((f) => f.builtin)
+                            .map((frame) => (
+                              <option key={frame.id} value={frame.id}>
+                                {frame.name} (Built-in)
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                      {layoutFrames.some((f) => !f.builtin) && (
+                        <optgroup label="Your frames">
+                          {layoutFrames
+                            .filter((f) => !f.builtin)
+                            .map((frame) => (
+                              <option key={frame.id} value={frame.id}>
+                                {frame.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
                     </select>
 
                     {framesUnavailable && !framesQuery.isError && (
@@ -525,6 +512,12 @@ function ProfileEditorForm({
                     {!activeFrame && !(framesUnavailable && currentFrameId) && (
                       <p className={styles.missingFrameWarning} data-testid="missing-frame-warning">
                         No frame selected for {tpl.name}. Photos will print without a frame.
+                      </p>
+                    )}
+
+                    {activeFrame?.builtin && (
+                      <p className={styles.helperText}>
+                        Built-in frame. Upload your own under Frames to use a different design.
                       </p>
                     )}
 
@@ -653,7 +646,7 @@ function ProfileEditorForm({
       </form>
 
       <div className={styles.previewColumn}>
-        <PreparationPreview settings={settings} templates={templates} />
+        <EventPreview settings={settings} templates={templates} frames={frames} />
       </div>
     </div>
   )
@@ -664,6 +657,13 @@ export function ProfileEditorPage() {
   const isNew = !profileId
 
   const { data: templates, isLoading: isTemplatesLoading } = useTemplates()
+  const catalogQuery = useThemeCatalog()
+  const catalog = catalogQuery.data
+  // Only a new profile needs the list here (its default frames); the form loads it itself.
+  const framesQuery = useFrames(undefined, { enabled: isNew })
+  // A new profile starts with built-in default frames, so it waits for the frame list (or its
+  // failure, then it simply starts without frames).
+  const framesSettled = framesQuery.data !== undefined || framesQuery.isError
   const {
     data: profile,
     isLoading: isProfileLoading,
@@ -671,7 +671,12 @@ export function ProfileEditorPage() {
     refetch: refetchProfile,
   } = useProfile(profileId)
 
-  if (isTemplatesLoading || (!isNew && isProfileLoading)) {
+  if (
+    isTemplatesLoading ||
+    catalogQuery.isLoading ||
+    (!isNew && isProfileLoading) ||
+    (isNew && !framesSettled)
+  ) {
     return (
       <div className={styles.container}>
         <div className={styles.headerRow}>
@@ -690,7 +695,7 @@ export function ProfileEditorPage() {
     )
   }
 
-  if (!templates) {
+  if (!templates || !catalog) {
     return (
       <div className={styles.container}>
         <div className={styles.headerRow}>
@@ -705,7 +710,15 @@ export function ProfileEditorPage() {
           </div>
         </div>
         <div role="alert" className={styles.alert}>
-          Unable to load templates.
+          {templates ? 'Unable to load the event themes.' : 'Unable to load templates.'}
+          <button
+            type="button"
+            onClick={() => {
+              void catalogQuery.refetch()
+            }}
+          >
+            Try again
+          </button>
         </div>
       </div>
     )
@@ -734,7 +747,21 @@ export function ProfileEditorPage() {
 
   // Narrowed above: an existing profile is loaded whenever this is not a new one.
   const loaded = isNew ? undefined : profile
-  const initialSettings = loaded?.settings ?? newProfileSettings(templates.map((t) => t.key))
+  const defaultPreset =
+    catalog.presets.find((p) => p.id === catalog.default_preset) ?? catalog.presets[0]
+  const defaultFrames = Object.fromEntries(
+    templates.flatMap((t) => {
+      const frame = builtinFrameFor(framesQuery.data ?? [], t.key, defaultPreset?.frame_family ?? 'midnight')
+      return frame ? [[t.key, frame.id]] : []
+    }),
+  )
+  const initialSettings =
+    loaded?.settings ??
+    newProfileSettings(
+      templates.map((t) => t.key),
+      defaultPreset ? presetTheme(defaultPreset) : { tokens: {}, source: 'custom', preset: null, palette: [] },
+      defaultFrames,
+    )
   const initialRevision = loaded?.revision ?? 1
   const isDeleted = loaded !== undefined && loaded.deleted_at !== null
 
@@ -759,6 +786,7 @@ export function ProfileEditorPage() {
 
       <ProfileEditorForm
         key={loaded?.id ?? 'new'}
+        catalog={catalog}
         initialSettings={initialSettings}
         initialRevision={initialRevision}
         templates={templates}

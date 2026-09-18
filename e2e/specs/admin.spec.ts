@@ -79,15 +79,14 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
   await page.getByLabel('Title', { exact: true }).fill(PERSISTED.title)
   await page.getByLabel('Subtitle').fill(PERSISTED.subtitle)
   await page.getByLabel('Start button text').fill(PERSISTED.startText)
-  await page.getByLabel('Primary color').fill(PERSISTED.primary.toLowerCase())
   await page.getByRole('checkbox', { name: 'Mirror the camera preview' }).uncheck()
   await page.getByLabel('Inactivity timeout (seconds)').fill('240')
   await page.getByRole('radio', { name: 'Retake all photos' }).check()
 
-  const preview = page.getByTestId('preparation-preview')
+  const preview = page.getByTestId('event-preview')
   await expect(preview.getByText(PERSISTED.title)).toBeVisible()
   await expect(preview.getByText(PERSISTED.startText)).toBeVisible()
-  await expect(preview.getByText('Mirror: off')).toBeVisible()
+  await expect(page.getByTestId('preparation-preview').getByText('Mirror: off')).toBeVisible()
 
   await page.getByLabel('Logo image').setInputFiles(join(fixturesDir, 'logo.png'))
   await expect(page.getByRole('img', { name: 'Logo preview' })).toBeVisible()
@@ -108,6 +107,15 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
   })
   await expect(page.getByRole('alert')).toContainText('Logo must be a PNG or JPEG image.')
 
+  // The background proposed its own colours; then one colour is changed by hand.
+  await expect(page.getByText('Colors extracted from background')).toBeVisible()
+  await page.getByText('Advanced colors').click()
+  await page.getByLabel('Main button hex value', { exact: true }).fill(PERSISTED.primary)
+  await expect(preview.getByRole('button', { name: PERSISTED.startText })).toHaveCSS(
+    'background-color',
+    'rgb(170, 34, 68)',
+  )
+
   const save = page.getByRole('button', { name: 'Save profile' })
   expect((await save.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(64)
   expect((await page.getByLabel('Title', { exact: true }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(64)
@@ -117,7 +125,7 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
 
   await page.reload()
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
-  await expect(page.getByLabel('Primary color')).toHaveValue(PERSISTED.primary.toLowerCase())
+  await expect(page.getByLabel('Main button hex value', { exact: true })).toHaveValue(PERSISTED.primary)
   await expect(page.getByRole('radio', { name: 'Retake all photos' })).toBeChecked()
   await expect(page.getByRole('img', { name: 'Logo preview' })).toBeVisible()
 })
@@ -203,7 +211,7 @@ test('saved profiles reopen and stay editable after a backend restart @after-res
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
   await expect(page.getByLabel('Subtitle')).toHaveValue(PERSISTED.subtitle)
   await expect(page.getByLabel('Start button text')).toHaveValue(PERSISTED.startText)
-  await expect(page.getByLabel('Primary color')).toHaveValue(PERSISTED.primary.toLowerCase())
+  await expect(page.getByLabel('Main button hex value', { exact: true })).toHaveValue(PERSISTED.primary)
   await expect(page.getByLabel('Inactivity timeout (seconds)')).toHaveValue('240')
   await expect(page.getByRole('checkbox', { name: 'Mirror the camera preview' })).not.toBeChecked()
   await expect(page.getByRole('radio', { name: 'Retake all photos' })).toBeChecked()

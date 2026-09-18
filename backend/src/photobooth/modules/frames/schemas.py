@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from photobooth.modules.frames.domain import FrameAsset
 
@@ -25,6 +25,8 @@ class FrameResponse(BaseModel):
     slot_transparency: list[float]
     created_at: datetime
     updated_at: datetime
+    builtin: bool = Field(description="Packaged with the app; can not be replaced or deleted")
+    family: str | None = Field(description="Built-in family id, e.g. midnight; null for uploads")
 
     @classmethod
     def of(cls, frame: FrameAsset) -> FrameResponse:
@@ -42,6 +44,8 @@ class FrameResponse(BaseModel):
             slot_transparency=[round(value, 4) for value in frame.report.slot_transparency],
             created_at=frame.created_at,
             updated_at=frame.updated_at,
+            builtin=frame.builtin,
+            family=frame.family,
         )
 
 

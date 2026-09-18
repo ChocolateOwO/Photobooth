@@ -5,7 +5,16 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import Engine, ForeignKey, Integer, String, Text, UniqueConstraint, select
+from sqlalchemy import (
+    Boolean,
+    Engine,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    select,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column, sessionmaker
 
@@ -15,6 +24,7 @@ from photobooth.modules.frames.domain import (
     FrameAsset,
     FrameInUseError,
     FrameNotFoundError,
+    FrameReadOnlyError,
     FrameRepository,
     FrameStatus,
     FrameValidationError,
@@ -39,6 +49,8 @@ class FrameAssetRow(Base):
     report: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
+    builtin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    family: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 def _report_json(report: FrameValidationReport) -> str:
@@ -75,6 +87,8 @@ def _to_domain(row: FrameAssetRow, asset: MediaAssetRow | None) -> FrameAsset:
         updated_at=row.updated_at,
         sha256="" if asset is None else asset.sha256,
         bytes=0 if asset is None else asset.bytes,
+        builtin=row.builtin,
+        family=row.family,
     )
 
 
@@ -93,6 +107,8 @@ class SqlFrameRepository(FrameRepository):
             report=_report_json(frame.report),
             created_at=frame.created_at,
             updated_at=frame.updated_at,
+            builtin=False,  # built-in rows come only from migration 0004
+            family=None,
         )
         try:
             with self._sessions.begin() as session:
@@ -104,7 +120,10 @@ class SqlFrameRepository(FrameRepository):
         return self._require(frame.id)
 
     def list_frames(self, template_key: str | None = None) -> list[FrameAsset]:
-        query = select(FrameAssetRow).order_by(FrameAssetRow.template_key, FrameAssetRow.name)
+        # Built-in frames first in each layout, then the admin's own frames by name.
+        query = select(FrameAssetRow).order_by(
+            FrameAssetRow.template_key, FrameAssetRow.builtin.desc(), FrameAssetRow.name
+        )
         if template_key is not None:
             query = query.where(FrameAssetRow.template_key == template_key)
         with self._sessions() as session:
@@ -125,6 +144,8 @@ class SqlFrameRepository(FrameRepository):
             row = session.get(FrameAssetRow, frame_id)
             if row is None:
                 raise FrameNotFoundError(frame_id)
+            if row.builtin:
+                raise FrameReadOnlyError()
             row.media_asset_id = media_asset_id  # the previous asset row stays (immutable)
             row.report = _report_json(report)
             row.updated_at = at
@@ -136,6 +157,8 @@ class SqlFrameRepository(FrameRepository):
                 row = session.get(FrameAssetRow, frame_id)
                 if row is None:
                     raise FrameNotFoundError(frame_id)
+                if row.builtin:
+                    raise FrameReadOnlyError()
                 row.name = name
                 row.updated_at = at
         except IntegrityError as exc:
@@ -150,6 +173,8 @@ class SqlFrameRepository(FrameRepository):
                 row = session.get(FrameAssetRow, frame_id)
                 if row is None:
                     raise FrameNotFoundError(frame_id)
+                if row.builtin:
+                    raise FrameReadOnlyError()
                 session.delete(row)
         except IntegrityError as exc:
             # Backstop for the service check: an Event Profile still references this frame.

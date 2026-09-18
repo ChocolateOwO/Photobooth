@@ -97,8 +97,8 @@ describe('placeholder and helper text', () => {
     expect(screen.getByRole('checkbox', { name: 'Mirror the camera preview' })).toHaveAccessibleDescription(
       'When on, the live camera preview works like a mirror.',
     )
-    expect(screen.getByLabelText('Primary color')).toHaveAccessibleDescription(
-      'Pick a color with each swatch. Colors are saved as hex values, e.g. #2F6FD6.',
+    expect(screen.getByLabelText('Main button')).toHaveAccessibleDescription(
+      'The main action, e.g. Start.',
     )
     expect(screen.getByLabelText('Logo image')).toHaveAccessibleDescription(
       'PNG or JPEG, up to 5 MB. A transparent PNG works best.',

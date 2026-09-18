@@ -10,6 +10,7 @@ Invariants enforced by the database, not only by the service:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any, cast
 
@@ -23,6 +24,7 @@ from sqlalchemy import (
     Integer,
     Result,
     String,
+    Text,
     delete,
     insert,
     select,
@@ -42,6 +44,7 @@ from photobooth.modules.event_profiles.domain import (
     ProfileSettings,
     RetakeMode,
 )
+from photobooth.modules.themes.domain import EventTheme, ThemeSource
 
 
 class EventProfileLayoutRow(Base):
@@ -106,11 +109,7 @@ class EventProfileRow(Base):
     background_asset_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("media_assets.id", ondelete="RESTRICT"), nullable=True
     )
-    background_color: Mapped[str] = mapped_column(String(7), nullable=False)
-    primary_color: Mapped[str] = mapped_column(String(7), nullable=False)
-    secondary_color: Mapped[str] = mapped_column(String(7), nullable=False)
-    button_color: Mapped[str] = mapped_column(String(7), nullable=False)
-    text_color: Mapped[str] = mapped_column(String(7), nullable=False)
+    theme: Mapped[str] = mapped_column(Text, nullable=False)  # JSON, see _theme_json
     countdown_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     mirror: Mapped[bool] = mapped_column(Boolean, nullable=False)
     inactivity_timeout_s: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -143,11 +142,7 @@ class EventProfileRow(Base):
         self.start_button_text = settings.start_button_text
         self.logo_asset_id = settings.logo_asset_id
         self.background_asset_id = settings.background_asset_id
-        self.background_color = settings.background_color
-        self.primary_color = settings.primary_color
-        self.secondary_color = settings.secondary_color
-        self.button_color = settings.button_color
-        self.text_color = settings.text_color
+        self.theme = _theme_json(settings.theme)
         self.countdown_seconds = settings.countdown_seconds
         self.mirror = settings.mirror
         self.inactivity_timeout_s = settings.inactivity_timeout_s
@@ -164,11 +159,7 @@ class EventProfileRow(Base):
                 start_button_text=self.start_button_text,
                 logo_asset_id=self.logo_asset_id,
                 background_asset_id=self.background_asset_id,
-                background_color=self.background_color,
-                primary_color=self.primary_color,
-                secondary_color=self.secondary_color,
-                button_color=self.button_color,
-                text_color=self.text_color,
+                theme=_theme_of(self.theme),
                 enabled_layouts=tuple(layout.template_key for layout in self.layouts),
                 frame_selections=tuple(
                     (chosen.template_key, chosen.frame_id) for chosen in self.frames
@@ -185,6 +176,28 @@ class EventProfileRow(Base):
             updated_at=self.updated_at,
             deleted_at=self.deleted_at,
         )
+
+
+def _theme_json(theme: EventTheme) -> str:
+    return json.dumps(
+        {
+            "tokens": dict(theme.tokens),
+            "source": theme.source.value,
+            "preset": theme.preset,
+            "palette": list(theme.palette),
+        },
+        sort_keys=True,
+    )
+
+
+def _theme_of(raw: str) -> EventTheme:
+    data = json.loads(raw)
+    return EventTheme(
+        tokens={str(k): str(v) for k, v in data["tokens"].items()},
+        source=ThemeSource(data.get("source", ThemeSource.CUSTOM.value)),
+        preset=data.get("preset"),
+        palette=tuple(str(c) for c in data.get("palette", [])),
+    )
 
 
 def _layout_rows(profile_id: str, settings: ProfileSettings) -> list[EventProfileLayoutRow]:

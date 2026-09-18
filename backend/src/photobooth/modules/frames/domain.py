@@ -49,6 +49,16 @@ class FrameInUseError(FrameError):
         self.profile_names = list(profile_names)
 
 
+class FrameReadOnlyError(FrameError):
+    """Built-in frames ship with the app and can not be replaced, renamed or deleted."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Built-in frames can not be changed or deleted. Upload your own frame to use a "
+            "different design."
+        )
+
+
 @dataclass(frozen=True)
 class FrameValidationReport:
     """Warnings are recorded with the frame; problems are raised as FrameValidationError."""
@@ -73,6 +83,9 @@ class FrameAsset:
     # Copied from the stored media asset for the API/UI; bytes always come from storage.
     sha256: str = ""
     bytes: int = 0
+    # Packaged with the app (read-only); `family` groups the matching frames of all layouts.
+    builtin: bool = False
+    family: str | None = None
 
 
 def check_frame_name(name: str) -> str:
@@ -154,3 +167,7 @@ class AssetStore(Protocol):
     def content(self, asset_id: str) -> tuple[StoredAsset, bytes]: ...
 
     def discard_if_unused(self, asset_id: str, usage: AssetUsage) -> bool: ...
+
+    def ensure_stored(self, asset_id: str, data: bytes) -> bool:
+        """Write these exact bytes for an existing asset row when storage lacks them."""
+        ...

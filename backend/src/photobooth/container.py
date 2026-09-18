@@ -20,6 +20,7 @@ from photobooth.core.kiosk_pairing import (
 )
 from photobooth.core.uploads import UploadAdmission
 from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
+from photobooth.modules.assets.domain import AssetNotFoundError
 from photobooth.modules.assets.inspector import PillowImageInspector
 from photobooth.modules.assets.repository import SqlAssetRepository
 from photobooth.modules.assets.service import AssetService
@@ -49,6 +50,9 @@ from photobooth.modules.system.service import SystemIdentity, SystemService
 from photobooth.modules.templates.imaging import PillowTemplateArtist
 from photobooth.modules.templates.repository import JsonTemplateRepository
 from photobooth.modules.templates.service import TemplateSpecService
+from photobooth.modules.themes.domain import ThemeSourceError
+from photobooth.modules.themes.extractor import PillowPaletteExtractor
+from photobooth.modules.themes.service import ThemeService
 
 
 class _FrameUsage:
@@ -59,6 +63,24 @@ class _FrameUsage:
 
     def names_using_frame(self, frame_id: str) -> list[str]:
         return self._profiles.names_using_frame(frame_id)
+
+
+class _BackgroundImages:
+    """Adapter: the original bytes of an uploaded background, for colour extraction."""
+
+    def __init__(self, assets: AssetService) -> None:
+        self._assets = assets
+
+    def background_bytes(self, asset_id: str) -> bytes:
+        if not self._assets.exists(asset_id, "background"):
+            raise ThemeSourceError("That background image does not exist. Upload it again.")
+        try:
+            _asset, data = self._assets.content(asset_id)
+        except AssetNotFoundError as exc:
+            raise ThemeSourceError(
+                "That background image does not exist. Upload it again."
+            ) from exc
+        return data
 
 
 class Container:
@@ -124,6 +146,9 @@ class Container:
             self.template_service,
             usage=_FrameUsage(self.profile_repository),
         )
+        self.theme_service = ThemeService(
+            _BackgroundImages(self.asset_service), PillowPaletteExtractor()
+        )
         self.profile_service = EventProfileService(
             self.profile_repository,
             self.asset_service,
@@ -143,6 +168,7 @@ class Container:
         self.registry.register(AuthService, self.auth_service)
         self.registry.register(EventProfileService, self.profile_service)
         self.registry.register(FrameService, self.frame_service)
+        self.registry.register(ThemeService, self.theme_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))
         self.registry.register(
             AdminCookieSettings, AdminCookieSettings(f"pb_admin_{settings.instance}")
@@ -151,6 +177,10 @@ class Container:
             DeviceCookieSettings,
             DeviceCookieSettings(settings.device_cookie_name, settings.allowed_origins),
         )
+
+    def restore_builtin_files(self) -> int:
+        """Write the packaged built-in frame files into storage when missing (after migrations)."""
+        return self.frame_service.ensure_builtin_files()
 
     def close(self) -> None:
         self.pairing.shutdown()

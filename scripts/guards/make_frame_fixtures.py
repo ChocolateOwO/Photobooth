@@ -1,4 +1,4 @@
-"""Generate e2e frame fixtures: one valid frame per approved template plus invalid examples.
+"""Generate e2e fixtures: one valid frame per approved template, invalid examples, backgrounds.
 
 Frames are normally drawn outside the app; these files only exercise the validator and the UI.
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from photobooth.modules.templates.repository import JsonTemplateRepository
 
@@ -46,6 +46,14 @@ def main(directory: str) -> int:
     Image.new("RGB", (strip.width_px, strip.height_px), (10, 10, 10)).save(
         out / "frame_not_png.jpg", quality=80
     )
+    # Event backgrounds for colour extraction: a light one and a dark one.
+    for name, page, spot in (
+        ("bg_light.jpg", (246, 238, 226), (196, 48, 92)),
+        ("bg_dark.jpg", (14, 22, 52), (32, 178, 160)),
+    ):
+        background = Image.new("RGB", (1280, 720), page)
+        ImageDraw.Draw(background).ellipse((440, 160, 840, 560), fill=spot)
+        background.save(out / name, quality=90)
     print(str(out))
     return 0
 
