@@ -211,7 +211,7 @@ describe('frame selection per layout', () => {
     expect(screen.queryAllByTestId('missing-frame-warning')).toHaveLength(0)
     expect(screen.getByRole('img', { name: '2x6 photo strip frame preview' })).toHaveAttribute(
       'src',
-      `/api/admin/frames/${strip.id}/preview/1.jpg`,
+      `/api/admin/frames/${strip.id}/preview/1.jpg?v=${strip.sha256}`,
     )
 
     await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
@@ -242,6 +242,66 @@ describe('frame selection per layout', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved'))
     expect(server.profiles.get(profile.id)?.settings.frame_selections).toEqual({})
     expect(server.profiles.get(profile.id)?.settings.enabled_layouts).toEqual(['print_4x6'])
+  })
+
+  it('keeps a saved frame selected and locked while the frame list is loading (P5-005)', async () => {
+    const server = signedInServer()
+    const strip = server.seedFrame('strip_2x6', 'Strip gold')
+    const profile = server.seedProfile({
+      name: 'Expo',
+      enabled_layouts: ['strip_2x6'],
+      frame_selections: { strip_2x6: strip.id },
+    })
+    let release = () => {}
+    server.frameListGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    renderAdmin(`/admin/profiles/${profile.id}`, { server })
+
+    const select = await screen.findByLabelText('Frame for 2x6 photo strip')
+    expect(select).toHaveValue(strip.id)
+    expect(select).toBeDisabled()
+    expect(screen.getByText('Loading frames…')).toBeInTheDocument()
+    // Not loaded yet is not the same as "no frame selected" or "no frames uploaded".
+    expect(screen.queryByTestId('missing-frame-warning')).toBeNull()
+    expect(screen.queryByText('Upload a frame for this layout first.')).toBeNull()
+
+    release()
+    await waitFor(() => expect(screen.getByLabelText('Frame for 2x6 photo strip')).toBeEnabled())
+    expect(screen.getByLabelText('Frame for 2x6 photo strip')).toHaveValue(strip.id)
+    expect(screen.getByRole('option', { name: 'Strip gold' })).toBeInTheDocument()
+  })
+
+  it('offers a retry when the frame list fails and saving keeps the stored frame (P5-005)', async () => {
+    const server = signedInServer()
+    const strip = server.seedFrame('strip_2x6', 'Strip gold')
+    const profile = server.seedProfile({
+      name: 'Expo',
+      enabled_layouts: ['strip_2x6'],
+      frame_selections: { strip_2x6: strip.id },
+    })
+    server.frameListFailures = 1
+    renderAdmin(`/admin/profiles/${profile.id}`, { server })
+
+    const alert = await screen.findByText(/The frames could not be loaded/)
+    expect(screen.getByLabelText('Frame for 2x6 photo strip')).toHaveValue(strip.id)
+    expect(screen.getByLabelText('Frame for 2x6 photo strip')).toBeDisabled()
+    expect(screen.queryByTestId('missing-frame-warning')).toBeNull()
+
+    await userEvent.type(screen.getByLabelText('Title'), '!')
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    await waitFor(() => expect(server.profiles.get(profile.id)?.revision).toBe(2))
+    expect(server.profiles.get(profile.id)?.settings.frame_selections).toEqual({
+      strip_2x6: strip.id,
+    })
+
+    await userEvent.click(
+      within(alert.closest('[role="alert"]') as HTMLElement).getByRole('button', {
+        name: 'Try again',
+      }),
+    )
+    await waitFor(() => expect(screen.getByLabelText('Frame for 2x6 photo strip')).toBeEnabled())
+    expect(screen.queryByText(/The frames could not be loaded/)).toBeNull()
   })
 
   it('points to the frame manager when a layout has no frames at all', async () => {

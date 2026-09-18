@@ -280,6 +280,9 @@ describe('frames', () => {
     expect(api.frameContentUrl('f 1')).toBe('/api/admin/frames/f%201/content')
     expect(api.framePreviewUrl('f1')).toBe('/api/admin/frames/f1/preview/1.jpg')
     expect(api.framePreviewUrl('f1', 2)).toBe('/api/admin/frames/f1/preview/2.jpg')
+    // A replaced file has a new sha256, hence a new URL the browser has never cached.
+    expect(api.frameContentUrl('f1', 'abc')).toBe('/api/admin/frames/f1/content?v=abc')
+    expect(api.framePreviewUrl('f1', 1, 'abc')).toBe('/api/admin/frames/f1/preview/1.jpg?v=abc')
     expect(api.templateGuideUrl('strip_2x6')).toBe('/api/templates/strip_2x6/guide.png')
     expect(api.templateBlankUrl('strip_2x6')).toBe('/api/templates/strip_2x6/blank.png')
   })

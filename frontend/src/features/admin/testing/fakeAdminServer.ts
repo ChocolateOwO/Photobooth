@@ -54,6 +54,10 @@ export class FakeAdminServer {
   frames = new Map<string, Frame>()
   /** Frame ids the server refuses to delete, with the reason (profiles still using them). */
   framesInUse = new Map<string, string>()
+  /** How many frame-list requests fail with a server error before the list is served again. */
+  frameListFailures = 0
+  /** When set, the frame list waits for this promise (simulates a slow list). */
+  frameListGate: Promise<void> | null = null
   requests: { method: string; path: string; headers: Record<string, string> }[] = []
   templates = [template('strip_2x6', '2x6 photo strip'), template('print_4x6', '4x6 print')]
   private nextId = 1
@@ -200,6 +204,11 @@ export class FakeAdminServer {
     }
     if (path === '/api/admin/frames') {
       if (method === 'GET') {
+        if (this.frameListGate) await this.frameListGate
+        if (this.frameListFailures > 0) {
+          this.frameListFailures -= 1
+          return json({ detail: 'internal error' }, 500)
+        }
         const templateKey = url.searchParams.get('template_key')
         const all = [...this.frames.values()]
         return json(templateKey ? all.filter((f) => f.template_key === templateKey) : all)

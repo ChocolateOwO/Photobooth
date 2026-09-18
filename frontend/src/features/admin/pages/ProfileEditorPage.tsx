@@ -21,6 +21,7 @@ import {
 } from '../api/hooks'
 import { AssetPicker } from '../components/AssetPicker'
 import { PreparationPreview } from '../components/PreparationPreview'
+import { RetryingImage } from '../components/RetryingImage'
 import styles from './ProfileEditorPage.module.css'
 
 /** Frame selections without one layout (no mutation of the current state). */
@@ -56,7 +57,10 @@ function ProfileEditorForm({
   const createMutation = useCreateProfile()
   const updateMutation = useUpdateProfile()
   const api = useAdminApi()
-  const { data: frames } = useFrames()
+  const framesQuery = useFrames()
+  const frames = framesQuery.data
+  // Until the frame list is here, stored selections stay as they are and can not be changed.
+  const framesUnavailable = frames === undefined
 
   const [settings, setSettings] = useState<ProfileSettings>(() => initialSettings)
   const [currentRevision, setCurrentRevision] = useState<number>(() => initialRevision)
@@ -463,7 +467,7 @@ function ProfileEditorForm({
                     </label>
                     <select
                       id={`frame-for-${tpl.key}`}
-                      value={activeFrame ? activeFrame.id : ''}
+                      value={framesUnavailable ? currentFrameId : activeFrame ? activeFrame.id : ''}
                       onChange={(e) => {
                         const val = e.target.value
                         setSettings((current) => ({
@@ -474,9 +478,12 @@ function ProfileEditorForm({
                         }))
                       }}
                       className={styles.select}
-                      disabled={isDeleted}
+                      disabled={isDeleted || framesUnavailable}
                     >
                       <option value="">No frame selected</option>
+                      {framesUnavailable && currentFrameId && (
+                        <option value={currentFrameId}>Saved frame (loading frames…)</option>
+                      )}
                       {layoutFrames.map((frame) => (
                         <option key={frame.id} value={frame.id}>
                           {frame.name}
@@ -484,7 +491,29 @@ function ProfileEditorForm({
                       ))}
                     </select>
 
-                    {layoutFrames.length === 0 && (
+                    {framesUnavailable && !framesQuery.isError && (
+                      <p className={styles.helperText}>Loading frames…</p>
+                    )}
+
+                    {framesUnavailable && framesQuery.isError && (
+                      <div role="alert" className={styles.alert}>
+                        <p>
+                          The frames could not be loaded, so this choice can not be changed right
+                          now. Saving keeps the current frame.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void framesQuery.refetch()
+                          }}
+                          disabled={framesQuery.isFetching}
+                        >
+                          {framesQuery.isFetching ? 'Loading…' : 'Try again'}
+                        </button>
+                      </div>
+                    )}
+
+                    {!framesUnavailable && layoutFrames.length === 0 && (
                       <p className={styles.noFramesText}>
                         Upload a frame for this layout first.{' '}
                         <Link to="/admin/frames" className={styles.inlineLink}>
@@ -493,15 +522,15 @@ function ProfileEditorForm({
                       </p>
                     )}
 
-                    {!activeFrame && (
+                    {!activeFrame && !(framesUnavailable && currentFrameId) && (
                       <p className={styles.missingFrameWarning} data-testid="missing-frame-warning">
                         No frame selected for {tpl.name}. Photos will print without a frame.
                       </p>
                     )}
 
                     {activeFrame && (
-                      <img
-                        src={api.framePreviewUrl(activeFrame.id, 1)}
+                      <RetryingImage
+                        src={api.framePreviewUrl(activeFrame.id, 1, activeFrame.sha256)}
                         alt={`${tpl.name} frame preview`}
                         className={styles.framePreviewThumbnail}
                       />

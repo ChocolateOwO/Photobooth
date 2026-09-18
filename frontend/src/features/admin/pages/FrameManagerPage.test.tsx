@@ -63,12 +63,14 @@ describe('FrameManagerPage', () => {
     const gold = card('Gold border')
     expect(within(gold).getByRole('img', { name: 'Gold border frame file' })).toHaveAttribute(
       'src',
-      `/api/admin/frames/${frame?.id ?? ''}/content`,
+      `/api/admin/frames/${frame?.id ?? ''}/content?v=${frame?.sha256 ?? ''}`,
     )
-    expect(within(gold).getByRole('img', { name: 'Gold border sample output' })).toHaveAttribute(
+    const preview = within(gold).getByRole('img', { name: 'Gold border sample output' })
+    expect(preview).toHaveAttribute(
       'src',
-      `/api/admin/frames/${frame?.id ?? ''}/preview/1.jpg`,
+      `/api/admin/frames/${frame?.id ?? ''}/preview/1.jpg?v=${frame?.sha256 ?? ''}`,
     )
+    expect(preview).toHaveAttribute('loading', 'lazy')
     expect(within(gold).getByText('Sample output with placeholder photos')).toBeInTheDocument()
     expect(within(gold).getByText('600 × 1800 px')).toBeInTheDocument()
     expect(screen.getAllByLabelText('Frame name')[0]).toHaveValue('') // cleared for the next one
@@ -124,6 +126,56 @@ describe('FrameManagerPage', () => {
     await userEvent.upload(screen.getByLabelText('Replace file for Gold'), png('new.png', 999))
     await waitFor(() => expect(server.frames.get(frame.id)?.bytes).toBe(999))
     expect(server.frames.get(frame.id)?.name).toBe('Gold') // same frame, new file
+    // The new file has a new sha256, so both images get new URLs and never show the old file.
+    const updated = server.frames.get(frame.id)?.sha256 ?? ''
+    expect(updated).not.toBe(frame.sha256)
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: 'Gold frame file' })).toHaveAttribute(
+        'src',
+        `/api/admin/frames/${frame.id}/content?v=${updated}`,
+      ),
+    )
+    expect(screen.getByRole('img', { name: 'Gold sample output' })).toHaveAttribute(
+      'src',
+      `/api/admin/frames/${frame.id}/preview/1.jpg?v=${updated}`,
+    )
+  })
+
+  it('says it is loading instead of "no frames" until the list arrives (P5-005)', async () => {
+    const server = signedInServer()
+    server.seedFrame('strip_2x6', 'Gold')
+    let release = () => {}
+    server.frameListGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    renderAdmin('/admin/frames', { server })
+    expect((await screen.findAllByText('Loading frames…')).length).toBe(2)
+    expect(screen.queryByText('No frames uploaded for this layout yet.')).toBeNull()
+    release()
+    expect(await screen.findByRole('heading', { name: 'Gold' })).toBeInTheDocument()
+    expect(screen.queryByText('Loading frames…')).toBeNull()
+  })
+
+  it('reports a failed frame list with a retry instead of an empty library (P5-005)', async () => {
+    const server = signedInServer()
+    server.seedFrame('strip_2x6', 'Gold')
+    server.frameListFailures = 1
+    renderAdmin('/admin/frames', { server })
+    expect(await screen.findByText('The uploaded frames could not be loaded.')).toBeInTheDocument()
+    expect(screen.queryByText('No frames uploaded for this layout yet.')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { name: 'Gold' })).toBeInTheDocument()
+    expect(screen.queryByText('The uploaded frames could not be loaded.')).toBeNull()
+  })
+
+  it('loads the previews of a library larger than the render queue lazily (P5-006)', async () => {
+    const server = signedInServer()
+    for (let n = 1; n <= 6; n++) server.seedFrame('strip_2x6', `Frame ${n}`)
+    renderAdmin('/admin/frames', { server })
+    await screen.findByRole('heading', { name: 'Frame 6' })
+    const previews = screen.getAllByRole('img', { name: /sample output$/ })
+    expect(previews).toHaveLength(6)
+    for (const preview of previews) expect(preview).toHaveAttribute('loading', 'lazy')
   })
 
   it('renames a frame', async () => {

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
@@ -164,9 +165,22 @@ test('a frame in use can not be deleted, but its file can be replaced', async ({
   await expect(area.getByRole('alert')).toContainText(PROFILE)
   await expect(card).toHaveCount(1)
 
-  // Replacing the file keeps the profile selection working.
+  // Replacing the file keeps the profile selection working, and the page shows the new file
+  // (a new versioned URL whose bytes are the replacement), never the cached old image.
+  const fileImage = card.getByRole('img', { name: `${layout.frame} frame file` })
+  const oldSrc = await fileImage.getAttribute('src')
   await card.getByLabel(`Replace file for ${layout.frame}`).setInputFiles(
     join(fixturesDir, `frame_${layout.key}_v2.png`),
+  )
+  await expect(fileImage).not.toHaveAttribute('src', oldSrc ?? '')
+  const newSrc = (await fileImage.getAttribute('src')) ?? ''
+  const served = await page.request.get(newSrc)
+  expect(served.status()).toBe(200)
+  const replacement = readFileSync(join(fixturesDir, `frame_${layout.key}_v2.png`))
+  expect(Buffer.compare(await served.body(), replacement)).toBe(0)
+  await expect(card.getByRole('img', { name: `${layout.frame} sample output` })).toHaveAttribute(
+    'src',
+    new RegExp(`\\?v=${newSrc.split('?v=')[1] ?? 'missing'}$`),
   )
   await expect
     .poll(
@@ -194,6 +208,32 @@ test('an unused frame can be deleted', async ({ page }) => {
   await card.getByRole('button', { name: 'Delete Spare frame' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Delete frame' }).click()
   await expect(frameCard(page, 'Spare frame')).toHaveCount(0)
+})
+
+test('a busy sample preview is retried instead of staying broken', async ({ page }) => {
+  // The render queue answers 503 while it is full; the first two answers here are 503.
+  let refused = 0
+  await page.route('**/api/admin/frames/*/preview/1.jpg*', async (route) => {
+    if (refused < 2) {
+      refused += 1
+      await route.fulfill({ status: 503, headers: { 'Retry-After': '2' }, body: 'busy' })
+      return
+    }
+    await route.continue()
+  })
+  await pairAndSignIn(page)
+  await page.goto('/admin/frames')
+  const card = frameCard(page, LAYOUTS[0].frame)
+  await expect
+    .poll(
+      () =>
+        card
+          .getByRole('img', { name: `${LAYOUTS[0].frame} sample output` })
+          .evaluate((img: HTMLImageElement) => img.naturalWidth),
+      { timeout: 20_000 },
+    )
+    .toBeGreaterThan(0)
+  expect(refused).toBe(2)
 })
 
 test('unauthorized browsers get no frame data', async ({ browser }) => {

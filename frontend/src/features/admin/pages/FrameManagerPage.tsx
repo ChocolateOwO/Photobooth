@@ -17,6 +17,7 @@ import {
   useTemplateSpec,
   useUploadFrame,
 } from '../api/hooks'
+import { RetryingImage } from '../components/RetryingImage'
 import styles from './FrameManagerPage.module.css'
 
 interface FrameCardItemProps {
@@ -107,8 +108,9 @@ function FrameCardItem({
         <div className={styles.imageColumn}>
           <div className={styles.checkerboard}>
             <img
-              src={api.frameContentUrl(frame.id)}
+              src={api.frameContentUrl(frame.id, frame.sha256)}
               alt={`${frame.name} frame file`}
+              loading="lazy"
               className={styles.frameImage}
             />
           </div>
@@ -116,8 +118,8 @@ function FrameCardItem({
 
         <div className={styles.imageColumn}>
           <figure className={styles.figure}>
-            <img
-              src={api.framePreviewUrl(frame.id, 1)}
+            <RetryingImage
+              src={api.framePreviewUrl(frame.id, 1, frame.sha256)}
               alt={`${frame.name} sample output`}
               className={styles.previewImage}
             />
@@ -220,12 +222,15 @@ function FrameCardItem({
   )
 }
 
+type FramesState = 'loading' | 'error' | 'ready'
+
 interface TemplateFrameSectionProps {
   template: TemplateSummary
   frames: Frame[]
+  framesState: FramesState
 }
 
-function TemplateFrameSection({ template, frames }: TemplateFrameSectionProps) {
+function TemplateFrameSection({ template, frames, framesState }: TemplateFrameSectionProps) {
   const api = useAdminApi()
   const { data: spec, isLoading: isSpecLoading } = useTemplateSpec(template.key)
   const uploadMutation = useUploadFrame()
@@ -477,7 +482,9 @@ function TemplateFrameSection({ template, frames }: TemplateFrameSectionProps) {
         </div>
       )}
 
-      {frames.length === 0 ? (
+      {framesState === 'loading' ? (
+        <p className={styles.loadingText}>Loading frames…</p>
+      ) : framesState === 'error' ? null : frames.length === 0 ? (
         <p className={styles.emptyText}>No frames uploaded for this layout yet.</p>
       ) : (
         <ul className={styles.framesList}>
@@ -548,7 +555,14 @@ function TemplateFrameSection({ template, frames }: TemplateFrameSectionProps) {
 
 export function FrameManagerPage() {
   const { data: templates, isLoading: templatesLoading, error: templatesError } = useTemplates()
-  const { data: allFrames } = useFrames()
+  const framesQuery = useFrames()
+  const allFrames = framesQuery.data
+  // A failed or unfinished frame list must never look like "no frames uploaded".
+  const framesState: FramesState = allFrames
+    ? 'ready'
+    : framesQuery.isError
+      ? 'error'
+      : 'loading'
 
   return (
     <div className={styles.container}>
@@ -571,6 +585,22 @@ export function FrameManagerPage() {
         </div>
       )}
 
+      {framesState === 'error' && (
+        <div role="alert" className={styles.alert}>
+          <p className={styles.alertMessage}>The uploaded frames could not be loaded.</p>
+          <button
+            type="button"
+            onClick={() => {
+              void framesQuery.refetch()
+            }}
+            disabled={framesQuery.isFetching}
+            className={styles.actionButton}
+          >
+            {framesQuery.isFetching ? 'Loading…' : 'Try again'}
+          </button>
+        </div>
+      )}
+
       {templates && (
         <div className={styles.sectionsList}>
           {templates.map((tpl) => {
@@ -580,6 +610,7 @@ export function FrameManagerPage() {
                 key={tpl.key}
                 template={tpl}
                 frames={templateFrames}
+                framesState={framesState}
               />
             )
           })}

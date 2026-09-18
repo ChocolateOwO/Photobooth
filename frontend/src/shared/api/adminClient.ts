@@ -102,6 +102,10 @@ function kindFor(status: number, messages: string[]): AdminErrorKind {
   return 'server'
 }
 
+function withVersion(url: string, version: string | undefined): string {
+  return version ? `${url}?v=${encodeURIComponent(version)}` : url
+}
+
 export type SessionListener = (event: 'signed-in' | 'signed-out' | 'expired' | 'not-paired') => void
 
 /**
@@ -285,11 +289,18 @@ export function createAdminApiClient(
       send<Frame>('PUT', `/api/admin/frames/${encodeURIComponent(id)}/name`, { json: { name } }),
     deleteFrame: (id: string) =>
       send<undefined>('DELETE', `/api/admin/frames/${encodeURIComponent(id)}`),
-    /** The original PNG, for an <img> preview of the frame itself. */
-    frameContentUrl: (id: string) => `/api/admin/frames/${encodeURIComponent(id)}/content`,
-    /** A rendered sample output (placeholder photos + this frame). */
-    framePreviewUrl: (id: string, outputIndex = 1) =>
-      `/api/admin/frames/${encodeURIComponent(id)}/preview/${outputIndex}.jpg`,
+    /**
+     * The original PNG, for an <img> preview of the frame itself. Pass the frame's sha256 as
+     * `version` so a replaced file gets a new URL and the browser never shows the old image.
+     */
+    frameContentUrl: (id: string, version?: string) =>
+      withVersion(`/api/admin/frames/${encodeURIComponent(id)}/content`, version),
+    /** A rendered sample output (placeholder photos + this frame); `version` as above. */
+    framePreviewUrl: (id: string, outputIndex = 1, version?: string) =>
+      withVersion(
+        `/api/admin/frames/${encodeURIComponent(id)}/preview/${outputIndex}.jpg`,
+        version,
+      ),
     templateSpec: (key: string) =>
       send<TemplateSpec>('GET', `/api/templates/${encodeURIComponent(key)}`),
     templateGuideUrl: (key: string) => `/api/templates/${encodeURIComponent(key)}/guide.png`,
