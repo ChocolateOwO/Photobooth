@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import uuid
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from photobooth.modules.assets.domain import (
     AssetKind,
     AssetNotFoundError,
     AssetRepository,
+    AssetUsage,
     AssetValidationError,
     ImageInspector,
     MediaAsset,
@@ -66,6 +68,22 @@ class AssetService:
                 created_at=self._clock(),
             )
         )
+
+    def discard_if_unused(self, asset_id: str, usage: AssetUsage) -> bool:
+        """Remove a stored image (row and file) when nothing references it any more.
+
+        Used after a frame is deleted and after a failed frame upload. Assets shared by another
+        frame or Event Profile are kept, and a missing file is not an error.
+        """
+        asset = self._repository.get(asset_id)
+        if asset is None:
+            return False
+        if usage.is_referenced(asset_id):
+            return False
+        self._repository.remove(asset_id)
+        with contextlib.suppress(StorageError):  # deleting a missing blob is fine
+            self._storage.delete(StorageKey(asset.storage_key))
+        return True
 
     def get(self, asset_id: str) -> MediaAsset:
         asset = self._repository.get(asset_id)

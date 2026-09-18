@@ -66,6 +66,12 @@ class SqlAssetRepository(AssetRepository):
             return existing
         return asset
 
+    def remove(self, asset_id: str) -> None:
+        with self._sessions.begin() as session:
+            row = session.get(MediaAssetRow, asset_id)
+            if row is not None:
+                session.delete(row)
+
     def get(self, asset_id: str) -> MediaAsset | None:
         with self._sessions() as session:
             row = session.get(MediaAssetRow, asset_id)

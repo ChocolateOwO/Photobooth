@@ -129,14 +129,74 @@ def test_rejects_a_frame_larger_than_the_rule() -> None:
         PillowFrameValidator().validate(oversized, template)
 
 
-def test_warns_about_a_non_srgb_colour_profile_without_changing_the_file() -> None:
+def test_rejects_colour_profiles_the_renderer_can_not_convert() -> None:
+    """A tagged frame that survives validation must also survive rendering (P5-001)."""
     template = TEMPLATES["print_4x6"]
-    profile = ImageCms.createProfile("LAB")
-    icc = ImageCms.ImageCmsProfile(profile).tobytes()
-    data = frame_png(template, icc=icc)
-    report = PillowFrameValidator().validate(data, template)
-    assert len(report.warnings) == 1
-    assert "converted to sRGB" in report.warnings[0]
-    # sRGB (and untagged) frames stay silent.
+    for profile_name in ("LAB", "XYZ"):
+        icc = ImageCms.ImageCmsProfile(ImageCms.createProfile(profile_name)).tobytes()
+        with pytest.raises(FrameValidationError, match="can not convert"):
+            PillowFrameValidator().validate(frame_png(template, icc=icc), template)
+    with pytest.raises(FrameValidationError, match="can not convert"):
+        PillowFrameValidator().validate(frame_png(template, icc=b"not a colour profile"), template)
+
+
+def test_srgb_and_untagged_frames_are_accepted_silently() -> None:
+    template = TEMPLATES["print_4x6"]
     srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     assert PillowFrameValidator().validate(frame_png(template, icc=srgb), template).warnings == ()
+    assert PillowFrameValidator().validate(frame_png(template), template).warnings == ()
+
+
+def test_warns_about_a_convertible_non_srgb_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A profile that converts but is not sRGB is kept with a warning; the file is untouched."""
+    template = TEMPLATES["print_4x6"]
+    srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    monkeypatch.setattr(
+        "photobooth.modules.frames.validator.ImageCms.getProfileDescription",
+        lambda _profile: "Adobe RGB (1998)",
+    )
+    data = frame_png(template, icc=srgb)
+    report = PillowFrameValidator().validate(data, template)
+    assert len(report.warnings) == 1
+    assert "Adobe RGB (1998)" in report.warnings[0]
+    assert "converted to sRGB" in report.warnings[0]
+    assert data == frame_png(template, icc=srgb)  # validation never rewrites the frame
+
+
+def test_rejects_huge_pixel_dimensions_without_decoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A small file may claim a huge canvas: it is refused from the header (P5-004)."""
+    template = TEMPLATES["strip_2x6"]
+    loaded: list[str] = []
+    original = Image.Image.load
+
+    def spy(self: Image.Image) -> object:
+        loaded.append(self.mode)
+        return original(self)
+
+    monkeypatch.setattr(Image.Image, "load", spy)
+    with pytest.raises(FrameValidationError, match="exactly 600 x 1800 px"):
+        PillowFrameValidator().validate(_png_header(4000, 4000), template)
+    assert loaded == []  # no pixels were decoded
+
+    # Past Pillow's decompression-bomb threshold the guard fires while opening; still a plain
+    # validation error rather than a server error, and still nothing decoded.
+    with pytest.raises(FrameValidationError, match="valid PNG"):
+        PillowFrameValidator().validate(_png_header(100_000, 100_000), template)
+    assert loaded == []
+
+
+def _png_header(width: int, height: int) -> bytes:
+    """PNG signature + IHDR (+IEND) claiming a size, with no pixel data."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(payload))
+            + kind
+            + payload
+            + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+        )
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IEND", b"")

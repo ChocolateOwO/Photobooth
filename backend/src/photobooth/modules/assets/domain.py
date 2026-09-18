@@ -76,6 +76,10 @@ class ImageInspector(Protocol):
 
 class AssetRepository(ABC):
     @abstractmethod
+    def remove(self, asset_id: str) -> None:
+        """Delete the row. The caller must have checked that nothing references it."""
+
+    @abstractmethod
     def add(self, asset: MediaAsset) -> MediaAsset:
         """Insert; if (kind, sha256) already exists return the existing row instead."""
 
@@ -84,3 +88,9 @@ class AssetRepository(ABC):
 
     @abstractmethod
     def find_by_hash(self, kind: AssetKind, sha256: str) -> MediaAsset | None: ...
+
+
+class AssetUsage(Protocol):
+    """Whether anything still points at a stored asset (frames, Event Profiles, ...)."""
+
+    def is_referenced(self, asset_id: str) -> bool: ...

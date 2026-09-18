@@ -180,6 +180,52 @@ def test_replace_and_rename_keep_the_frame_id(
     )
 
 
+def _frame_files(container: Container) -> list[str]:
+    root = container.settings.storage_dir / "assets" / "frame"
+    return sorted(p.name for p in root.rglob("*") if p.is_file()) if root.exists() else []
+
+
+def test_stored_frame_files_are_removed_when_nothing_uses_them(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """P5-003: delete, replace and refused uploads leave no orphan files or media rows."""
+    headers = login(kiosk_client, container)
+    shared_bytes = frame_png(TEMPLATES["strip_2x6"])
+    _status, first = upload(kiosk_client, headers, name="First", data=shared_bytes)
+    _status, twin = upload(kiosk_client, headers, name="Twin", data=shared_bytes)
+    frames = container.frame_service
+    first_asset = frames.get(first["id"]).media_asset_id
+    assert first_asset == frames.get(twin["id"]).media_asset_id  # content-addressed, one file
+    assert len(_frame_files(container)) == 1
+
+    # A refused duplicate name with new bytes stores nothing.
+    other = frame_png(TEMPLATES["strip_2x6"], fill=(1, 2, 3, 255))
+    status, _body = upload(kiosk_client, headers, name="First", data=other)
+    assert status == 422
+    assert len(_frame_files(container)) == 1
+
+    # Deleting one of two frames sharing a file keeps the file for the other.
+    assert kiosk_client.delete(f"{BASE}/{twin['id']}", headers=headers).status_code == 204
+    assert len(_frame_files(container)) == 1
+    assert kiosk_client.get(f"{BASE}/{first['id']}/content").content == shared_bytes
+
+    # Replacing the file removes the previous one.
+    replaced = kiosk_client.post(
+        f"{BASE}/{first['id']}/replace",
+        files={"file": ("f.png", other, "image/png")},
+        headers=headers,
+    )
+    assert replaced.status_code == 200
+    assert len(_frame_files(container)) == 1
+    assert container.asset_service.exists(first_asset, "frame") is False
+
+    # Deleting the last frame removes its file and media row.
+    new_asset = frames.get(first["id"]).media_asset_id
+    assert kiosk_client.delete(f"{BASE}/{first['id']}", headers=headers).status_code == 204
+    assert _frame_files(container) == []
+    assert container.asset_service.exists(new_asset, "frame") is False
+
+
 def test_frames_require_a_paired_device_and_an_admin_session(
     kiosk_client: TestClient, container: Container
 ) -> None:

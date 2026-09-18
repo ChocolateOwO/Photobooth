@@ -13,6 +13,7 @@ from photobooth.modules.templates.domain import PhotoTemplate, SlotDefinition
 # A pixel counts as transparent below this alpha value (out of 255).
 TRANSPARENT_ALPHA = 8
 SRGB_HINTS = ("srgb", "sgrey", "iec61966")
+_SRGB_PROFILE = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
 
 
 def _percent(value: float) -> str:
@@ -35,9 +36,18 @@ class PillowFrameValidator:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", Image.DecompressionBombWarning)
-                # Only the PNG decoder ever sees the bytes.
+                # Only the PNG decoder ever sees these bytes. The header is checked first, so a
+                # wrong canvas size is refused before any pixel data is decoded.
                 with Image.open(io.BytesIO(data), formats=("PNG",)) as probe:
                     width, height = probe.size
+                    if width != template.width_px or height != template.height_px:
+                        raise FrameValidationError(
+                            [
+                                f"The frame must be exactly {template.width_px} x "
+                                f"{template.height_px} px for {template.name}; this file is "
+                                f"{width} x {height} px."
+                            ]
+                        )
                     animated = bool(getattr(probe, "is_animated", False))
                     mode = probe.mode
                     icc = probe.info.get("icc_profile")
@@ -49,18 +59,20 @@ class PillowFrameValidator:
                     slot_transparency = tuple(
                         _transparent_ratio(alpha, slot) for slot in template.slots
                     )
+                    colour_problem, colour_warnings = _check_colour(icc, rgba)
         except FrameValidationError:
             raise
-        except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as exc:
+        except (
+            OSError,
+            ValueError,
+            SyntaxError,
+            Image.DecompressionBombError,
+            Image.DecompressionBombWarning,
+        ) as exc:
             raise FrameValidationError(["The frame must be a valid PNG file."]) from exc
 
         if animated:
             problems.append("The frame must not be animated.")
-        if width != template.width_px or height != template.height_px:
-            problems.append(
-                f"The frame must be exactly {template.width_px} x {template.height_px} px "
-                f"for {template.name}; this file is {width} x {height} px."
-            )
         if mode in ("L", "LA", "1", "I", "F", "I;16"):
             problems.append(
                 "Grayscale frames are not accepted; save the frame in sRGB colour with "
@@ -73,6 +85,8 @@ class PillowFrameValidator:
                 "The frame must have a transparent background: save it as a PNG with an alpha "
                 f"channel (RGBA); this file is mode {mode}."
             )
+        if colour_problem is not None:
+            problems.append(colour_problem)
         for slot, ratio in zip(template.slots, slot_transparency, strict=True):
             if ratio < rules.slot_min_transparency:
                 problems.append(
@@ -85,7 +99,7 @@ class PillowFrameValidator:
             raise FrameValidationError(problems)
 
         return FrameValidationReport(
-            warnings=_colour_warnings(icc),
+            warnings=colour_warnings,
             width=width,
             height=height,
             slot_transparency=slot_transparency,
@@ -102,18 +116,38 @@ def _transparent_ratio(alpha: Image.Image, slot: SlotDefinition) -> float:
     return 0.0 if total == 0 else transparent / total
 
 
-def _colour_warnings(icc: bytes | None) -> tuple[str, ...]:
-    """sRGB and untagged files are fine; another RGB profile is converted when rendering."""
+def _check_colour(icc: bytes | None, rgba: Image.Image) -> tuple[str | None, tuple[str, ...]]:
+    """Untagged files count as sRGB. A tagged file must survive the very conversion the renderer
+    performs later (ImageCms, RGB input -> sRGB); otherwise its previews and printed outputs would
+    fail after it was accepted, so such a profile is refused here with a plain reason.
+    """
     if not icc:
-        return ()
+        return None, ()
+    unusable = (
+        "The frame has a colour profile this booth can not convert. Save the frame again in sRGB "
+        "(or without a colour profile)."
+    )
     try:
         profile = ImageCms.getOpenProfile(io.BytesIO(icc))
         description = (ImageCms.getProfileDescription(profile) or "").strip()
     except (ImageCms.PyCMSError, OSError):
-        return ("The colour profile could not be read; it will be ignored when printing.",)
+        return unusable, ()
+    try:
+        # One pixel is enough to prove the transform the renderer needs can be built.
+        converted = ImageCms.profileToProfile(
+            rgba.crop((0, 0, 1, 1)).convert("RGB"),
+            profile,
+            _SRGB_PROFILE,
+            renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+            outputMode="RGB",
+        )
+    except (OSError, ValueError, ImageCms.PyCMSError):
+        return unusable, ()
+    if converted is None:
+        return unusable, ()
     if any(hint in description.lower() for hint in SRGB_HINTS):
-        return ()
-    return (
+        return None, ()
+    return None, (
         f"The frame uses the colour profile '{description}'. It will be converted to sRGB when "
         "photos are rendered, so colours may shift slightly.",
     )

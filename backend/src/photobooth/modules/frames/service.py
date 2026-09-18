@@ -26,9 +26,19 @@ class TemplateLookup(Protocol):
 
 
 class FrameUsage(Protocol):
-    """Which live Event Profiles select a frame (implemented by the event_profiles module)."""
+    """Which Event Profiles select a frame (implemented by the event_profiles module)."""
 
     def names_using_frame(self, frame_id: str) -> list[str]: ...
+
+
+class _AssetUsage:
+    """Asset-level reference check: any frame row still pointing at the stored file."""
+
+    def __init__(self, frames: FrameRepository) -> None:
+        self._frames = frames
+
+    def is_referenced(self, asset_id: str) -> bool:
+        return self._frames.uses_asset(asset_id)
 
 
 class FrameService:
@@ -49,6 +59,7 @@ class FrameService:
         self._usage = usage
         self._clock = clock
         self._new_id = new_id
+        self._asset_usage = _AssetUsage(repository)
 
     def _template(self, template_key: str) -> PhotoTemplate:
         try:
@@ -65,19 +76,24 @@ class FrameService:
         report = self._validator.validate(data, template)
         asset = self._assets.upload("frame", data)
         now = self._clock()
-        return self._repository.add(
-            FrameAsset(
-                id=self._new_id(),
-                media_asset_id=asset.id,
-                template_key=template.key,
-                template_version=template.version,
-                name=frame_name,
-                status=FrameStatus.VALID,
-                report=report,
-                created_at=now,
-                updated_at=now,
+        try:
+            return self._repository.add(
+                FrameAsset(
+                    id=self._new_id(),
+                    media_asset_id=asset.id,
+                    template_key=template.key,
+                    template_version=template.version,
+                    name=frame_name,
+                    status=FrameStatus.VALID,
+                    report=report,
+                    created_at=now,
+                    updated_at=now,
+                )
             )
-        )
+        except FrameValidationError:
+            # The row was refused (for example a duplicate name): do not leave the file behind.
+            self._discard(asset.id)
+            raise
 
     def list_frames(self, template_key: str | None = None) -> list[FrameAsset]:
         if template_key is not None:
@@ -101,18 +117,27 @@ class FrameService:
         template = self._templates.get(frame.template_key, frame.template_version)
         report = self._validator.validate(data, template)
         asset = self._assets.upload("frame", data)
-        return self._repository.replace_file(frame_id, asset.id, report, self._clock())
+        previous = frame.media_asset_id
+        updated = self._repository.replace_file(frame_id, asset.id, report, self._clock())
+        if previous != asset.id:
+            self._discard(previous)  # the replaced file is removed when nothing else uses it
+        return updated
 
     def rename(self, frame_id: str, name: str) -> FrameAsset:
         self.get(frame_id)
         return self._repository.rename(frame_id, check_frame_name(name), self._clock())
 
     def delete(self, frame_id: str) -> None:
-        self.get(frame_id)
+        frame = self.get(frame_id)
         used_by = self._usage.names_using_frame(frame_id)
         if used_by:
             raise FrameInUseError(used_by)
         self._repository.delete(frame_id)
+        self._discard(frame.media_asset_id)
+
+    def _discard(self, asset_id: str) -> None:
+        """Delete the stored file when no frame and no Event Profile point at it any more."""
+        self._assets.discard_if_unused(asset_id, self._asset_usage)
 
     def frame_template(self, frame_id: str) -> str | None:
         """Port for the event_profiles module: the layout a frame belongs to, or None."""

@@ -118,6 +118,10 @@ class FrameRepository(ABC):
     def delete(self, frame_id: str) -> None:
         """Raise FrameInUseError when an Event Profile still selects this frame."""
 
+    @abstractmethod
+    def uses_asset(self, asset_id: str, ignore_frame_id: str | None = None) -> bool:
+        """Whether any frame (other than `ignore_frame_id`) still points at this stored file."""
+
 
 class StoredAsset(Protocol):
     """What the frames module needs from a stored media asset."""
@@ -138,9 +142,15 @@ class StoredAsset(Protocol):
     def sha256(self) -> str: ...
 
 
+class AssetUsage(Protocol):
+    def is_referenced(self, asset_id: str) -> bool: ...
+
+
 class AssetStore(Protocol):
     """Content-addressed storage of the original bytes (assets module)."""
 
     def upload(self, kind: str, data: bytes) -> StoredAsset: ...
 
     def content(self, asset_id: str) -> tuple[StoredAsset, bytes]: ...
+
+    def discard_if_unused(self, asset_id: str, usage: AssetUsage) -> bool: ...

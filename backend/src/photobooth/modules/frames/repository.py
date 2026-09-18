@@ -155,6 +155,13 @@ class SqlFrameRepository(FrameRepository):
             # Backstop for the service check: an Event Profile still references this frame.
             raise FrameInUseError(["an Event Profile"]) from exc
 
+    def uses_asset(self, asset_id: str, ignore_frame_id: str | None = None) -> bool:
+        query = select(FrameAssetRow.id).where(FrameAssetRow.media_asset_id == asset_id)
+        if ignore_frame_id is not None:
+            query = query.where(FrameAssetRow.id != ignore_frame_id)
+        with self._sessions() as session:
+            return session.scalars(query).first() is not None
+
     def _require(self, frame_id: str) -> FrameAsset:
         frame = self.get(frame_id)
         if frame is None:  # pragma: no cover - the row was just written
