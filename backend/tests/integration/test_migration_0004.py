@@ -139,6 +139,39 @@ def test_upgrade_converts_colours_adds_builtins_and_defaults_without_losing_data
         engine.dispose()
 
 
+def test_uploads_with_builtin_names_get_the_first_free_name(thai_root: Path) -> None:
+    """P5R-001: 'Midnight' and 'Midnight (uploaded)' may both exist before the upgrade."""
+    db = thai_root / "clash.sqlite"
+    migrator = Migrator(db)
+    migrator.upgrade("0003_frames")
+    with sqlite3.connect(db) as conn:
+        conn.execute("PRAGMA foreign_keys=ON")
+        _seed(conn)  # f1 'Midnight' (strip, selected by p1)
+        for suffix, name in (("2", "Midnight (uploaded)"), ("3", "Midnight (uploaded 2)")):
+            conn.execute(
+                "INSERT INTO media_assets VALUES (?,'frame',?,'image/png',600,1800,2048,?,?)",
+                (f"a{suffix}", f"assets/frame/aa/a{suffix}.png", suffix * 64, NOW),
+            )
+            conn.execute(
+                "INSERT INTO frame_assets VALUES (?,?,'strip_2x6',1,?,'valid','{}',?,?)",
+                (f"f{suffix}", f"a{suffix}", name, NOW, NOW),
+            )
+        conn.commit()
+    migrator.upgrade("head")
+    with sqlite3.connect(db) as conn:
+        names = dict(conn.execute("SELECT id, name FROM frame_assets WHERE builtin = 0"))
+        assert names == {
+            "f1": "Midnight (uploaded 3)",
+            "f2": "Midnight (uploaded)",
+            "f3": "Midnight (uploaded 2)",
+        }
+        assert ("p1", "strip_2x6", "f1") in _selections(conn)  # the selection is kept
+        builtin = conn.execute(
+            "SELECT COUNT(*) FROM frame_assets WHERE builtin = 1 AND name = 'Midnight'"
+        ).fetchone()[0]
+        assert builtin == len(LAYOUTS)
+
+
 def test_downgrade_restores_the_old_columns_and_upgrade_again_works(thai_root: Path) -> None:
     db = thai_root / "round-trip.sqlite"
     migrator = Migrator(db)

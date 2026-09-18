@@ -124,6 +124,9 @@ export function useFrames(templateKey?: string, options: { enabled?: boolean } =
     queryKey: adminKeys.frames(templateKey),
     queryFn: () => api.listFrames(templateKey),
     enabled: options.enabled ?? true,
+    // A failed list stays failed (with its Try again) instead of refetching whenever another
+    // component mounts; that loop could keep a page switching between loading and error.
+    retryOnMount: false,
     ...noRetry,
   })
 }

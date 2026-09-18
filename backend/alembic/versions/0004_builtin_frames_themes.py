@@ -54,6 +54,36 @@ def _media_id(family: str, template_key: str) -> str:
     return str(uuid.uuid5(BUILTIN_NAMESPACE, f"media/{family}/{template_key}"))
 
 
+NAME_MAX = 80
+
+
+def _rename_clashing_upload(conn: sa.Connection, template_key: str, name: str) -> None:
+    """An uploaded frame already called like a built-in one keeps its id, file and profile
+    selections under the first free name "<name> (uploaded)", "<name> (uploaded 2)", ..."""
+    clash = conn.execute(
+        sa.text("SELECT id FROM frame_assets WHERE template_key = :key AND name = :name"),
+        {"key": template_key, "name": name},
+    ).scalar()
+    if clash is None:
+        return
+    taken = set(
+        conn.execute(
+            sa.text("SELECT name FROM frame_assets WHERE template_key = :key"),
+            {"key": template_key},
+        ).scalars()
+    )
+    for n in range(1, 10_000):
+        suffix = " (uploaded)" if n == 1 else f" (uploaded {n})"
+        candidate = name[: NAME_MAX - len(suffix)].rstrip() + suffix
+        if candidate not in taken:
+            conn.execute(
+                sa.text("UPDATE frame_assets SET name = :new WHERE id = :id"),
+                {"new": candidate, "id": clash},
+            )
+            return
+    raise RuntimeError(f"no free name for the uploaded frame '{name}' in {template_key}")
+
+
 def _insert_builtin_frames(conn: sa.Connection, now: datetime) -> None:
     templates = {
         t.key: t for t in JsonTemplateRepository().all() if t.version == BUILTIN_TEMPLATE_VERSION
@@ -86,14 +116,7 @@ def _insert_builtin_frames(conn: sa.Connection, now: datetime) -> None:
                     "at": now,
                 },
             )
-        # An uploaded frame that already uses a built-in name keeps working under a clear new name.
-        conn.execute(
-            sa.text(
-                "UPDATE frame_assets SET name = substr(name, 1, 68) || ' (uploaded)' "
-                "WHERE template_key = :key AND name = :name AND builtin = 0"
-            ),
-            {"key": frame.template_key, "name": frame.name},
-        )
+        _rename_clashing_upload(conn, frame.template_key, frame.name)
         conn.execute(
             sa.text(
                 "INSERT INTO frame_assets (id, media_asset_id, template_key, template_version, "

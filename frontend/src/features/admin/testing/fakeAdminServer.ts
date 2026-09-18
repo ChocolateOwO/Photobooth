@@ -79,6 +79,12 @@ export class FakeAdminServer {
   frameListGate: Promise<void> | null = null
   /** Background asset ids colours were extracted from, in order. */
   extractedFrom: string[] = []
+  /** Each extraction waits for the next gate in this list, if any (simulates slow answers). */
+  extractGates: Promise<void>[] = []
+  /** Per-background results; others get extractResult. */
+  extractResults = new Map<string, ExtractedTheme>()
+  /** How many times the frame list was requested. */
+  frameListRequests = 0
   /** When set, extraction fails with this plain reason (422). */
   extractFailure: string | null = null
   /** What extraction returns (a complete accessible theme with its swatches). */
@@ -266,6 +272,7 @@ export class FakeAdminServer {
     }
     if (path === '/api/admin/frames') {
       if (method === 'GET') {
+        this.frameListRequests += 1
         if (this.frameListGate) await this.frameListGate
         if (this.frameListFailures > 0) {
           this.frameListFailures -= 1
@@ -293,8 +300,10 @@ export class FakeAdminServer {
     if (path === '/api/admin/themes/extract' && method === 'POST') {
       const body = JSON.parse(String(init?.body)) as { background_asset_id: string }
       this.extractedFrom.push(body.background_asset_id)
+      const gate = this.extractGates.shift()
+      if (gate) await gate
       if (this.extractFailure) return json({ detail: this.extractFailure }, 422)
-      return json(this.extractResult)
+      return json(this.extractResults.get(body.background_asset_id) ?? this.extractResult)
     }
     const frameMatch = /^\/api\/admin\/frames\/([^/]+)(?:\/(replace|name))?$/.exec(path)
     if (frameMatch) {

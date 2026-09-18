@@ -160,6 +160,71 @@ describe('event theme: colours from the background', () => {
     expect(previewVar('primary_bg')).toBe(server.extractResult.tokens.primary_bg)
   })
 
+  it('a late extraction never overwrites a preset chosen meanwhile (P5R-002)', async () => {
+    const server = signedInServer()
+    let release = () => {}
+    server.extractGates.push(new Promise<void>((resolve) => { release = resolve }))
+    renderAdmin('/admin/profiles/new', { server })
+    await fillRequired()
+    await userEvent.upload(screen.getByLabelText('Background image'), jpeg())
+    expect(await screen.findByText('Reading colours from the background…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save profile' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('radio', { name: /^Forest Fresh/ }))
+    release()
+    await waitFor(() => expect(screen.queryByText('Reading colours from the background…')).toBeNull())
+    expect(previewVar('background')).toBe(presetById('forest_fresh').tokens.background)
+    expect(screen.getByRole('radio', { name: /^Forest Fresh/ })).toBeChecked()
+    expect(screen.queryByText('Colors extracted from background')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save profile' })).toBeEnabled()
+  })
+
+  it('answers arriving out of order leave the newest background in charge (P5R-002)', async () => {
+    const server = signedInServer()
+    const releases: (() => void)[] = []
+    for (let i = 0; i < 2; i++) {
+      server.extractGates.push(new Promise<void>((resolve) => releases.push(resolve)))
+    }
+    const older = { ...server.extractResult, palette: ['#111111'], tokens: { ...presetById('sunset_coral').tokens } }
+    const newer = { ...server.extractResult, palette: ['#222222'], tokens: { ...presetById('neon_party').tokens } }
+    renderAdmin('/admin/profiles/new', { server })
+    await fillRequired()
+    const input = screen.getByLabelText('Background image')
+    await userEvent.upload(input, jpeg('a.jpg'))
+    await waitFor(() => expect(server.extractedFrom).toHaveLength(1))
+    await userEvent.upload(input, jpeg('b.jpg'))
+    await waitFor(() => expect(server.extractedFrom).toHaveLength(2))
+    server.extractResults.set(server.extractedFrom[0] ?? '', older)
+    server.extractResults.set(server.extractedFrom[1] ?? '', newer)
+    releases[1]?.() // the newer background answers first...
+    expect(await screen.findByText('Colors extracted from background')).toBeInTheDocument()
+    releases[0]?.() // ...and the older, late answer must be ignored
+    await waitFor(() => expect(screen.queryByText('Reading colours from the background…')).toBeNull())
+    expect(previewVar('background')).toBe(newer.tokens.background)
+    expect(screen.getByText('#222222')).toBeInTheDocument()
+    expect(screen.queryByText('#111111')).toBeNull()
+  })
+
+  it('a new profile with a failing frame list shows a stable error and retries only on request (P5R-003)', async () => {
+    const server = signedInServer()
+    server.frameListFailures = 100
+    renderAdmin('/admin/profiles/new', { server })
+    const alert = await screen.findByText(/The frames could not be loaded/)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(server.frameListRequests).toBeLessThanOrEqual(2)
+    expect(screen.getByLabelText('Profile name')).toBeInTheDocument() // the form stays
+    server.frameListFailures = 0
+    await userEvent.click(
+      within(alert.closest('[role="alert"]') as HTMLElement).getByRole('button', { name: 'Try again' }),
+    )
+    // The frames arrived: the first layout now gets its built-in default.
+    await waitFor(() =>
+      expect(screen.getByLabelText('Frame for 2x6 photo strip')).toHaveValue(
+        server.builtin('midnight', 'strip_2x6').id,
+      ),
+    )
+    expect(server.frameListRequests).toBeLessThanOrEqual(3)
+  })
+
   it('never themes the admin pages themselves', async () => {
     renderAdmin('/admin/profiles/new', { server: signedInServer() })
     await screen.findByRole('radio', { name: /^Midnight Blue/ })

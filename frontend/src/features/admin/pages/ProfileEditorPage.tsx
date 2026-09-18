@@ -77,8 +77,12 @@ function ProfileEditorForm({
   // Saving while an image upload is in flight would store the previous asset id.
   const [uploading, setUploading] = useState({ logo: false, background: false })
   const extractMutation = useExtractTheme()
+  // Every extraction gets a number; a theme edit or a newer background invalidates older ones, so
+  // a late answer never overwrites a newer choice (P5R-002).
+  const extractionSeq = useRef(0)
+  const [pendingExtraction, setPendingExtraction] = useState<number | null>(null)
   // Saving mid-upload would store the previous asset; mid-extraction, the previous theme.
-  const uploadPending = uploading.logo || uploading.background || extractMutation.isPending
+  const uploadPending = uploading.logo || uploading.background || pendingExtraction !== null
   const [themeHistory, setThemeHistory] = useState<EventTheme[]>([])
   const [extractError, setExtractError] = useState<string | null>(null)
   const themeRef = useRef(initialSettings.theme)
@@ -94,11 +98,38 @@ function ProfileEditorForm({
     themeRef.current = settings.theme // read by the extraction handler (an event, after render)
   }, [settings.theme])
 
+  // A new profile whose frame list arrives late still gets its built-in default frames.
+  const [defaultsApplied, setDefaultsApplied] = useState(!isNew || frames !== undefined)
+  if (!defaultsApplied && frames) {
+    setDefaultsApplied(true)
+    setSettings((current) => ({
+      ...current,
+      frame_selections: {
+        ...Object.fromEntries(
+          current.enabled_layouts.flatMap((key) => {
+            const frame = builtinFrameFor(frames, key, preferredFamily(current, frames, catalog))
+            return frame ? [[key, frame.id]] : []
+          }),
+        ),
+        ...current.frame_selections,
+      },
+    }))
+  }
+
+  const invalidateExtraction = () => {
+    extractionSeq.current += 1
+    setPendingExtraction(null)
+  }
+
   /** Apply a theme made from the background's colours; the previous theme can be restored. */
   const extractFrom = async (assetId: string) => {
+    extractionSeq.current += 1
+    const seq = extractionSeq.current
+    setPendingExtraction(seq)
     setExtractError(null)
     try {
       const extracted = await extractMutation.mutateAsync(assetId)
+      if (extractionSeq.current !== seq) return // a newer background or a theme edit came first
       const previous = themeRef.current
       setThemeHistory((history) => [...history, previous])
       setSettings((current) => ({
@@ -111,17 +142,21 @@ function ProfileEditorForm({
         },
       }))
     } catch (err: unknown) {
+      if (extractionSeq.current !== seq) return
       setExtractError(
         err instanceof AdminApiError
           ? `Colours could not be taken from the background: ${err.message}`
           : 'Colours could not be taken from the background.',
       )
+    } finally {
+      setPendingExtraction((pending) => (pending === seq ? null : pending))
     }
   }
 
   const undoExtraction = () => {
     const previous = themeHistory[themeHistory.length - 1]
     if (!previous) return
+    invalidateExtraction()
     setThemeHistory((history) => history.slice(0, -1))
     setSettings((current) => ({ ...current, theme: previous }))
   }
@@ -336,7 +371,10 @@ function ProfileEditorForm({
 
         <ThemeEditor
           theme={settings.theme}
-          onChange={(theme) => setSettings((current) => ({ ...current, theme }))}
+          onChange={(theme) => {
+            invalidateExtraction() // the admin's own choice wins over a pending extraction
+            setSettings((current) => ({ ...current, theme }))
+          }}
           catalog={catalog}
           hasBackground={Boolean(settings.background_asset_id)}
           extraction={{
@@ -345,7 +383,7 @@ function ProfileEditorForm({
             },
             undo: undoExtraction,
             canUndo: themeHistory.length > 0,
-            pending: extractMutation.isPending,
+            pending: pendingExtraction !== null,
             error: extractError,
           }}
           disabled={isDeleted}
@@ -367,8 +405,10 @@ function ProfileEditorForm({
             onChange={(id) => {
               const changed = id !== null && id !== settings.background_asset_id
               setSettings((current) => ({ ...current, background_asset_id: id }))
-              // A new or replaced background proposes its own colours at once.
+              // A new or replaced background proposes its own colours at once; a removed one
+              // cancels any pending proposal.
               if (changed) void extractFrom(id)
+              else if (id === null) invalidateExtraction()
             }}
             onUploadingChange={(active) => setUploading((u) => ({ ...u, background: active }))}
             disabled={isDeleted || isSaving}
@@ -664,6 +704,9 @@ export function ProfileEditorPage() {
   // A new profile starts with built-in default frames, so it waits for the frame list (or its
   // failure, then it simply starts without frames).
   const framesSettled = framesQuery.data !== undefined || framesQuery.isError
+  // Once the form is shown it stays mounted, even while the list is fetched again (P5R-003).
+  const [formReady, setFormReady] = useState(false)
+  if (!formReady && framesSettled) setFormReady(true)
   const {
     data: profile,
     isLoading: isProfileLoading,
@@ -675,7 +718,7 @@ export function ProfileEditorPage() {
     isTemplatesLoading ||
     catalogQuery.isLoading ||
     (!isNew && isProfileLoading) ||
-    (isNew && !framesSettled)
+    (isNew && !framesSettled && !formReady)
   ) {
     return (
       <div className={styles.container}>
