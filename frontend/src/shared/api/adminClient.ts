@@ -5,6 +5,8 @@ import type { components } from './schema'
 type Schemas = components['schemas']
 /** Stored/edited settings: the theme is always complete (the API also accepts it omitted). */
 export type ProfileSettings = Schemas['ProfileSettingsResponse']
+/** What a create may send: the theme and the frame list may be left out (server defaults). */
+export type NewProfileSettings = Schemas['ProfileSettingsBody']
 export type EventTheme = Schemas['EventThemeBody']
 export type ThemeCatalog = Schemas['ThemeCatalogResponse']
 export type ThemePreset = Schemas['PresetInfo']
@@ -268,7 +270,7 @@ export function createAdminApiClient(
     listProfiles: (includeDeleted = false) =>
       send<EventProfile[]>('GET', `/api/admin/profiles${includeDeleted ? '?include_deleted=true' : ''}`),
     getProfile: (id: string) => send<EventProfile>('GET', profilePath(id)),
-    createProfile: (settings: ProfileSettings) =>
+    createProfile: (settings: NewProfileSettings) =>
       send<EventProfile>('POST', '/api/admin/profiles', { json: settings }),
     updateProfile: (id: string, settings: ProfileSettings, revision: number) =>
       send<EventProfile>('PUT', profilePath(id), { json: { ...settings, revision } }),

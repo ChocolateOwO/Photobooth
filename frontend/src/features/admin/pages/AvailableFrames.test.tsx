@@ -146,6 +146,18 @@ describe('Available frames for participants', () => {
   })
 })
 
+describe('A new profile while the frames can not be loaded (P5R2-001)', () => {
+  it('saves with every built-in frame instead of an empty list', async () => {
+    const server = signedInServer()
+    server.frameListFailures = 100
+    renderAdmin('/admin/profiles/new', { server })
+    await fillRequired()
+    expect(await screen.findByText(/Saving offers every built-in frame/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    await waitFor(() => expect(server.profiles.size).toBe(1))
+    expect([...server.profiles.values()][0]?.settings.available_frames).toEqual(server.builtinIds())
+  })
+})
 describe('Preview: frame selection mode', () => {
   it('shows the participant gallery with the enabled frames in their order', async () => {
     const server = signedInServer()

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -112,6 +112,67 @@ describe('FrameSelectPage (booth)', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Gold/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
     expect(await screen.findByText('That frame could not be chosen. Please pick again.')).toBeInTheDocument()
+    expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
+  })
+
+  it('a late answer never replaces a newer choice (P5R2-002)', async () => {
+    let release: (() => void) | null = null
+    const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/booth/frames') return json(MENU)
+      const body = JSON.parse(String(init?.body)) as { frame_id: string }
+      if (body.frame_id === 'fs') {
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+        return json(PLAN_STRIP)
+      }
+      return json(PLAN_46)
+    })
+    renderPage(fetcher)
+    const list = await screen.findByRole('list', { name: 'Frames' })
+    // Gold is confirmed right away.
+    await userEvent.click(within(list).getByRole('button', { name: /^Gold/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Selected: Gold')
+    // Night is confirmed but the answer is slow; the participant goes Back and starts with Gold.
+    await userEvent.click(within(list).getByRole('button', { name: /^Night/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Start with this frame' }))
+    expect(screen.getByText(/Ready: Gold/)).toBeInTheDocument()
+    await act(async () => {
+      release?.()
+      await Promise.resolve()
+    })
+    expect(screen.getByText(/Ready: Gold/)).toBeInTheDocument()
+    expect(JSON.parse(sessionStorage.getItem(SESSION_FRAME_KEY) ?? '{}')).toMatchObject({ frame_id: 'f46' })
+  })
+
+  it('choosing again while an answer is on its way keeps the choice cleared (P5R2-002)', async () => {
+    let release: (() => void) | null = null
+    renderPage(async (path, init) => {
+      if (path === '/api/booth/frames') return json(MENU)
+      const body = JSON.parse(String(init?.body)) as { frame_id: string }
+      if (body.frame_id === 'fs') {
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+        return json(PLAN_STRIP)
+      }
+      return json(PLAN_46)
+    })
+    const list = await screen.findByRole('list', { name: 'Frames' })
+    await userEvent.click(within(list).getByRole('button', { name: /^Gold/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
+    await userEvent.click(within(list).getByRole('button', { name: /^Night/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(screen.getByRole('button', { name: 'Choose a different frame' }))
+    await act(async () => {
+      release?.()
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('status')).toBeNull()
     expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
   })
 })

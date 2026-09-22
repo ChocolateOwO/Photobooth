@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ApiError, type FramePlan } from '../../shared/api/client'
 import { useApiClient } from '../../shared/api/ApiClientContext'
@@ -28,6 +28,16 @@ export function FrameSelectPage() {
   const [started, setStarted] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  // Each confirmation is numbered; Back, Start, choosing again or leaving the screen make any
+  // answer still on its way obsolete, so a late answer never replaces a newer choice.
+  const confirmation = useRef(0)
+  const forgetPending = () => {
+    confirmation.current += 1
+    setBusy(false)
+  }
+  useEffect(() => () => {
+    confirmation.current += 1
+  }, [])
 
   if (menu.isPending) {
     return <p className={styles.plain}>Loading…</p>
@@ -86,21 +96,30 @@ export function FrameSelectPage() {
           selectedId={plan?.frame_id ?? null}
           busy={busy}
           onConfirm={async (frame) => {
+            confirmation.current += 1
+            const mine = confirmation.current
             setBusy(true)
             setProblem(null)
             try {
               const confirmed = await api.chooseFrame(frame.id)
+              if (confirmation.current !== mine) return // superseded meanwhile
               setPlan(confirmed)
               remember(confirmed)
             } catch {
+              if (confirmation.current !== mine) return
               setProblem('That frame could not be chosen. Please pick again.')
               void menu.refetch()
             } finally {
-              setBusy(false)
+              if (confirmation.current === mine) setBusy(false)
             }
           }}
-          onStart={() => setStarted(true)}
+          onCancel={forgetPending}
+          onStart={() => {
+            forgetPending()
+            setStarted(true)
+          }}
           onChooseAgain={() => {
+            forgetPending()
             setPlan(null)
             remember(null)
           }}

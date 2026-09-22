@@ -19,6 +19,8 @@ interface FrameGalleryProps {
   onConfirm: (frame: GalleryFrame) => void | Promise<void>
   onStart: (frame: GalleryFrame) => void
   onChooseAgain: () => void
+  /** The preview closed without a confirmation (Back, backdrop, Escape). */
+  onCancel?: () => void
   /** Random source for "Surprise me" (injectable for tests). */
   random?: () => number
   /** Admin preview: smaller cards, no focus trapping side effects. */
@@ -35,6 +37,7 @@ export function FrameGallery({
   onConfirm,
   onStart,
   onChooseAgain,
+  onCancel,
   random = Math.random,
   compact = false,
   busy = false,
@@ -67,6 +70,7 @@ export function FrameGallery({
   }
   const close = () => {
     setPreviewing(null)
+    onCancel?.()
     openerRef.current?.focus()
   }
 
@@ -115,25 +119,24 @@ export function FrameGallery({
           const isSelected = frame.id === selectedId
           return (
             <li key={frame.id}>
-              <button
-                type="button"
-                className={styles.card}
-                data-selected={isSelected ? '' : undefined}
-                aria-pressed={isSelected}
-                aria-label={`${frame.name}, ${planSummary(frame.plan)}${isSelected ? ', selected' : ''}`}
-                onClick={(e) => open(frame, e.currentTarget)}
-              >
+              {/* One stretched button per card; the image (and its own Retry control, when a
+                  preview failed) sits beside it, never inside it. */}
+              <div className={styles.card} data-selected={isSelected ? '' : undefined}>
                 <span className={styles.imageBox}>
-                  <RetryingImage
-                    src={frame.previewUrl}
-                    alt=""
-                    className={styles.image}
-                  />
+                  <RetryingImage src={frame.previewUrl} alt="" className={styles.image} />
                 </span>
-                <span className={styles.cardName}>{frame.name}</span>
-                <span className={styles.cardSummary}>{planSummary(frame.plan)}</span>
+                <button
+                  type="button"
+                  className={styles.cardButton}
+                  aria-pressed={isSelected}
+                  aria-label={`${frame.name}, ${planSummary(frame.plan)}${isSelected ? ', selected' : ''}`}
+                  onClick={(e) => open(frame, e.currentTarget)}
+                >
+                  <span className={styles.cardName}>{frame.name}</span>
+                  <span className={styles.cardSummary}>{planSummary(frame.plan)}</span>
+                </button>
                 {isSelected && <span className={styles.selectedBadge}>Selected</span>}
-              </button>
+              </div>
             </li>
           )
         })}
@@ -145,7 +148,7 @@ export function FrameGallery({
             Selected: <strong>{selected.name}</strong> ({planSummary(selected.plan)})
           </span>
           <div className={styles.selectionActions}>
-            <EventButton variant="primary" onClick={() => onStart(selected)}>
+            <EventButton variant="primary" disabled={busy} onClick={() => onStart(selected)}>
               Start with this frame
             </EventButton>
             <EventButton variant="secondary" onClick={onChooseAgain}>
@@ -184,7 +187,10 @@ export function FrameGallery({
                 disabled={busy}
                 onClick={() => {
                   const frame = previewing
-                  void Promise.resolve(onConfirm(frame)).then(() => setPreviewing(null))
+                  // Close only if this very preview is still open when the confirmation settles.
+                  void Promise.resolve(onConfirm(frame)).then(() =>
+                    setPreviewing((open) => (open?.id === frame.id ? null : open)),
+                  )
                 }}
               >
                 Use this frame

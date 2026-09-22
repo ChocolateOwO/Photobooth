@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -115,6 +115,27 @@ describe('FrameGallery (participants)', () => {
     const text = document.body.textContent ?? ''
     for (const word of ['Built-in', 'Uploaded', 'Replace', 'Rename', 'Delete', 'px']) {
       expect(text).not.toContain(word)
+    }
+  })
+
+  it('a failed preview can be retried without opening the frame (P5R2-003)', async () => {
+    vi.useFakeTimers()
+    try {
+      renderGallery()
+      // The automatic retries run out (1, 2 and 4 s), then a Retry control appears.
+      for (const wait of [1000, 2000, 4000]) {
+        fireEvent.error(document.querySelector('img') as HTMLImageElement)
+        act(() => {
+          vi.advanceTimersByTime(wait)
+        })
+      }
+      fireEvent.error(document.querySelector('img') as HTMLImageElement)
+      const retry = screen.getAllByRole('button', { name: /^Retry/ })[0] as HTMLElement
+      expect(retry.closest('button[aria-pressed]')).toBeNull() // not nested in the card button
+      fireEvent.click(retry)
+      expect(screen.queryByRole('dialog')).toBeNull()
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

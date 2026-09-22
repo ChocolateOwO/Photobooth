@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import type { AssetKind, EventProfile, ProfileSettings } from '../../../shared/api/adminClient'
+import type {
+  AssetKind,
+  EventProfile,
+  NewProfileSettings,
+  ProfileSettings,
+} from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import { ADMIN_QUERY_ROOT } from './queryKeys'
 
@@ -68,7 +73,7 @@ function useProfileMutation<TArgs>(run: (args: TArgs) => Promise<EventProfile>) 
 
 export function useCreateProfile() {
   const api = useAdminApi()
-  return useProfileMutation((settings: ProfileSettings) => api.createProfile(settings))
+  return useProfileMutation((settings: NewProfileSettings) => api.createProfile(settings))
 }
 
 export function useUpdateProfile() {

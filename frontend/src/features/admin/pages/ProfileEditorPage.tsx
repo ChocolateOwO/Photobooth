@@ -178,7 +178,12 @@ function ProfileEditorForm({
     setIsSaving(true)
     try {
       if (isNew) {
-        const created = await createMutation.mutateAsync(settings)
+        // Frame list never loaded: leave it out, so the server offers every built-in frame
+        // instead of saving an empty list by accident (P5R2-001).
+        const { available_frames: draftFrames, ...rest } = settings
+        const created = await createMutation.mutateAsync(
+          defaultsApplied ? { ...rest, available_frames: draftFrames } : rest,
+        )
         void navigate(`/admin/profiles/${created.id}`)
       } else if (profileId) {
         const updated = await updateMutation.mutateAsync({
@@ -407,6 +412,11 @@ function ProfileEditorForm({
           allowSurprise={settings.allow_surprise_me}
           onSurpriseChange={(allow) =>
             setSettings((current) => ({ ...current, allow_surprise_me: allow }))
+          }
+          unloadedNote={
+            isNew
+              ? 'Saving offers every built-in frame; you can change the list once the frames load.'
+              : 'Saving keeps the current list.'
           }
           disabled={isDeleted}
         />

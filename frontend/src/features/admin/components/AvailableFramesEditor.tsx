@@ -18,6 +18,8 @@ interface AvailableFramesEditorProps {
   allowSurprise: boolean
   onSurpriseChange: (allow: boolean) => void
   disabled: boolean
+  /** What saving does while the frames can not be loaded. */
+  unloadedNote: string
 }
 
 const ALL = 'all'
@@ -36,6 +38,7 @@ export function AvailableFramesEditor({
   allowSurprise,
   onSurpriseChange,
   disabled,
+  unloadedNote,
 }: AvailableFramesEditorProps) {
   const api = useAdminApi()
   const [query, setQuery] = useState('')
@@ -179,7 +182,7 @@ export function AvailableFramesEditor({
       {frames === undefined && !loadFailed && <p className={styles.helper}>Loading frames…</p>}
       {loadFailed && frames === undefined && (
         <div role="alert" className={styles.alert}>
-          <p>The frames could not be loaded, so they can not be changed right now. Saving keeps the current list.</p>
+          <p>The frames could not be loaded, so they can not be changed right now. {unloadedNote}</p>
           <button type="button" onClick={onRetry}>
             Try again
           </button>

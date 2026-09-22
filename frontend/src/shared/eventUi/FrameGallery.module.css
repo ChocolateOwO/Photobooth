@@ -35,7 +35,8 @@
 }
 
 .tab:focus-visible,
-.card:focus-visible {
+.card:focus-visible,
+.cardButton:focus-visible {
   outline: 4px solid var(--ev-focus-ring);
   outline-offset: 3px;
 }
@@ -253,4 +254,38 @@
   .imageBox {
     height: 200px;
   }
+}
+
+/* The card's main button covers the whole card (tap anywhere), but stays a sibling of the image. */
+.cardButton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 64px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cardButton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+}
+
+/* A failed preview's Retry control stays clickable above the stretched button. */
+.imageBox {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.imageBox button {
+  pointer-events: auto;
 }
