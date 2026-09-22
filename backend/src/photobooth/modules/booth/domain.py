@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 
 class BoothError(Exception):
@@ -26,6 +26,15 @@ class PreviewBusyError(BoothError):
 
 class PreviewFailedError(BoothError):
     """The sample output could not be rendered."""
+
+
+class ImageNotSetError(BoothError):
+    def __init__(self, kind: str) -> None:
+        super().__init__(f"the active event has no {kind} image")
+
+
+StartImageKind = Literal["logo", "background"]
+DEFAULT_START_TEXT = "Start"
 
 
 class FrameNotOfferedError(BoothError):
@@ -63,10 +72,24 @@ class BoothFrame:
 
 
 @dataclass(frozen=True)
+class StartScreen:
+    """The participant start screen: background, logo and the Start button text only.
+
+    Image versions change with the image content (cache keys); None means "not set" or
+    "no longer available", and the screen falls back (theme colour, neutral mark).
+    """
+
+    start_text: str
+    logo_version: str | None
+    background_version: str | None
+
+
+@dataclass(frozen=True)
 class FrameMenu:
     frames: tuple[BoothFrame, ...]
     allow_surprise_me: bool  # already false when fewer than two frames are offered
     theme_tokens: Mapping[str, str]
+    start_screen: StartScreen
 
     @property
     def layouts(self) -> list[str]:
@@ -84,6 +107,9 @@ class EventOffer:
     frame_ids: Sequence[str]
     allow_surprise_me: bool
     theme_tokens: Mapping[str, str]
+    start_button_text: str = DEFAULT_START_TEXT
+    logo_asset_id: str | None = None
+    background_asset_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +131,21 @@ class LayoutFacts:
     outputs: int
     photos_per_output: int
     output_capture_groups: tuple[tuple[int, ...], ...]
+
+
+@dataclass(frozen=True)
+class EventImage:
+    data: bytes
+    media_type: str
+    version: str
+
+
+class EventImages(Protocol):
+    """The active event's logo/background (from the assets module). None when unavailable."""
+
+    def version(self, asset_id: str, kind: StartImageKind) -> str | None: ...
+
+    def image(self, asset_id: str, kind: StartImageKind) -> EventImage | None: ...
 
 
 class ActiveEvent(Protocol):

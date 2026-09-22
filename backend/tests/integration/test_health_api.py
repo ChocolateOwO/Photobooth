@@ -73,4 +73,5 @@ def test_openapi_lists_only_expected_public_paths(kiosk_client: TestClient) -> N
         "/api/booth/frames",
         "/api/booth/frames/{frame_id}/preview.jpg",
         "/api/booth/frame-choice",
+        "/api/booth/start/{kind}",
     }

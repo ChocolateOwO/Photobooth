@@ -1,6 +1,8 @@
 """Participant booth routes under /api/booth (paired kiosk device; no admin session).
 
-- GET  /api/booth/frames                      frames offered by the active event, in order
+- GET  /api/booth/frames                      frames offered by the active event, in order, with
+                                              the start screen (Start text, logo/background URLs)
+- GET  /api/booth/start/{logo|background}     the active event's own logo or background image
 - GET  /api/booth/frames/{id}/preview.jpg     rendered sample of an offered frame
 - POST /api/booth/frame-choice                confirm a frame; returns its capture/output plan
 
@@ -17,9 +19,11 @@ from starlette.concurrency import run_in_threadpool
 from photobooth.core.web import provide, require_device
 from photobooth.modules.booth.domain import (
     FrameNotOfferedError,
+    ImageNotSetError,
     NoActiveEventError,
     PreviewBusyError,
     PreviewFailedError,
+    StartImageKind,
 )
 from photobooth.modules.booth.schemas import (
     FrameChoiceBody,
@@ -83,3 +87,27 @@ def choose_frame(body: FrameChoiceBody, service: Service) -> FramePlanResponse:
         return FramePlanResponse.of(service.choose(body.frame_id))
     except (NoActiveEventError, FrameNotOfferedError) as exc:
         raise _not_found(exc) from exc
+
+
+@router.get(
+    "/start/{kind}",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}, "image/jpeg": {}}}},
+)
+def start_image(kind: Annotated[StartImageKind, Path()], service: Service) -> Response:
+    """The active event's logo or background (never another asset; no ids or paths exposed)."""
+    try:
+        image = service.start_image(kind)
+    except (NoActiveEventError, ImageNotSetError) as exc:
+        raise _not_found(exc) from exc
+    return Response(
+        content=image.data,
+        media_type=image.media_type,
+        headers={
+            "Content-Disposition": "inline",
+            "Cache-Control": "private, no-cache",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            "ETag": f'"{image.version}"',
+        },
+    )

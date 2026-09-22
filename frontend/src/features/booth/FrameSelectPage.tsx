@@ -1,11 +1,12 @@
-import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError, type FramePlan } from '../../shared/api/client'
+import type { FramePlan } from '../../shared/api/client'
 import { useApiClient } from '../../shared/api/ApiClientContext'
 import { EventButton, EventMessage, EventScreen, EventText } from '../../shared/eventUi/EventUi'
 import { FrameGallery } from '../../shared/eventUi/FrameGallery'
 import { planSummary, type GalleryFrame } from '../../shared/eventUi/framePlan'
+import { BoothLoadState } from './BoothLoadState'
+import { useBoothMenu } from './boothMenu'
 import styles from './FrameSelectPage.module.css'
 
 /** Where the confirmed frame waits for the capture step of the session (a later phase). */
@@ -23,7 +24,7 @@ function remember(plan: FramePlan | null): void {
 /** Participant screen: choose the frame, confirm it, then start (capture comes next phase). */
 export function FrameSelectPage() {
   const api = useApiClient()
-  const menu = useQuery({ queryKey: ['booth', 'frames'], queryFn: () => api.frameMenu(), retry: false })
+  const menu = useBoothMenu()
   const [plan, setPlan] = useState<FramePlan | null>(null)
   const [started, setStarted] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -43,22 +44,7 @@ export function FrameSelectPage() {
     return <p className={styles.plain}>Loading…</p>
   }
   if (menu.isError) {
-    const noEvent = menu.error instanceof ApiError && menu.error.status === 404
-    const notPaired = menu.error instanceof ApiError && menu.error.status === 401
-    return (
-      <div className={styles.plain} role="alert">
-        <p>
-          {noEvent
-            ? 'This booth has no active event yet. Ask the organizer to activate an Event Profile.'
-            : notPaired
-              ? 'This screen is not paired with the booth.'
-              : 'The frames could not be loaded.'}
-        </p>
-        <button type="button" className={styles.retry} onClick={() => void menu.refetch()}>
-          Try again
-        </button>
-      </div>
-    )
+    return <BoothLoadState error={menu.error} onRetry={() => void menu.refetch()} />
   }
 
   const frames: GalleryFrame[] = menu.data.frames.map((frame) => ({

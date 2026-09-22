@@ -307,6 +307,9 @@
             "title": "Layouts",
             "type": "array"
           },
+          "start_screen": {
+            "$ref": "#/components/schemas/StartScreenResponse"
+          },
           "theme": {
             "additionalProperties": {
               "type": "string"
@@ -320,7 +323,8 @@
           "frames",
           "layouts",
           "allow_surprise_me",
-          "theme"
+          "theme",
+          "start_screen"
         ],
         "title": "FrameMenuResponse",
         "type": "object"
@@ -1208,6 +1212,46 @@
           "aspect"
         ],
         "title": "SlotModel",
+        "type": "object"
+      },
+      "StartScreenResponse": {
+        "description": "Presentation data of the participant start screen, nothing else.",
+        "properties": {
+          "background_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The event background, or null for none",
+            "title": "Background Url"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The event logo, or null for the neutral mark",
+            "title": "Logo Url"
+          },
+          "start_button_text": {
+            "title": "Start Button Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_button_text",
+          "logo_url",
+          "background_url"
+        ],
+        "title": "StartScreenResponse",
         "type": "object"
       },
       "TemplateLinks": {
@@ -2927,6 +2971,50 @@
           }
         },
         "summary": "Booth Ping",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/start/{kind}": {
+      "get": {
+        "description": "The active event's logo or background (never another asset; no ids or paths exposed).",
+        "operationId": "start_image_api_booth_start__kind__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "logo",
+                "background"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {},
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Image",
         "tags": [
           "booth"
         ]

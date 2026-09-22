@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 from typing import Any
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from photobooth.container import Container
 from photobooth.modules.frames.builtin import builtin_frame_id
@@ -20,18 +22,25 @@ LIGHT46 = builtin_frame_id("minimal_light", "print_4x6")
 
 
 def _activate(
-    client: TestClient, headers: dict[str, str], frames: list[str], surprise: bool = False
+    client: TestClient,
+    headers: dict[str, str],
+    frames: list[str],
+    surprise: bool = False,
+    **extra: Any,
 ) -> dict[str, Any]:
-    profile = client.post(
+    response = client.post(
         PROFILES,
         json={
             "name": "Party",
             "title": "Hi",
             "available_frames": frames,
             "allow_surprise_me": surprise,
+            **extra,
         },
         headers=headers,
-    ).json()
+    )
+    assert response.status_code == 201, response.text
+    profile = response.json()
     active = client.post(f"{PROFILES}/{profile['id']}/activate", headers=headers)
     assert active.status_code == 200, active.text
     result: dict[str, Any] = active.json()
@@ -71,6 +80,11 @@ def test_menu_lists_only_offered_frames_in_order_with_their_plan(
     assert data["layouts"] == ["print_3x4", "strip_2x6", "print_4x6"]
     assert data["allow_surprise_me"] is True
     assert data["theme"] == profile["settings"]["theme"]["tokens"]
+    assert data["start_screen"] == {
+        "start_button_text": "Start",
+        "logo_url": None,
+        "background_url": None,
+    }
 
     plans = {f["plan"]["template_key"]: f["plan"] for f in data["frames"]}
     assert plans["strip_2x6"] | {"frame_id": None} == {
@@ -162,3 +176,120 @@ def test_booth_routes_need_the_paired_device(
         kiosk_client.post(CHOICE, json={"frame_id": STRIP}, headers=device_headers(key)).status_code
         == 401
     )
+
+
+START = "/api/booth/start"
+
+
+def _image(fmt: str, size: tuple[int, int], color: tuple[int, int, int]) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", size, color).save(buffer, fmt)
+    return buffer.getvalue()
+
+
+def _asset(client: TestClient, headers: dict[str, str], kind: str, data: bytes, mime: str) -> str:
+    response = client.post(
+        "/api/admin/assets",
+        data={"kind": kind},
+        files={"file": (f"{kind}.bin", data, mime)},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    return str(response.json()["id"])
+
+
+def test_start_screen_gives_only_presentation_data(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    headers = login(kiosk_client, container)
+    logo = _image("PNG", (240, 120), (200, 40, 40))
+    background = _image("JPEG", (640, 360), (20, 60, 120))
+    logo_id = _asset(kiosk_client, headers, "logo", logo, "image/png")
+    background_id = _asset(kiosk_client, headers, "background", background, "image/jpeg")
+    _activate(
+        kiosk_client,
+        headers,
+        [STRIP],
+        name="Private profile name",
+        title="Secret title text",
+        subtitle="Secret subtitle text",
+        start_button_text="Let's go",
+        logo_asset_id=logo_id,
+        background_asset_id=background_id,
+    )
+    kiosk_client.cookies.delete("pb_admin_dummy", path="/api/admin")
+
+    menu = kiosk_client.get(MENU)
+    assert menu.status_code == 200, menu.text
+    screen = menu.json()["start_screen"]
+    assert set(screen) == {"start_button_text", "logo_url", "background_url"}
+    assert screen["start_button_text"] == "Let's go"
+    assert screen["logo_url"].startswith(f"{START}/logo?v=")
+    assert screen["background_url"].startswith(f"{START}/background?v=")
+    assert set(menu.json()) == {"frames", "layouts", "allow_surprise_me", "theme", "start_screen"}
+    # No asset ids, storage, profile internals or admin-only texts reach participants.
+    text = menu.text
+    for private in (
+        logo_id,
+        background_id,
+        "Private profile name",
+        "Secret title text",
+        "Secret subtitle text",
+        "revision",
+        "is_active",
+        "deleted_at",
+        "asset_id",
+        "storage",
+        "sha256",
+        "/api/admin",
+    ):
+        assert private not in text
+
+    got_logo = kiosk_client.get(screen["logo_url"])
+    assert got_logo.status_code == 200 and got_logo.content == logo
+    assert got_logo.headers["content-type"] == "image/png"
+    assert got_logo.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" in got_logo.headers["content-security-policy"]
+    got_background = kiosk_client.get(screen["background_url"])
+    assert got_background.status_code == 200 and got_background.content == background
+    assert got_background.headers["content-type"] == "image/jpeg"
+    # Only the two named images of the active event: no other kind, no asset id.
+    assert kiosk_client.get(f"{START}/frame").status_code == 422
+    assert kiosk_client.get(f"{START}/{logo_id}").status_code == 422
+
+
+def test_start_screen_without_images_or_with_a_lost_file_falls_back(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    headers = login(kiosk_client, container)
+    assert kiosk_client.get(f"{START}/logo").status_code == 404  # no active event yet
+    background_id = _asset(
+        kiosk_client, headers, "background", _image("JPEG", (320, 200), (9, 9, 9)), "image/jpeg"
+    )
+    _activate(kiosk_client, headers, [STRIP], background_asset_id=background_id)
+    screen = kiosk_client.get(MENU).json()["start_screen"]
+    assert screen["logo_url"] is None and screen["start_button_text"] == "Start"
+    assert kiosk_client.get(f"{START}/logo").status_code == 404
+
+    # The stored file disappears (disk trouble): a plain 404, never a path or a server error.
+    stored = container.asset_service.get(background_id).storage_key
+    for path in container.settings.storage_dir.rglob("*"):
+        if path.is_file() and path.as_posix().endswith(stored):
+            path.unlink()
+    lost = kiosk_client.get(f"{START}/background")
+    assert lost.status_code == 404
+    assert str(container.settings.storage_dir) not in lost.text and stored not in lost.text
+
+
+def test_start_images_need_the_paired_device(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    headers = login(kiosk_client, container)
+    logo_id = _asset(
+        kiosk_client, headers, "logo", _image("PNG", (100, 50), (1, 2, 3)), "image/png"
+    )
+    _activate(kiosk_client, headers, [STRIP], logo_asset_id=logo_id)
+    assert kiosk_client.get(f"{START}/logo").status_code == 200
+    kiosk_client.cookies.clear()
+    assert kiosk_client.get(f"{START}/logo").status_code == 401
+    assert kiosk_client.get(MENU).status_code == 401

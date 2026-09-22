@@ -1,6 +1,8 @@
+import { join } from 'node:path'
+
 import { expect, test, type Page } from '@playwright/test'
 
-import { pairAndSignIn, PERSISTED, profileRow } from './support/admin'
+import { fixturesDir, pairAndSignIn, PERSISTED, profileRow } from './support/admin'
 
 // Serial: one profile is prepared, activated and then used by the participant screen.
 test.describe.configure({ mode: 'serial' })
@@ -221,6 +223,100 @@ test('the editor preview stays still while the form scrolls, fits whole and stac
   expect(narrow).toBeLessThanOrEqual(1)
   expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)).toBe(true)
 })
+async function expectOnlyStartScreen(page: Page) {
+  const screen = page.getByRole('group', { name: 'Start screen' })
+  await expect(screen).toBeVisible()
+  await expect(screen.getByRole('button')).toHaveCount(1)
+  await expect(screen.getByRole('textbox')).toHaveCount(0)
+  for (const gone of [/email/i, /\bback\b/i, /\bprint\b/i, /frames? to choose/i, /photos are ready/i, /paper/i]) {
+    await expect(screen.getByText(gone)).toHaveCount(0)
+  }
+  return screen
+}
+
+test('the real booth start screen shows the profile look and leads to the frame choice', async ({ page }) => {
+  await pairAndSignIn(page)
+  // The active profile has no logo or background yet: the neutral mark, no broken image.
+  await page.goto('/booth')
+  let screen = await expectOnlyStartScreen(page)
+  await expect(screen.getByRole('img', { name: 'Photobooth' })).toBeVisible()
+  await expect(screen.getByRole('button')).toHaveText('Start')
+  await expect(screen.getByText('Pick a frame')).toHaveCount(0) // the stored title is not shown
+
+  // Give the profile a logo, a background and its own Start text.
+  await page.goto('/admin')
+  await profileRow(page, PROFILE).getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
+  await page.getByLabel('Start button text').fill('Tap to begin')
+  await page.getByLabel('Logo image').setInputFiles(join(fixturesDir, 'logo.png'))
+  await expect(page.getByRole('img', { name: 'Logo preview' })).toBeVisible()
+  await page.getByLabel('Background image').setInputFiles(join(fixturesDir, 'background.jpg'))
+  await expect(page.getByRole('img', { name: 'Background preview' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save profile' })).toBeEnabled({ timeout: 20_000 })
+  await page.getByRole('button', { name: 'Save profile' }).click()
+  await expect(page.getByRole('alertdialog', { name: 'Saved' })).toBeVisible()
+  const previewButton = page.getByTestId('event-preview').getByTestId('start-screen').getByRole('button')
+  const previewColour = await previewButton.evaluate((el) => getComputedStyle(el).backgroundColor)
+
+  await page.goto('/booth')
+  screen = await expectOnlyStartScreen(page)
+  // Same shared component as the admin preview, with the same theme colours.
+  await expect(screen.getByTestId('start-screen')).toBeVisible()
+  const start = screen.getByRole('button', { name: 'Tap to begin' })
+  await expect(start).toHaveCSS('background-color', previewColour)
+  const logo = screen.getByRole('img', { name: 'Event logo' })
+  await expect.poll(() => logo.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(256)
+  expect(await logo.getAttribute('src')).toMatch(/^\/api\/booth\/start\/logo\?v=[0-9a-f]{16}$/)
+  const background = await screen.evaluate((el) => getComputedStyle(el).backgroundImage)
+  expect(background).toMatch(/\/api\/booth\/start\/background\?v=[0-9a-f]{16}/)
+  const served = await page.request.get(/url\("?([^")]+)/.exec(background)?.[1] ?? '')
+  expect(served.status()).toBe(200)
+  expect(served.headers()['content-type']).toBe('image/jpeg')
+  // Centred, fills the screen, nothing sideways.
+  const box = await start.boundingBox()
+  const viewport = page.viewportSize()
+  expect(Math.abs((box?.x ?? 0) + (box?.width ?? 0) / 2 - (viewport?.width ?? 0) / 2)).toBeLessThan(4)
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+  ).toBeLessThanOrEqual(1)
+
+  // No asset ids or admin data in what the booth receives.
+  const menu = await (await page.request.get('/api/booth/frames')).text()
+  for (const secret of ['asset_id', 'storage', 'revision', 'Pick a frame', PROFILE]) {
+    expect(menu).not.toContain(secret)
+  }
+
+  await start.click()
+  await expect(page).toHaveURL(/\/booth\/frames$/)
+  await expect(page.getByRole('heading', { name: 'Choose your frame' })).toBeVisible()
+})
+
+test('the booth start screen needs the paired device', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' })
+  const page = await context.newPage()
+  try {
+    await page.goto('/booth')
+    await expect(page.getByRole('alert')).toContainText('not paired')
+    expect((await page.request.get('/api/booth/start/logo')).status()).toBe(401)
+  } finally {
+    await context.close()
+  }
+})
+
+test('the booth start screen works after a backend restart @after-restart', async ({ page }) => {
+  await pairAndSignIn(page) // pairing never survives a restart
+  await page.goto('/booth')
+  const screen = await expectOnlyStartScreen(page)
+  const start = screen.getByRole('button', { name: PERSISTED.startText })
+  await expect(start).toHaveCSS('background-color', 'rgb(170, 34, 68)')
+  const logo = screen.getByRole('img', { name: 'Event logo' })
+  await expect.poll(() => logo.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(256)
+  await expect
+    .poll(() => screen.evaluate((el) => getComputedStyle(el).backgroundImage))
+    .toMatch(/\/api\/booth\/start\/background\?v=/)
+  await start.click()
+  await expect(page.getByRole('heading', { name: 'Choose your frame' })).toBeVisible()
+})
+
 test('the previously active profile is active again for the later specs', async ({ page }) => {
   await pairAndSignIn(page)
   await profileRow(page, PERSISTED.copy)

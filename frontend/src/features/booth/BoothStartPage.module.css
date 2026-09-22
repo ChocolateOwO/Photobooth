@@ -1,0 +1,12 @@
+/* The start screen fills the whole booth display. */
+.page {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.loading {
+  padding: 24px;
+  color: var(--pb-color-text);
+}

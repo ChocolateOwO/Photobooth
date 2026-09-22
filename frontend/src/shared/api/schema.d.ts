@@ -423,6 +423,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/booth/start/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Start Image
+         * @description The active event's logo or background (never another asset; no ids or paths exposed).
+         */
+        get: operations["start_image_api_booth_start__kind__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -706,6 +726,7 @@ export interface components {
              * @description Layouts with at least one offered frame
              */
             layouts: string[];
+            start_screen: components["schemas"]["StartScreenResponse"];
             /**
              * Theme
              * @description Event theme tokens for the participant screens
@@ -1128,6 +1149,24 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /**
+         * StartScreenResponse
+         * @description Presentation data of the participant start screen, nothing else.
+         */
+        StartScreenResponse: {
+            /**
+             * Background Url
+             * @description The event background, or null for none
+             */
+            background_url: string | null;
+            /**
+             * Logo Url
+             * @description The event logo, or null for the neutral mark
+             */
+            logo_url: string | null;
+            /** Start Button Text */
+            start_button_text: string;
         };
         /** TemplateLinks */
         TemplateLinks: {
@@ -2249,6 +2288,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PingResponse"];
+                };
+            };
+        };
+    };
+    start_image_api_booth_start__kind__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "logo" | "background";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
+                    "image/png": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

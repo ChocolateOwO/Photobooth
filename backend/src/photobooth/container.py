@@ -35,11 +35,13 @@ from photobooth.modules.auth.repository import SqlAdminUserRepository
 from photobooth.modules.auth.service import AuthService
 from photobooth.modules.auth.sessions import InMemoryAdminSessionStore
 from photobooth.modules.booth.domain import (
+    EventImage,
     EventOffer,
     LayoutFacts,
     OfferedFrame,
     PreviewBusyError,
     PreviewFailedError,
+    StartImageKind,
 )
 from photobooth.modules.booth.service import BoothService
 from photobooth.modules.event_profiles.repository import SqlEventProfileRepository
@@ -112,7 +114,37 @@ class _BoothEvent:
             frame_ids=settings.available_frames,
             allow_surprise_me=settings.allow_surprise_me,
             theme_tokens=dict(settings.theme.tokens),
+            start_button_text=settings.start_button_text,
+            logo_asset_id=settings.logo_asset_id,
+            background_asset_id=settings.background_asset_id,
         )
+
+
+class _BoothImages:
+    """Adapter: the active event's logo/background through the assets module (StorageProvider).
+
+    Only an asset of the expected kind is used; a missing row or file means "not available".
+    """
+
+    def __init__(self, assets: AssetService) -> None:
+        self._assets = assets
+
+    def version(self, asset_id: str, kind: StartImageKind) -> str | None:
+        if not self._assets.exists(asset_id, kind):
+            return None
+        try:
+            return self._assets.get(asset_id).sha256[:16]
+        except AssetNotFoundError:
+            return None
+
+    def image(self, asset_id: str, kind: StartImageKind) -> EventImage | None:
+        if not self._assets.exists(asset_id, kind):
+            return None
+        try:
+            asset, data = self._assets.content(asset_id)
+        except AssetNotFoundError:
+            return None
+        return EventImage(data=data, media_type=asset.mime, version=asset.sha256[:16])
 
 
 class _BoothFrames:
@@ -265,6 +297,7 @@ class Container:
             _BoothFrames(self.frame_service),
             _BoothLayouts(self.template_service),
             _BoothPreviews(self.frame_service, self.render_service),
+            _BoothImages(self.asset_service),
         )
         self.registry.register(BoothService, self.booth_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))

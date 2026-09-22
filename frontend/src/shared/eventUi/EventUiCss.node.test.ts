@@ -43,6 +43,15 @@ describe('event UI stylesheet', () => {
     expect(start).toContain('var(--ev-heading)')
   })
 
+  it('the admin preview and the real booth draw the same StartScreen component', () => {
+    const shared = "from '../../../shared/eventUi/StartScreen'"
+    expect(read('../../features/admin/components/EventPreview.tsx')).toContain(`import { StartScreen } ${shared}`)
+    const booth = read('../../features/booth/BoothStartPage.tsx')
+    expect(booth).toContain("import { StartScreen } from '../../shared/eventUi/StartScreen'")
+    // No second copy of the start screen anywhere else.
+    expect(booth).not.toMatch(/Email|subtitle|title/)
+  })
+
   it.each([
     ['.screen', { 'background-color': 'background', color: 'body' }],
     ['.heading', { color: 'heading' }],

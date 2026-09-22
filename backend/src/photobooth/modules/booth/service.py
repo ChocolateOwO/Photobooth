@@ -1,18 +1,25 @@
-"""Booth use cases: list the active event's frames for participants and plan a chosen frame."""
+"""Booth use cases: the start screen and frames of the active event, and a chosen frame's plan."""
 
 from __future__ import annotations
 
 from typing import Protocol
 
 from photobooth.modules.booth.domain import (
+    DEFAULT_START_TEXT,
     ActiveEvent,
     BoothFrame,
+    EventImage,
+    EventImages,
+    EventOffer,
     FrameDirectory,
     FrameMenu,
     FrameNotOfferedError,
     FramePlan,
+    ImageNotSetError,
     LayoutDirectory,
     NoActiveEventError,
+    StartImageKind,
+    StartScreen,
     layout_label,
 )
 
@@ -33,17 +40,47 @@ class BoothService:
         frames: FrameDirectory,
         layouts: LayoutDirectory,
         previews: PreviewRenderer,
+        images: EventImages,
     ) -> None:
         self._event = event
         self._frames = frames
         self._layouts = layouts
         self._previews = previews
+        self._images = images
 
-    def menu(self) -> FrameMenu:
-        """Every offered frame that still exists and has a known layout, in the admin's order."""
+    def _offer(self) -> EventOffer:
         offer = self._event.offer()
         if offer is None:
             raise NoActiveEventError()
+        return offer
+
+    @staticmethod
+    def _asset_of(offer: EventOffer, kind: StartImageKind) -> str | None:
+        return offer.logo_asset_id if kind == "logo" else offer.background_asset_id
+
+    def _start_screen(self, offer: EventOffer) -> StartScreen:
+        def version(kind: StartImageKind) -> str | None:
+            asset_id = self._asset_of(offer, kind)
+            return None if asset_id is None else self._images.version(asset_id, kind)
+
+        return StartScreen(
+            start_text=offer.start_button_text.strip() or DEFAULT_START_TEXT,
+            logo_version=version("logo"),
+            background_version=version("background"),
+        )
+
+    def start_image(self, kind: StartImageKind) -> EventImage:
+        """The active event's own logo or background; nothing else can be fetched this way."""
+        offer = self._offer()
+        asset_id = self._asset_of(offer, kind)
+        image = None if asset_id is None else self._images.image(asset_id, kind)
+        if image is None:
+            raise ImageNotSetError(kind)
+        return image
+
+    def menu(self) -> FrameMenu:
+        """Every offered frame that still exists and has a known layout, in the admin's order."""
+        offer = self._offer()
         frames: list[BoothFrame] = []
         for frame_id in offer.frame_ids:
             frame = self._frames.describe(frame_id)
@@ -66,6 +103,7 @@ class BoothService:
             frames=tuple(frames),
             allow_surprise_me=offer.allow_surprise_me and len(frames) >= 2,
             theme_tokens=offer.theme_tokens,
+            start_screen=self._start_screen(offer),
         )
 
     def _offered(self, frame_id: str) -> BoothFrame:

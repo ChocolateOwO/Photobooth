@@ -6,7 +6,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from photobooth.modules.booth.domain import BoothFrame, FrameMenu, FramePlan
+from photobooth.modules.booth.domain import BoothFrame, FrameMenu, FramePlan, StartScreen
 
 FrameIdField = Annotated[
     str, Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -53,11 +53,31 @@ class BoothFrameResponse(BaseModel):
         )
 
 
+class StartScreenResponse(BaseModel):
+    """Presentation data of the participant start screen, nothing else."""
+
+    start_button_text: str
+    logo_url: str | None = Field(description="The event logo, or null for the neutral mark")
+    background_url: str | None = Field(description="The event background, or null for none")
+
+    @classmethod
+    def of(cls, screen: StartScreen) -> StartScreenResponse:
+        def url(kind: str, version: str | None) -> str | None:
+            return None if version is None else f"/api/booth/start/{kind}?v={version}"
+
+        return cls(
+            start_button_text=screen.start_text,
+            logo_url=url("logo", screen.logo_version),
+            background_url=url("background", screen.background_version),
+        )
+
+
 class FrameMenuResponse(BaseModel):
     frames: list[BoothFrameResponse] = Field(description="Offered frames in display order")
     layouts: list[str] = Field(description="Layouts with at least one offered frame")
     allow_surprise_me: bool
     theme: dict[str, str] = Field(description="Event theme tokens for the participant screens")
+    start_screen: StartScreenResponse
 
     @classmethod
     def of(cls, menu: FrameMenu) -> FrameMenuResponse:
@@ -66,6 +86,7 @@ class FrameMenuResponse(BaseModel):
             layouts=menu.layouts,
             allow_surprise_me=menu.allow_surprise_me,
             theme=dict(menu.theme_tokens),
+            start_screen=StartScreenResponse.of(menu.start_screen),
         )
 
 
