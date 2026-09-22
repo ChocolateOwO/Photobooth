@@ -352,6 +352,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/booth/frame-choice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose Frame
+         * @description Confirm the participant's frame for the next session (capture starts in a later phase).
+         */
+        post: operations["choose_frame_api_booth_frame_choice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/frames": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Frame Menu */
+        get: operations["frame_menu_api_booth_frames_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/frames/{frame_id}/preview.jpg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Frame Preview */
+        get: operations["frame_preview_api_booth_frames__frame_id__preview_jpg_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/booth/ping": {
         parameters: {
             query?: never;
@@ -531,6 +585,16 @@ export interface components {
          * @enum {string}
          */
         AssetKind: "logo" | "background" | "frame";
+        /** BoothFrameResponse */
+        BoothFrameResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            plan: components["schemas"]["FramePlanResponse"];
+            /** Preview Url */
+            preview_url: string;
+        };
         /** ContrastRuleInfo */
         ContrastRuleInfo: {
             /** Background */
@@ -554,6 +618,11 @@ export interface components {
         };
         /** EventProfileResponse */
         EventProfileResponse: {
+            /**
+             * Available Layouts
+             * @description Layouts participants can choose: those used by an available frame
+             */
+            available_layouts: string[];
             /**
              * Created At
              * Format: date-time
@@ -618,6 +687,64 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** FrameChoiceBody */
+        FrameChoiceBody: {
+            /** Frame Id */
+            frame_id: string;
+        };
+        /** FrameMenuResponse */
+        FrameMenuResponse: {
+            /** Allow Surprise Me */
+            allow_surprise_me: boolean;
+            /**
+             * Frames
+             * @description Offered frames in display order
+             */
+            frames: components["schemas"]["BoothFrameResponse"][];
+            /**
+             * Layouts
+             * @description Layouts with at least one offered frame
+             */
+            layouts: string[];
+            /**
+             * Theme
+             * @description Event theme tokens for the participant screens
+             */
+            theme: {
+                [key: string]: string;
+            };
+        };
+        /** FramePlanResponse */
+        FramePlanResponse: {
+            /**
+             * Captures
+             * @description Photos taken in the session
+             */
+            captures: number;
+            /** Frame Id */
+            frame_id: string;
+            /**
+             * Layout Label
+             * @example 2×6
+             */
+            layout_label: string;
+            /** Output Capture Groups */
+            output_capture_groups: number[][];
+            /**
+             * Output Label
+             * @description e.g. '2 strips'; null for a single output
+             */
+            output_label: string | null;
+            /**
+             * Outputs
+             * @description Prints/strips made from them
+             */
+            outputs: number;
+            /** Photos Per Output */
+            photos_per_output: number;
+            /** Template Key */
+            template_key: string;
+        };
         /**
          * FrameResponse
          * @description A validated frame. The stored file itself is served by `/content`.
@@ -661,6 +788,11 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+            /**
+             * Used By
+             * @description Event Profiles offering this frame to participants
+             */
+            used_by?: string[];
             /** Warnings */
             warnings: string[];
             /** Width */
@@ -772,6 +904,17 @@ export interface components {
          * @description Every field an organizer can set. Unknown fields are refused.
          */
         ProfileSettingsBody: {
+            /**
+             * Allow Surprise Me
+             * @description Offer a random 'Surprise me' choice (needs two frames)
+             * @default false
+             */
+            allow_surprise_me: boolean;
+            /**
+             * Available Frames
+             * @description Frames participants may choose from, in display order (no repeats). Omit when creating a profile to offer every built-in frame.
+             */
+            available_frames?: string[] | null;
             /** Background Asset Id */
             background_asset_id?: string | null;
             /**
@@ -782,12 +925,6 @@ export interface components {
             countdown_seconds: 5;
             /** @default local_link */
             delivery_mode: components["schemas"]["DeliveryMode"];
-            /** Enabled Layouts */
-            enabled_layouts: string[];
-            /** Frame Selections */
-            frame_selections?: {
-                [key: string]: string;
-            };
             /**
              * Inactivity Timeout S
              * @default 120
@@ -828,6 +965,14 @@ export interface components {
          * @description Stored settings; the theme is always present.
          */
         ProfileSettingsResponse: {
+            /**
+             * Allow Surprise Me
+             * @description Offer a random 'Surprise me' choice (needs two frames)
+             * @default false
+             */
+            allow_surprise_me: boolean;
+            /** Available Frames */
+            available_frames: string[];
             /** Background Asset Id */
             background_asset_id?: string | null;
             /**
@@ -838,12 +983,6 @@ export interface components {
             countdown_seconds: 5;
             /** @default local_link */
             delivery_mode: components["schemas"]["DeliveryMode"];
-            /** Enabled Layouts */
-            enabled_layouts: string[];
-            /** Frame Selections */
-            frame_selections?: {
-                [key: string]: string;
-            };
             /**
              * Inactivity Timeout S
              * @default 120
@@ -880,6 +1019,17 @@ export interface components {
         };
         /** ProfileUpdateBody */
         ProfileUpdateBody: {
+            /**
+             * Allow Surprise Me
+             * @description Offer a random 'Surprise me' choice (needs two frames)
+             * @default false
+             */
+            allow_surprise_me: boolean;
+            /**
+             * Available Frames
+             * @description Frames participants may choose from, in display order (no repeats)
+             */
+            available_frames: string[];
             /** Background Asset Id */
             background_asset_id?: string | null;
             /**
@@ -890,12 +1040,6 @@ export interface components {
             countdown_seconds: 5;
             /** @default local_link */
             delivery_mode: components["schemas"]["DeliveryMode"];
-            /** Enabled Layouts */
-            enabled_layouts: string[];
-            /** Frame Selections */
-            frame_selections?: {
-                [key: string]: string;
-            };
             /**
              * Inactivity Timeout S
              * @default 120
@@ -1992,6 +2136,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExtractedTheme"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    choose_frame_api_booth_frame_choice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FrameChoiceBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FramePlanResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    frame_menu_api_booth_frames_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameMenuResponse"];
+                };
+            };
+        };
+    };
+    frame_preview_api_booth_frames__frame_id__preview_jpg_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                frame_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
                 };
             };
             /** @description Validation Error */

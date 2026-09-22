@@ -38,9 +38,10 @@ ProfileId = Annotated[
 ]
 
 
-def _run(action: Callable[[], EventProfile]) -> EventProfileResponse:
+def _run(service: EventProfileService, action: Callable[[], EventProfile]) -> EventProfileResponse:
     try:
-        return EventProfileResponse.of(action())
+        profile = action()
+        return EventProfileResponse.of(profile, service.available_layouts(profile.settings))
     except ProfileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ProfileValidationError as exc:
@@ -58,24 +59,27 @@ def _run(action: Callable[[], EventProfile]) -> EventProfileResponse:
 def list_profiles(
     service: Service, include_deleted: Annotated[bool, Query()] = False
 ) -> list[EventProfileResponse]:
-    return [EventProfileResponse.of(p) for p in service.list_profiles(include_deleted)]
+    return [
+        EventProfileResponse.of(p, service.available_layouts(p.settings))
+        for p in service.list_profiles(include_deleted)
+    ]
 
 
 @router.post("", response_model=EventProfileResponse, status_code=status.HTTP_201_CREATED)
 def create_profile(body: ProfileSettingsBody, service: Service) -> EventProfileResponse:
-    return _run(lambda: service.create(body.to_domain()))
+    return _run(service, lambda: service.create(body.to_domain(service.default_available_frames())))
 
 
 @router.get("/{profile_id}", response_model=EventProfileResponse)
 def get_profile(profile_id: ProfileId, service: Service) -> EventProfileResponse:
-    return _run(lambda: service.get(profile_id))
+    return _run(service, lambda: service.get(profile_id))
 
 
 @router.put("/{profile_id}", response_model=EventProfileResponse)
 def update_profile(
     profile_id: ProfileId, body: ProfileUpdateBody, service: Service
 ) -> EventProfileResponse:
-    return _run(lambda: service.update(profile_id, body.to_domain(), body.revision))
+    return _run(service, lambda: service.update(profile_id, body.to_domain(), body.revision))
 
 
 @router.post(
@@ -87,12 +91,12 @@ def duplicate_profile(
     profile_id: ProfileId, service: Service, body: DuplicateBody | None = None
 ) -> EventProfileResponse:
     name = None if body is None else body.name
-    return _run(lambda: service.duplicate(profile_id, name))
+    return _run(service, lambda: service.duplicate(profile_id, name))
 
 
 @router.post("/{profile_id}/activate", response_model=EventProfileResponse)
 def activate_profile(profile_id: ProfileId, service: Service) -> EventProfileResponse:
-    return _run(lambda: service.activate(profile_id))
+    return _run(service, lambda: service.activate(profile_id))
 
 
 @router.delete("/{profile_id}", response_model=EventProfileResponse)
@@ -100,9 +104,9 @@ def delete_profile(
     profile_id: ProfileId, service: Service, revision: Annotated[int, Query(ge=1)]
 ) -> EventProfileResponse:
     """Soft delete: the row and its assets stay; it can be restored."""
-    return _run(lambda: service.soft_delete(profile_id, revision))
+    return _run(service, lambda: service.soft_delete(profile_id, revision))
 
 
 @router.post("/{profile_id}/restore", response_model=EventProfileResponse)
 def restore_profile(profile_id: ProfileId, service: Service) -> EventProfileResponse:
-    return _run(lambda: service.restore(profile_id))
+    return _run(service, lambda: service.restore(profile_id))

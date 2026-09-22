@@ -1,0 +1,21 @@
+.screen {
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.ready {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px;
+}
+
+.plain {
+  padding: 24px;
+  color: var(--pb-color-text);
+}
+
+.retry {
+  min-height: var(--pb-touch-target);
+}

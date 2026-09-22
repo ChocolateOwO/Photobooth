@@ -27,9 +27,12 @@ class FrameResponse(BaseModel):
     updated_at: datetime
     builtin: bool = Field(description="Packaged with the app; can not be replaced or deleted")
     family: str | None = Field(description="Built-in family id, e.g. midnight; null for uploads")
+    used_by: list[str] = Field(
+        default_factory=list, description="Event Profiles offering this frame to participants"
+    )
 
     @classmethod
-    def of(cls, frame: FrameAsset) -> FrameResponse:
+    def of(cls, frame: FrameAsset, used_by: list[str] | None = None) -> FrameResponse:
         return cls(
             id=frame.id,
             template_key=frame.template_key,
@@ -46,6 +49,7 @@ class FrameResponse(BaseModel):
             updated_at=frame.updated_at,
             builtin=frame.builtin,
             family=frame.family,
+            used_by=list(used_by or []),
         )
 
 

@@ -34,8 +34,10 @@ function rules(css: string): Map<string, string> {
 const RULES = rules(CSS)
 
 describe('event UI stylesheet', () => {
-  it('has no hard-coded colours at all', () => {
+  it('has no hard-coded colours at all (nor does the participant frame gallery)', () => {
     expect(CSS.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
+    const gallery = read('./FrameGallery.module.css').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(gallery.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
   })
 
   it.each([

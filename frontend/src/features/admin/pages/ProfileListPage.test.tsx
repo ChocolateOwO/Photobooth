@@ -87,4 +87,23 @@ describe('ProfileListPage', () => {
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete profile' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('the active profile can not be deleted')
   })
+
+  it('refuses to activate a profile without frames and says so on that row', async () => {
+    const server = signedInServer()
+    const empty = server.seedProfile({ name: 'No frames yet', available_frames: [] })
+    server.seedProfile({ name: 'Ready' })
+    renderAdmin('/admin', { server })
+    await userEvent.click(await screen.findByRole('button', { name: 'Activate No frames yet' }))
+    const row = screen
+      .getAllByTestId('profile-row')
+      .find((r) => within(r).queryByText('No frames yet')) as HTMLElement
+    const error = await within(row).findByTestId('activation-error')
+    expect(error).toHaveTextContent('No frames are available to participants.')
+    expect(within(error).getByRole('link', { name: 'Choose frames for No frames yet' })).toHaveAttribute(
+      'href',
+      `/admin/profiles/${empty.id}`,
+    )
+    expect(within(row).getByText('0 frames for participants')).toBeInTheDocument()
+    expect(server.profiles.get(empty.id)?.is_active).toBe(false)
+  })
 })

@@ -336,15 +336,10 @@ export function createAdminApiClient(
 export type AdminApiClient = ReturnType<typeof createAdminApiClient>
 
 /**
- * A new profile: the default preset theme and, for the first layout, the built-in frame that
- * suits that preset. `layouts` comes from GET /api/templates, `theme` from GET /api/admin/themes.
+ * A new profile: the default preset theme and every built-in frame (in library order). Uploads made
+ * later are never added by themselves. 	heme comes from GET /api/admin/themes.
  */
-export function newProfileSettings(
-  layouts: string[],
-  theme: EventTheme,
-  frameSelections: Record<string, string>,
-): ProfileSettings {
-  const enabled = layouts.slice(0, 1)
+export function newProfileSettings(theme: EventTheme, builtinFrameIds: string[]): ProfileSettings {
   return {
     name: '',
     title: '',
@@ -353,10 +348,8 @@ export function newProfileSettings(
     logo_asset_id: null,
     background_asset_id: null,
     theme,
-    enabled_layouts: enabled,
-    frame_selections: Object.fromEntries(
-      enabled.flatMap((key) => (frameSelections[key] ? [[key, frameSelections[key]]] : [])),
-    ),
+    available_frames: [...builtinFrameIds],
+    allow_surprise_me: false,
     countdown_seconds: 5,
     mirror: true,
     inactivity_timeout_s: 120,

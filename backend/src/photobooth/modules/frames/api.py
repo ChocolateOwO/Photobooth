@@ -66,7 +66,8 @@ def list_frames(service: Service, template_key: TemplateKey | None = None) -> li
         frames = service.list_frames(template_key)
     except FrameValidationError as exc:
         raise _invalid(exc) from exc
-    return [FrameResponse.of(frame) for frame in frames]
+    usage = service.usage()
+    return [FrameResponse.of(frame, usage.get(frame.id)) for frame in frames]
 
 
 @router.post(
@@ -93,7 +94,7 @@ async def upload_frame(request: Request, service: Service, admission: Admission)
 @router.get("/{frame_id}", response_model=FrameResponse)
 def frame_metadata(frame_id: FrameId, service: Service) -> FrameResponse:
     try:
-        return FrameResponse.of(service.get(frame_id))
+        return FrameResponse.of(service.get(frame_id), service.usage().get(frame_id))
     except FrameNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

@@ -10,6 +10,33 @@
         "title": "AssetKind",
         "type": "string"
       },
+      "BoothFrameResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/FramePlanResponse"
+          },
+          "preview_url": {
+            "title": "Preview Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "preview_url",
+          "plan"
+        ],
+        "title": "BoothFrameResponse",
+        "type": "object"
+      },
       "ContrastRuleInfo": {
         "properties": {
           "background": {
@@ -67,6 +94,15 @@
       },
       "EventProfileResponse": {
         "properties": {
+          "available_layouts": {
+            "description": "Layouts participants can choose: those used by an available frame",
+            "items": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "type": "string"
+            },
+            "title": "Available Layouts",
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -112,7 +148,8 @@
           "revision",
           "created_at",
           "updated_at",
-          "deleted_at"
+          "deleted_at",
+          "available_layouts"
         ],
         "title": "EventProfileResponse",
         "type": "object"
@@ -233,6 +270,128 @@
         "title": "ExtractedTheme",
         "type": "object"
       },
+      "FrameChoiceBody": {
+        "additionalProperties": false,
+        "properties": {
+          "frame_id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Frame Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "frame_id"
+        ],
+        "title": "FrameChoiceBody",
+        "type": "object"
+      },
+      "FrameMenuResponse": {
+        "properties": {
+          "allow_surprise_me": {
+            "title": "Allow Surprise Me",
+            "type": "boolean"
+          },
+          "frames": {
+            "description": "Offered frames in display order",
+            "items": {
+              "$ref": "#/components/schemas/BoothFrameResponse"
+            },
+            "title": "Frames",
+            "type": "array"
+          },
+          "layouts": {
+            "description": "Layouts with at least one offered frame",
+            "items": {
+              "type": "string"
+            },
+            "title": "Layouts",
+            "type": "array"
+          },
+          "theme": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Event theme tokens for the participant screens",
+            "title": "Theme",
+            "type": "object"
+          }
+        },
+        "required": [
+          "frames",
+          "layouts",
+          "allow_surprise_me",
+          "theme"
+        ],
+        "title": "FrameMenuResponse",
+        "type": "object"
+      },
+      "FramePlanResponse": {
+        "properties": {
+          "captures": {
+            "description": "Photos taken in the session",
+            "title": "Captures",
+            "type": "integer"
+          },
+          "frame_id": {
+            "title": "Frame Id",
+            "type": "string"
+          },
+          "layout_label": {
+            "examples": [
+              "2×6"
+            ],
+            "title": "Layout Label",
+            "type": "string"
+          },
+          "output_capture_groups": {
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Output Capture Groups",
+            "type": "array"
+          },
+          "output_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "e.g. '2 strips'; null for a single output",
+            "title": "Output Label"
+          },
+          "outputs": {
+            "description": "Prints/strips made from them",
+            "title": "Outputs",
+            "type": "integer"
+          },
+          "photos_per_output": {
+            "title": "Photos Per Output",
+            "type": "integer"
+          },
+          "template_key": {
+            "title": "Template Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "frame_id",
+          "template_key",
+          "layout_label",
+          "captures",
+          "outputs",
+          "photos_per_output",
+          "output_capture_groups",
+          "output_label"
+        ],
+        "title": "FramePlanResponse",
+        "type": "object"
+      },
       "FrameResponse": {
         "description": "A validated frame. The stored file itself is served by `/content`.",
         "properties": {
@@ -301,6 +460,14 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "used_by": {
+            "description": "Event Profiles offering this frame to participants",
+            "items": {
+              "type": "string"
+            },
+            "title": "Used By",
+            "type": "array"
           },
           "warnings": {
             "items": {
@@ -572,6 +739,29 @@
         "additionalProperties": false,
         "description": "Every field an organizer can set. Unknown fields are refused.",
         "properties": {
+          "allow_surprise_me": {
+            "default": false,
+            "description": "Offer a random 'Surprise me' choice (needs two frames)",
+            "title": "Allow Surprise Me",
+            "type": "boolean"
+          },
+          "available_frames": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "maxItems": 200,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Frames participants may choose from, in display order (no repeats). Omit when creating a profile to offer every built-in frame.",
+            "title": "Available Frames"
+          },
           "background_asset_id": {
             "anyOf": [
               {
@@ -593,27 +783,6 @@
           "delivery_mode": {
             "$ref": "#/components/schemas/DeliveryMode",
             "default": "local_link"
-          },
-          "enabled_layouts": {
-            "items": {
-              "pattern": "^[a-z0-9_]{1,64}$",
-              "type": "string"
-            },
-            "maxItems": 16,
-            "minItems": 1,
-            "title": "Enabled Layouts",
-            "type": "array"
-          },
-          "frame_selections": {
-            "maxProperties": 16,
-            "patternProperties": {
-              "^[a-z0-9_]{1,64}$": {
-                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-                "type": "string"
-              }
-            },
-            "title": "Frame Selections",
-            "type": "object"
           },
           "inactivity_timeout_s": {
             "default": 120,
@@ -684,8 +853,7 @@
         },
         "required": [
           "name",
-          "title",
-          "enabled_layouts"
+          "title"
         ],
         "title": "ProfileSettingsBody",
         "type": "object"
@@ -694,6 +862,20 @@
         "additionalProperties": false,
         "description": "Stored settings; the theme is always present.",
         "properties": {
+          "allow_surprise_me": {
+            "default": false,
+            "description": "Offer a random 'Surprise me' choice (needs two frames)",
+            "title": "Allow Surprise Me",
+            "type": "boolean"
+          },
+          "available_frames": {
+            "items": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "title": "Available Frames",
+            "type": "array"
+          },
           "background_asset_id": {
             "anyOf": [
               {
@@ -715,27 +897,6 @@
           "delivery_mode": {
             "$ref": "#/components/schemas/DeliveryMode",
             "default": "local_link"
-          },
-          "enabled_layouts": {
-            "items": {
-              "pattern": "^[a-z0-9_]{1,64}$",
-              "type": "string"
-            },
-            "maxItems": 16,
-            "minItems": 1,
-            "title": "Enabled Layouts",
-            "type": "array"
-          },
-          "frame_selections": {
-            "maxProperties": 16,
-            "patternProperties": {
-              "^[a-z0-9_]{1,64}$": {
-                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-                "type": "string"
-              }
-            },
-            "title": "Frame Selections",
-            "type": "object"
           },
           "inactivity_timeout_s": {
             "default": 120,
@@ -800,7 +961,7 @@
           "name",
           "title",
           "theme",
-          "enabled_layouts"
+          "available_frames"
         ],
         "title": "ProfileSettingsResponse",
         "type": "object"
@@ -808,6 +969,22 @@
       "ProfileUpdateBody": {
         "additionalProperties": false,
         "properties": {
+          "allow_surprise_me": {
+            "default": false,
+            "description": "Offer a random 'Surprise me' choice (needs two frames)",
+            "title": "Allow Surprise Me",
+            "type": "boolean"
+          },
+          "available_frames": {
+            "description": "Frames participants may choose from, in display order (no repeats)",
+            "items": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Available Frames",
+            "type": "array"
+          },
           "background_asset_id": {
             "anyOf": [
               {
@@ -829,27 +1006,6 @@
           "delivery_mode": {
             "$ref": "#/components/schemas/DeliveryMode",
             "default": "local_link"
-          },
-          "enabled_layouts": {
-            "items": {
-              "pattern": "^[a-z0-9_]{1,64}$",
-              "type": "string"
-            },
-            "maxItems": 16,
-            "minItems": 1,
-            "title": "Enabled Layouts",
-            "type": "array"
-          },
-          "frame_selections": {
-            "maxProperties": 16,
-            "patternProperties": {
-              "^[a-z0-9_]{1,64}$": {
-                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-                "type": "string"
-              }
-            },
-            "title": "Frame Selections",
-            "type": "object"
           },
           "inactivity_timeout_s": {
             "default": 120,
@@ -927,7 +1083,7 @@
         "required": [
           "name",
           "title",
-          "enabled_layouts",
+          "available_frames",
           "revision"
         ],
         "title": "ProfileUpdateBody",
@@ -2650,6 +2806,108 @@
         "summary": "Extract Theme",
         "tags": [
           "admin-themes"
+        ]
+      }
+    },
+    "/api/booth/frame-choice": {
+      "post": {
+        "description": "Confirm the participant's frame for the next session (capture starts in a later phase).",
+        "operationId": "choose_frame_api_booth_frame_choice_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FrameChoiceBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FramePlanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Choose Frame",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/frames": {
+      "get": {
+        "operationId": "frame_menu_api_booth_frames_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameMenuResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Frame Menu",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/frames/{frame_id}/preview.jpg": {
+      "get": {
+        "operationId": "frame_preview_api_booth_frames__frame_id__preview_jpg_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "frame_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Frame Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Frame Preview",
+        "tags": [
+          "booth"
         ]
       }
     },

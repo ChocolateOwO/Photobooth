@@ -28,9 +28,11 @@ class TemplateLookup(Protocol):
 
 
 class FrameUsage(Protocol):
-    """Which Event Profiles select a frame (implemented by the event_profiles module)."""
+    """Which Event Profiles offer a frame (implemented by the event_profiles module)."""
 
     def names_using_frame(self, frame_id: str) -> list[str]: ...
+
+    def usage_by_frame(self) -> dict[str, list[str]]: ...
 
 
 class _AssetUsage:
@@ -163,6 +165,14 @@ class FrameService:
     def _discard(self, asset_id: str) -> None:
         """Delete the stored file when no frame and no Event Profile point at it any more."""
         self._assets.discard_if_unused(asset_id, self._asset_usage)
+
+    def usage(self) -> dict[str, list[str]]:
+        """frame id -> Event Profiles offering it (shown on the Frames page)."""
+        return self._usage.usage_by_frame()
+
+    def builtin_frame_ids(self) -> list[str]:
+        """Port for the event_profiles module: every built-in frame in library order."""
+        return [frame.id for frame in self._repository.list_frames() if frame.builtin]
 
     def frame_template(self, frame_id: str) -> str | None:
         """Port for the event_profiles module: the layout a frame belongs to, or None."""

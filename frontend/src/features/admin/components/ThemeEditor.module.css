@@ -332,3 +332,111 @@
   margin: 0;
   color: var(--pb-color-muted);
 }
+
+/* Compact Quick Theme tiles */
+.presetTile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--pb-radius);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  background-color: var(--pb-color-bg);
+  min-width: 0;
+}
+
+.presetTile[data-selected] {
+  border-color: var(--pb-color-primary);
+  box-shadow: 0 0 0 2px var(--pb-color-primary);
+}
+
+.presetMain {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  min-height: 64px;
+}
+
+.presetMain:focus-within {
+  outline: 3px solid var(--pb-color-primary);
+  outline-offset: 2px;
+}
+
+.bigSwatches {
+  display: flex;
+  gap: 6px;
+}
+
+.bigSwatch {
+  flex: 1 1 0;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.selectedMark {
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background-color: var(--pb-color-primary);
+  color: var(--pb-color-text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.detailsButton {
+  min-height: 44px;
+  align-self: flex-start;
+}
+
+.detailsBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+.detailsDialog {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--pb-radius);
+  background-color: var(--pb-color-surface);
+  box-sizing: border-box;
+}
+
+.detailsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tokenTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  color: var(--pb-color-text);
+}
+
+.tokenTable th {
+  text-align: left;
+  font-weight: 500;
+  padding: 3px 8px 3px 0;
+}
+
+.tokenTable td {
+  padding: 3px 0;
+  white-space: nowrap;
+}

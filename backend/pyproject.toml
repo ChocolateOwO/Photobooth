@@ -55,7 +55,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "N", "SIM", "RUF"]
 ignore = ["S101", "S603", "S607"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S104", "S105", "S106", "S108", "S311"]
+"tests/**" = ["S104", "S105", "S106", "S108", "S311", "RUF001"]  # RUF001: "2×6" labels
 "../scripts/tests/**" = ["S105", "S106", "S108"]
 
 [tool.ruff.lint.isort]
@@ -100,6 +100,7 @@ containers = [
     "photobooth.modules.event_profiles",
     "photobooth.modules.frames",
     "photobooth.modules.themes",
+    "photobooth.modules.booth",
 ]
 layers = ["api", "service", "domain"]
 exhaustive = false
@@ -124,6 +125,8 @@ source_modules = [
     "photobooth.modules.frames.service",
     "photobooth.modules.themes.api",
     "photobooth.modules.themes.service",
+    "photobooth.modules.booth.api",
+    "photobooth.modules.booth.service",
     "photobooth.modules.rendering.service",
 ]
 forbidden_modules = [
@@ -162,6 +165,7 @@ source_modules = [
     "photobooth.modules.event_profiles.domain",
     "photobooth.modules.frames.domain",
     "photobooth.modules.themes.domain",
+    "photobooth.modules.booth.domain",
 ]
 forbidden_modules = [
     "fastapi",
@@ -262,4 +266,21 @@ forbidden_modules = [
     "photobooth.modules.themes.service",
     "photobooth.modules.themes.extractor",
     "photobooth.modules.themes.schemas",
+]
+
+[[tool.importlinter.contracts]]
+name = "The participant booth module talks to other modules only through ports"
+type = "forbidden"
+source_modules = ["photobooth.modules.booth"]
+forbidden_modules = [
+    "photobooth.modules.system",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.templates",
+    "photobooth.modules.rendering",
+    "photobooth.modules.assets",
+    "photobooth.modules.auth",
+    "photobooth.modules.event_profiles",
+    "photobooth.modules.frames",
+    "photobooth.modules.storage",
+    "photobooth.modules.themes",
 ]

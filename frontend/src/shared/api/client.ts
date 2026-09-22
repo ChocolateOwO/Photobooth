@@ -5,6 +5,9 @@ export type HealthResponse = components['schemas']['HealthResponse']
 export type VersionResponse = components['schemas']['VersionResponse']
 export type KioskStatusResponse = components['schemas']['KioskStatusResponse']
 export type PingResponse = components['schemas']['PingResponse']
+export type FrameMenu = components['schemas']['FrameMenuResponse']
+export type BoothFrame = components['schemas']['BoothFrameResponse']
+export type FramePlan = components['schemas']['FramePlanResponse']
 
 export class ApiError extends Error {
   readonly status: number
@@ -70,6 +73,11 @@ export function createApiClient(
     kioskStatus: () => getJson<KioskStatusResponse>('/api/kiosk/status'),
     hasDeviceKey: () => deviceKeys.get() !== null,
     boothPing: () => postJson<PingResponse>('/api/booth/ping'),
+    /** Frames the active event offers to participants, in display order (404: no active event). */
+    frameMenu: () => getJson<FrameMenu>('/api/booth/frames'),
+    /** Confirm the participant's frame; returns its capture/output plan for the session. */
+    chooseFrame: (frameId: string) =>
+      postJson<FramePlan>('/api/booth/frame-choice', { frame_id: frameId }),
   }
 }
 

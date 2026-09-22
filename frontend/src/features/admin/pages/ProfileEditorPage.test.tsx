@@ -27,7 +27,6 @@ describe('ProfileEditorPage', () => {
     await userEvent.clear(screen.getByLabelText('Start button text'))
     await userEvent.type(screen.getByLabelText('Start button text'), 'Go')
     await userEvent.click(screen.getByRole('radio', { name: /^Blush Wedding/ }))
-    await userEvent.click(screen.getByRole('checkbox', { name: '4x6 print' }))
     await userEvent.click(screen.getByRole('checkbox', { name: 'Mirror the camera preview' }))
     await userEvent.clear(screen.getByLabelText('Inactivity timeout (seconds)'))
     await userEvent.type(screen.getByLabelText('Inactivity timeout (seconds)'), '300')
@@ -55,12 +54,9 @@ describe('ProfileEditorPage', () => {
       subtitle: 'Tap start when ready',
       start_button_text: 'Go',
       theme: { source: 'preset', preset: 'blush_wedding' },
-      enabled_layouts: ['strip_2x6', 'print_4x6'],
-      // New layouts get the built-in frame of the family already in use (the default: Midnight).
-      frame_selections: {
-        strip_2x6: server.builtin('midnight', 'strip_2x6').id,
-        print_4x6: server.builtin('midnight', 'print_4x6').id,
-      },
+      // A new profile offers every built-in frame; participants choose at the booth.
+      available_frames: server.builtinIds(),
+      allow_surprise_me: false,
       mirror: false,
       inactivity_timeout_s: 300,
       retake_mode: 'all',
@@ -80,15 +76,14 @@ describe('ProfileEditorPage', () => {
     expect(within(screen.getByTestId('event-preview-phone')).getByText('Hi')).toBeInTheDocument()
   })
 
-  it('blocks saving without required fields or layouts', async () => {
+  it('blocks saving without required fields', async () => {
     const server = signedInServer()
     renderAdmin('/admin/profiles/new', { server })
-    await userEvent.click(await screen.findByRole('checkbox', { name: '2x6 photo strip' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Save profile' }))
     const alerts = await screen.findAllByRole('alert')
     const text = alerts.map((a) => a.textContent).join(' ')
     expect(text).toContain('Profile name is required.')
-    expect(text).toContain('Choose at least one layout.')
+    expect(text).toContain('Title is required.')
     expect(server.requests.some((r) => r.method === 'POST' && r.path === '/api/admin/profiles')).toBe(false)
   })
 
@@ -195,167 +190,5 @@ describe('ProfileEditorPage', () => {
     await userEvent.type(screen.getByLabelText('Title'), 'Hello')
     await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('another live profile already uses this name')
-  })
-})
-
-describe('frame selection per layout', () => {
-  it('starts with built-in frames, can switch to uploaded ones and warns without a frame', async () => {
-    const server = signedInServer()
-    const strip = server.seedFrame('strip_2x6', 'Strip gold')
-    const print = server.seedFrame('print_4x6', 'Print silver')
-    renderAdmin('/admin/profiles/new', { server })
-
-    await userEvent.type(await screen.findByLabelText('Profile name'), 'Expo')
-    await userEvent.type(screen.getByLabelText('Title'), 'Welcome')
-    // A new profile enables the first layout with the default built-in frame.
-    const stripSelect = screen.getByLabelText('Frame for 2x6 photo strip')
-    expect(stripSelect).toHaveValue(server.builtin('midnight', 'strip_2x6').id)
-    expect(within(stripSelect).getByRole('option', { name: 'Midnight (Built-in)' })).toBeInTheDocument()
-    expect(within(stripSelect).getByRole('group', { name: 'Built-in' })).toBeInTheDocument()
-    expect(within(stripSelect).getByRole('group', { name: 'Your frames' })).toBeInTheDocument()
-    expect(screen.queryAllByTestId('missing-frame-warning')).toHaveLength(0)
-    await userEvent.click(screen.getByRole('checkbox', { name: '4x6 print' }))
-    expect(screen.getByLabelText('Frame for 4x6 print')).toHaveValue(
-      server.builtin('midnight', 'print_4x6').id,
-    )
-
-    // Switching away from a frame is allowed; the missing frame is then clearly marked.
-    await userEvent.selectOptions(screen.getByLabelText('Frame for 4x6 print'), '')
-    expect(await screen.findByTestId('missing-frame-warning')).toHaveTextContent(
-      'No frame selected for 4x6 print. Photos will print without a frame.',
-    )
-    await userEvent.selectOptions(screen.getByLabelText('Frame for 2x6 photo strip'), strip.id)
-    await userEvent.selectOptions(screen.getByLabelText('Frame for 4x6 print'), print.id)
-    expect(screen.queryAllByTestId('missing-frame-warning')).toHaveLength(0)
-    expect(screen.getByRole('img', { name: '2x6 photo strip frame preview' })).toHaveAttribute(
-      'src',
-      `/api/admin/frames/${strip.id}/preview/1.jpg?v=${strip.sha256}`,
-    )
-    // ...and back to a built-in one.
-    await userEvent.selectOptions(
-      screen.getByLabelText('Frame for 2x6 photo strip'),
-      server.builtin('celebration_gold', 'strip_2x6').id,
-    )
-    expect(
-      screen.getByText('Built-in frame. Upload your own under Frames to use a different design.'),
-    ).toBeInTheDocument()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
-    await waitFor(() => expect(server.profiles.size).toBe(1))
-    expect([...server.profiles.values()][0]?.settings.frame_selections).toEqual({
-      strip_2x6: server.builtin('celebration_gold', 'strip_2x6').id,
-      print_4x6: print.id,
-    })
-  })
-
-  it('drops the frame when its layout is switched off', async () => {
-    const server = signedInServer()
-    const strip = server.seedFrame('strip_2x6', 'Strip gold')
-    server.seedFrame('print_4x6', 'Print silver')
-    const profile = server.seedProfile({
-      name: 'Expo',
-      enabled_layouts: ['strip_2x6', 'print_4x6'],
-      frame_selections: { strip_2x6: strip.id },
-    })
-    renderAdmin(`/admin/profiles/${profile.id}`, { server })
-
-    await waitFor(() =>
-      expect(screen.getByLabelText('Frame for 2x6 photo strip')).toHaveValue(strip.id),
-    )
-    await userEvent.click(screen.getByRole('checkbox', { name: '2x6 photo strip' }))
-    expect(screen.queryByLabelText('Frame for 2x6 photo strip')).toBeNull()
-    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved'))
-    expect(server.profiles.get(profile.id)?.settings.frame_selections).toEqual({})
-    expect(server.profiles.get(profile.id)?.settings.enabled_layouts).toEqual(['print_4x6'])
-  })
-
-  it('keeps a saved frame selected and locked while the frame list is loading (P5-005)', async () => {
-    const server = signedInServer()
-    const strip = server.seedFrame('strip_2x6', 'Strip gold')
-    const profile = server.seedProfile({
-      name: 'Expo',
-      enabled_layouts: ['strip_2x6'],
-      frame_selections: { strip_2x6: strip.id },
-    })
-    let release = () => {}
-    server.frameListGate = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    renderAdmin(`/admin/profiles/${profile.id}`, { server })
-
-    const select = await screen.findByLabelText('Frame for 2x6 photo strip')
-    expect(select).toHaveValue(strip.id)
-    expect(select).toBeDisabled()
-    expect(screen.getByText('Loading frames…')).toBeInTheDocument()
-    // Not loaded yet is not the same as "no frame selected" or "no frames uploaded".
-    expect(screen.queryByTestId('missing-frame-warning')).toBeNull()
-    expect(screen.queryByText('Upload a frame for this layout first.')).toBeNull()
-
-    release()
-    await waitFor(() => expect(screen.getByLabelText('Frame for 2x6 photo strip')).toBeEnabled())
-    expect(screen.getByLabelText('Frame for 2x6 photo strip')).toHaveValue(strip.id)
-    expect(screen.getByRole('option', { name: 'Strip gold' })).toBeInTheDocument()
-  })
-
-  it('offers a retry when the frame list fails and saving keeps the stored frame (P5-005)', async () => {
-    const server = signedInServer()
-    const strip = server.seedFrame('strip_2x6', 'Strip gold')
-    const profile = server.seedProfile({
-      name: 'Expo',
-      enabled_layouts: ['strip_2x6'],
-      frame_selections: { strip_2x6: strip.id },
-    })
-    server.frameListFailures = 1
-    renderAdmin(`/admin/profiles/${profile.id}`, { server })
-
-    const alert = await screen.findByText(/The frames could not be loaded/)
-    expect(screen.getByLabelText('Frame for 2x6 photo strip')).toHaveValue(strip.id)
-    expect(screen.getByLabelText('Frame for 2x6 photo strip')).toBeDisabled()
-    expect(screen.queryByTestId('missing-frame-warning')).toBeNull()
-
-    await userEvent.type(screen.getByLabelText('Title'), '!')
-    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
-    await waitFor(() => expect(server.profiles.get(profile.id)?.revision).toBe(2))
-    expect(server.profiles.get(profile.id)?.settings.frame_selections).toEqual({
-      strip_2x6: strip.id,
-    })
-
-    await userEvent.click(
-      within(alert.closest('[role="alert"]') as HTMLElement).getByRole('button', {
-        name: 'Try again',
-      }),
-    )
-    await waitFor(() => expect(screen.getByLabelText('Frame for 2x6 photo strip')).toBeEnabled())
-    expect(screen.queryByText(/The frames could not be loaded/)).toBeNull()
-  })
-
-  it('points to the frame manager when a layout has no frames at all', async () => {
-    const server = new FakeAdminServer({ builtins: false })
-    server.signedIn = true
-    renderAdmin('/admin/profiles/new', { server })
-    expect(await screen.findByText('Upload a frame for this layout first.')).toBeInTheDocument()
-    const links = screen.getAllByRole('link', { name: 'Frames' })
-    expect(links[0]).toHaveAttribute('href', '/admin/frames')
-  })
-
-  it('reports the server reason when a frame does not fit the layout', async () => {
-    const server = signedInServer()
-    const strip = server.seedFrame('strip_2x6', 'Strip gold')
-    const profile = server.seedProfile({
-      name: 'Expo',
-      enabled_layouts: ['strip_2x6'],
-      frame_selections: { strip_2x6: strip.id },
-    })
-    // Another admin moved this frame to a different layout meanwhile.
-    server.frames.set(strip.id, { ...strip, template_key: 'print_3x4' })
-    renderAdmin(`/admin/profiles/${profile.id}`, { server })
-    await waitFor(() => expect(screen.getByLabelText('Profile name')).toHaveValue('Expo'))
-    await userEvent.type(screen.getByLabelText('Title'), '!')
-    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'that frame does not belong to strip_2x6',
-    )
-    expect(server.profiles.get(profile.id)?.revision).toBe(1)
   })
 })

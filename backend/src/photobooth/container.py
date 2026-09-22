@@ -34,12 +34,22 @@ from photobooth.modules.auth.hasher import Argon2PasswordHasher
 from photobooth.modules.auth.repository import SqlAdminUserRepository
 from photobooth.modules.auth.service import AuthService
 from photobooth.modules.auth.sessions import InMemoryAdminSessionStore
+from photobooth.modules.booth.domain import (
+    EventOffer,
+    LayoutFacts,
+    OfferedFrame,
+    PreviewBusyError,
+    PreviewFailedError,
+)
+from photobooth.modules.booth.service import BoothService
 from photobooth.modules.event_profiles.repository import SqlEventProfileRepository
 from photobooth.modules.event_profiles.service import EventProfileService
+from photobooth.modules.frames.domain import FrameError
 from photobooth.modules.frames.repository import SqlFrameRepository
 from photobooth.modules.frames.service import FrameService
 from photobooth.modules.frames.validator import PillowFrameValidator
 from photobooth.modules.kiosk.service import KioskPairingService
+from photobooth.modules.rendering.domain import RenderBusyError, RenderError
 from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
 from photobooth.modules.rendering.service import RenderService
@@ -47,6 +57,7 @@ from photobooth.modules.storage.local import LocalStorageProvider
 from photobooth.modules.system.domain import AppMetaRepository
 from photobooth.modules.system.repository import SqlAppMetaRepository
 from photobooth.modules.system.service import SystemIdentity, SystemService
+from photobooth.modules.templates.domain import TemplateNotFoundError
 from photobooth.modules.templates.imaging import PillowTemplateArtist
 from photobooth.modules.templates.repository import JsonTemplateRepository
 from photobooth.modules.templates.service import TemplateSpecService
@@ -63,6 +74,9 @@ class _FrameUsage:
 
     def names_using_frame(self, frame_id: str) -> list[str]:
         return self._profiles.names_using_frame(frame_id)
+
+    def usage_by_frame(self) -> dict[str, list[str]]:
+        return self._profiles.usage_by_frame()
 
 
 class _BackgroundImages:
@@ -81,6 +95,83 @@ class _BackgroundImages:
                 "That background image does not exist. Upload it again."
             ) from exc
         return data
+
+
+class _BoothEvent:
+    """Adapter: the active Event Profile's participant-facing choices."""
+
+    def __init__(self, profiles: EventProfileService) -> None:
+        self._profiles = profiles
+
+    def offer(self) -> EventOffer | None:
+        active = self._profiles.get_active()
+        if active is None:
+            return None
+        settings = active.settings
+        return EventOffer(
+            frame_ids=settings.available_frames,
+            allow_surprise_me=settings.allow_surprise_me,
+            theme_tokens=dict(settings.theme.tokens),
+        )
+
+
+class _BoothFrames:
+    """Adapter: name, layout and version of a frame (nothing about files or its origin)."""
+
+    def __init__(self, frames: FrameService) -> None:
+        self._frames = frames
+
+    def describe(self, frame_id: str) -> OfferedFrame | None:
+        try:
+            frame = self._frames.get(frame_id)
+        except FrameError:
+            return None
+        return OfferedFrame(
+            frame_id=frame.id,
+            name=frame.name,
+            template_key=frame.template_key,
+            template_version=frame.template_version,
+            sha256=frame.sha256,
+        )
+
+
+class _BoothLayouts:
+    def __init__(self, templates: TemplateSpecService) -> None:
+        self._templates = templates
+
+    def facts(self, template_key: str, version: int) -> LayoutFacts | None:
+        try:
+            template = self._templates.get(template_key, version)
+        except TemplateNotFoundError:
+            return None
+        return LayoutFacts(
+            width_in=template.width_in,
+            height_in=template.height_in,
+            captures=template.captures_per_session,
+            outputs=template.outputs_per_session,
+            photos_per_output=template.photos_per_output,
+            output_capture_groups=template.output_capture_groups,
+        )
+
+
+class _BoothPreviews:
+    """Adapter: the frame's sample output on the shared render queue."""
+
+    def __init__(self, frames: FrameService, renderer: RenderService) -> None:
+        self._frames = frames
+        self._renderer = renderer
+
+    def sample_output(self, frame_id: str) -> bytes:
+        try:
+            frame, data = self._frames.content(frame_id)
+            future = self._renderer.render_frame_preview(
+                frame.template_key, 1, data, frame.template_version
+            )
+            return future.result().data
+        except RenderBusyError as exc:
+            raise PreviewBusyError(str(exc)) from exc
+        except (RenderError, FrameError, TemplateNotFoundError) as exc:
+            raise PreviewFailedError("the sample could not be made") from exc
 
 
 class Container:
@@ -169,6 +260,13 @@ class Container:
         self.registry.register(EventProfileService, self.profile_service)
         self.registry.register(FrameService, self.frame_service)
         self.registry.register(ThemeService, self.theme_service)
+        self.booth_service = BoothService(
+            _BoothEvent(self.profile_service),
+            _BoothFrames(self.frame_service),
+            _BoothLayouts(self.template_service),
+            _BoothPreviews(self.frame_service, self.render_service),
+        )
+        self.registry.register(BoothService, self.booth_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))
         self.registry.register(
             AdminCookieSettings, AdminCookieSettings(f"pb_admin_{settings.instance}")

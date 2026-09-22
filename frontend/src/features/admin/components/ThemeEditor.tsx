@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import {
   presetTheme,
@@ -43,7 +43,6 @@ interface ThemeEditorProps {
   disabled: boolean
 }
 
-const SWATCH_TOKENS = ['background', 'surface', 'heading', 'primary_bg', 'secondary_bg'] as const
 
 function Swatches({ colours, label }: { colours: string[]; label: string }) {
   return (
@@ -58,56 +57,123 @@ function Swatches({ colours, label }: { colours: string[]; label: string }) {
   )
 }
 
-function PresetCard({
+/** The two or three colours that tell presets apart at a glance. */
+const TILE_TOKENS = ['background', 'primary_bg', 'secondary_bg'] as const
+
+function PresetTile({
   preset,
   checked,
   onSelect,
+  onDetails,
   disabled,
   inputRef,
 }: {
   preset: ThemePreset
   checked: boolean
   onSelect: () => void
+  onDetails: (opener: HTMLButtonElement) => void
   disabled: boolean
   inputRef?: React.Ref<HTMLInputElement>
 }) {
   return (
-    <label className={styles.presetCard} data-selected={checked ? '' : undefined}>
-      <input
-        ref={inputRef}
-        type="radio"
-        name="theme-preset"
-        value={preset.id}
-        checked={checked}
-        onChange={onSelect}
-        disabled={disabled}
-        className={styles.presetRadio}
-        aria-describedby={`preset-desc-${preset.id}`}
-      />
-      <span className={styles.presetName}>{preset.name}</span>
-      <span id={`preset-desc-${preset.id}`} className={styles.presetDescription}>
-        {preset.description}
-      </span>
-      <Swatches
-        colours={SWATCH_TOKENS.map((key) => preset.tokens[key] ?? '#000000')}
-        label={`${preset.name} colours`}
-      />
-      <EventScreen tokens={preset.tokens} className={styles.presetSample}>
-        <span className={styles.presetSampleHeading}>Aa</span>
-        <span className={styles.presetSampleText}>Welcome</span>
-        <span className={styles.presetSampleButtons} aria-hidden="true">
-          <EventButton variant="primary" tabIndex={-1}>
-            Start
-          </EventButton>
-          <EventButton variant="secondary" tabIndex={-1}>
-            Back
-          </EventButton>
+    <div className={styles.presetTile} data-selected={checked ? '' : undefined}>
+      <label className={styles.presetMain}>
+        <input
+          ref={inputRef}
+          type="radio"
+          name="theme-preset"
+          value={preset.id}
+          checked={checked}
+          onChange={onSelect}
+          disabled={disabled}
+          className={styles.presetRadio}
+        />
+        <span className={styles.presetName}>{preset.name}</span>
+        <span className={styles.bigSwatches} aria-hidden="true">
+          {TILE_TOKENS.map((key) => (
+            <span
+              key={key}
+              className={styles.bigSwatch}
+              style={{ backgroundColor: preset.tokens[key] ?? '#000000' }}
+            />
+          ))}
         </span>
-      </EventScreen>
-    </label>
+        {checked && <span className={styles.selectedMark}>Selected</span>}
+      </label>
+      <button
+        type="button"
+        className={styles.detailsButton}
+        onClick={(e) => onDetails(e.currentTarget)}
+        aria-label={`View details of ${preset.name}`}
+      >
+        View details
+      </button>
+    </div>
   )
 }
 
+function PresetDetails({
+  preset,
+  catalog,
+  checked,
+  onApply,
+  onClose,
+}: {
+  preset: ThemePreset
+  catalog: ThemeCatalog
+  checked: boolean
+  onApply: () => void
+  onClose: () => void
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => closeRef.current?.focus({ preventScroll: true }), [])
+  return (
+    <div className={styles.detailsBackdrop} onClick={onClose}>
+      <div
+        className={styles.detailsDialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="preset-details-title"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose()
+        }}
+      >
+        <div className={styles.detailsHeader}>
+          <h3 id="preset-details-title" className={styles.subHeading}>
+            {preset.name}
+          </h3>
+          <button ref={closeRef} type="button" onClick={onClose} className={styles.actionButton}>
+            Close
+          </button>
+        </div>
+        <p className={styles.helper}>{preset.description}</p>
+        <LiveExamples tokens={preset.tokens} />
+        <table className={styles.tokenTable}>
+          <caption className={styles.helper}>All {catalog.tokens.length} colours</caption>
+          <tbody>
+            {catalog.tokens.map((token) => (
+              <tr key={token.key}>
+                <th scope="row">{token.label}</th>
+                <td>
+                  <span
+                    className={styles.swatch}
+                    style={{ backgroundColor: preset.tokens[token.key] ?? '#000000' }}
+                    aria-hidden="true"
+                  />{' '}
+                  <span className={styles.swatchHex}>{preset.tokens[token.key]}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <button type="button" onClick={onApply} disabled={checked} className={styles.actionButton}>
+          {checked ? 'This theme is selected' : `Use ${preset.name}`}
+        </button>
+      </div>
+    </div>
+  )
+}
 function ColourField({
   tokenKey,
   label,
@@ -224,6 +290,21 @@ export function ThemeEditor({
 }: ThemeEditorProps) {
   const firstPresetRef = useRef<HTMLInputElement>(null)
   const warningsId = useId()
+  // One details view at a time; closing it returns focus and the page to where they were.
+  const [detailsFor, setDetailsFor] = useState<string | null>(null)
+  const openerRef = useRef<HTMLButtonElement | null>(null)
+  const scrollRef = useRef(0)
+  const openDetails = (presetId: string, opener: HTMLButtonElement) => {
+    openerRef.current = opener
+    scrollRef.current = window.scrollY
+    setDetailsFor(presetId)
+  }
+  const closeDetails = () => {
+    setDetailsFor(null)
+    openerRef.current?.focus({ preventScroll: true })
+    window.scrollTo({ top: scrollRef.current })
+  }
+  const detailsPreset = catalog.presets.find((p) => p.id === detailsFor)
   const labels = Object.fromEntries(catalog.tokens.map((t) => [t.key, t.label.toLowerCase()]))
   const problems: ContrastProblem[] = contrastProblems(theme.tokens, catalog.contrast_rules)
   const troubled = new Set(problems.flatMap((p) => [p.foreground, p.background]))
@@ -251,17 +332,30 @@ export function ThemeEditor({
         <legend className={styles.legend}>Quick theme</legend>
         <div className={styles.presetGrid}>
           {catalog.presets.map((preset, index) => (
-            <PresetCard
+            <PresetTile
               key={preset.id}
               preset={preset}
               checked={theme.source === 'preset' && theme.preset === preset.id}
               onSelect={() => onChange(presetTheme(preset))}
+              onDetails={(opener) => openDetails(preset.id, opener)}
               disabled={disabled}
               {...(index === 0 ? { inputRef: firstPresetRef } : {})}
             />
           ))}
         </div>
       </fieldset>
+      {detailsPreset && (
+        <PresetDetails
+          preset={detailsPreset}
+          catalog={catalog}
+          checked={theme.source === 'preset' && theme.preset === detailsPreset.id}
+          onApply={() => {
+            onChange(presetTheme(detailsPreset))
+            closeDetails()
+          }}
+          onClose={closeDetails}
+        />
+      )}
 
       <div className={styles.extractPanel}>
         <h3 className={styles.subHeading}>Colours from the background</h3>

@@ -17,7 +17,7 @@ import {
   useTemplateSpec,
   useUploadFrame,
 } from '../api/hooks'
-import { RetryingImage } from '../components/RetryingImage'
+import { RetryingImage } from '../../../shared/ui/RetryingImage'
 import styles from './FrameManagerPage.module.css'
 
 interface FrameCardItemProps {
@@ -99,7 +99,9 @@ function FrameCardItem({
     <li data-testid="frame-card" className={styles.frameCard}>
       <div className={styles.frameHeader}>
         <h3 className={styles.frameName}>{frame.name}</h3>
-        {frame.builtin && <span className={styles.builtinBadge}>Built-in</span>}
+        <span className={frame.builtin ? styles.builtinBadge : styles.uploadedBadge}>
+          {frame.builtin ? 'Built-in' : 'Uploaded'}
+        </span>
         <span className={styles.dimensions}>
           {frame.width} × {frame.height} px
         </span>
@@ -130,6 +132,12 @@ function FrameCardItem({
           </figure>
         </div>
       </div>
+
+      <p className={styles.usage} data-testid="frame-usage">
+        {frame.used_by && frame.used_by.length > 0
+          ? `Offered by: ${frame.used_by.join(', ')}`
+          : 'Not offered by any Event Profile yet'}
+      </p>
 
       {frame.warnings && frame.warnings.length > 0 && (
         <div className={styles.warningsList}>
@@ -229,13 +237,23 @@ function FrameCardItem({
 
 type FramesState = 'loading' | 'error' | 'ready'
 
+type LibraryFilter = 'all' | 'builtin' | 'uploaded' | string
+
 interface TemplateFrameSectionProps {
   template: TemplateSummary
   frames: Frame[]
   framesState: FramesState
+  filter: LibraryFilter
+  query: string
 }
 
-function TemplateFrameSection({ template, frames, framesState }: TemplateFrameSectionProps) {
+function TemplateFrameSection({
+  template,
+  frames,
+  framesState,
+  filter,
+  query,
+}: TemplateFrameSectionProps) {
   const api = useAdminApi()
   const { data: spec, isLoading: isSpecLoading } = useTemplateSpec(template.key)
   const uploadMutation = useUploadFrame()
@@ -253,8 +271,12 @@ function TemplateFrameSection({ template, frames, framesState }: TemplateFrameSe
   const [isDeleting, setIsDeleting] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const builtinFrames = frames.filter((f) => f.builtin)
-  const customFrames = frames.filter((f) => !f.builtin)
+  const named = frames.filter((f) =>
+    f.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  )
+  const builtinFrames = filter === 'uploaded' ? [] : named.filter((f) => f.builtin)
+  const customFrames = filter === 'builtin' ? [] : named.filter((f) => !f.builtin)
+  const showCustom = filter !== 'builtin'
 
   const clearAlerts = () => {
     setClientError(null)
@@ -509,11 +531,15 @@ function TemplateFrameSection({ template, frames, framesState }: TemplateFrameSe
         </>
       )}
 
-      {framesState === 'ready' && <h3 className={styles.listHeading}>Your frames</h3>}
-      {framesState === 'loading' ? (
+      {framesState === 'ready' && showCustom && (
+        <h3 className={styles.listHeading}>Your frames</h3>
+      )}
+      {!showCustom ? null : framesState === 'loading' ? (
         <p className={styles.loadingText}>Loading frames…</p>
       ) : framesState === 'error' ? null : customFrames.length === 0 ? (
-        <p className={styles.emptyText}>No frames uploaded for this layout yet.</p>
+        <p className={styles.emptyText}>
+          {query.trim() ? 'No uploaded frame matches this search.' : 'No frames uploaded for this layout yet.'}
+        </p>
       ) : (
         <ul className={styles.framesList} aria-label={`Your frames for ${template.name}`}>
           {customFrames.map((frame) => (
@@ -583,6 +609,8 @@ function TemplateFrameSection({ template, frames, framesState }: TemplateFrameSe
 
 export function FrameManagerPage() {
   const { data: templates, isLoading: templatesLoading, error: templatesError } = useTemplates()
+  const [filter, setFilter] = useState<LibraryFilter>('all')
+  const [query, setQuery] = useState('')
   const framesQuery = useFrames()
   const allFrames = framesQuery.data
   // A failed or unfinished frame list must never look like "no frames uploaded".
@@ -630,8 +658,43 @@ export function FrameManagerPage() {
       )}
 
       {templates && (
+        <div className={styles.libraryTools}>
+          <label className={styles.searchLabel}>
+            <span>Search by frame name</span>
+            <input
+              type="search"
+              value={query}
+              placeholder="e.g. Gold"
+              onChange={(e) => setQuery(e.target.value)}
+              className={styles.input}
+            />
+          </label>
+          <div className={styles.filters} role="group" aria-label="Show">
+            {[
+              { key: 'all', label: 'All' },
+              ...templates.map((t) => ({ key: t.key, label: `${t.width_in}\u00d7${t.height_in}` })),
+              { key: 'builtin', label: 'Built-in' },
+              { key: 'uploaded', label: 'Uploaded' },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                aria-pressed={filter === item.key}
+                className={styles.filterButton}
+                onClick={() => setFilter(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {templates && (
         <div className={styles.sectionsList}>
-          {templates.map((tpl) => {
+          {templates
+            .filter((tpl) => ['all', 'builtin', 'uploaded'].includes(filter) || tpl.key === filter)
+            .map((tpl) => {
             const templateFrames = allFrames?.filter((f) => f.template_key === tpl.key) ?? []
             return (
               <TemplateFrameSection
@@ -639,6 +702,8 @@ export function FrameManagerPage() {
                 template={tpl}
                 frames={templateFrames}
                 framesState={framesState}
+                filter={filter}
+                query={query}
               />
             )
           })}

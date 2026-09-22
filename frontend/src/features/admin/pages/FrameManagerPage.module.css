@@ -561,3 +561,49 @@
   font-size: 18px;
   color: var(--pb-color-text);
 }
+
+.uploadedBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--pb-color-muted);
+  color: var(--pb-color-muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.usage {
+  margin: 0;
+  color: var(--pb-color-muted);
+  font-size: 15px;
+}
+
+.libraryTools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: var(--pb-space);
+}
+
+.searchLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filterButton {
+  min-height: var(--pb-touch-target);
+  min-width: 64px;
+}
+
+.filterButton[aria-pressed='true'] {
+  outline: 3px solid var(--pb-color-primary);
+}

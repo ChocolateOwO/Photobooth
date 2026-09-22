@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import io
 import warnings
 
@@ -160,6 +161,9 @@ SAMPLE_COLORS = (
 class PillowSampleImageFactory:
     """16:9 webcam-like placeholder photos: a solid color per shot with a large shot number."""
 
+    def sample_photo(self, shot_index: int) -> bytes:
+        return sample_photo_bytes(shot_index)
+
     def sample_capture(self, shot_index: int) -> bytes:
         color = SAMPLE_COLORS[(shot_index - 1) % len(SAMPLE_COLORS)]
         image = Image.new("RGB", (1280, 720), color)
@@ -172,3 +176,106 @@ class PillowSampleImageFactory:
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=90)
         return buffer.getvalue()
+
+
+# Illustrated stand-ins for real guest photos: warm backdrops with friendly silhouettes. Used for
+# every frame preview (admin and participants); no real person is ever shown.
+_PHOTO_SCENES: tuple[tuple[tuple[int, int, int], tuple[int, int, int]], ...] = (
+    ((255, 196, 150), (255, 128, 128)),
+    ((150, 205, 255), (120, 150, 240)),
+    ((190, 240, 200), (110, 190, 170)),
+    ((255, 225, 150), (240, 150, 90)),
+    ((220, 190, 255), (160, 120, 230)),
+    ((255, 205, 225), (225, 130, 175)),
+)
+_PEOPLE = ((96, 64, 58), (70, 52, 60), (120, 86, 70), (60, 60, 82))
+_SHIRTS = ((250, 250, 250), (40, 60, 110), (200, 70, 90), (60, 140, 120), (240, 180, 60))
+
+
+@functools.lru_cache(maxsize=16)
+def sample_photo_bytes(shot_index: int) -> bytes:
+    """A 1280x720 illustrated 'photo' for shot N (deterministic), with a small shot badge."""
+    top, bottom = _PHOTO_SCENES[(shot_index - 1) % len(_PHOTO_SCENES)]
+    width, height = 1280, 720
+    column = Image.new("RGB", (1, height))
+    for y in range(height):
+        t = y / (height - 1)
+        column.putpixel(
+            (0, y), tuple(round(a + (b - a) * t) for a, b in zip(top, bottom, strict=True))
+        )
+    image = column.resize((width, height)).convert("RGBA")
+    glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    gdraw = ImageDraw.Draw(glow)
+    for i in range(9):  # soft bokeh lights
+        x = (i * 173 + shot_index * 97) % width
+        y = (i * 89 + shot_index * 53) % (height // 2)
+        r = 30 + (i * 17 + shot_index * 11) % 50
+        gdraw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 255, 255, 60))
+    image.alpha_composite(glow)
+    draw = ImageDraw.Draw(image)
+    # Portrait slots keep only the middle of the frame, so everyone stands near the centre.
+    people = 1 + (shot_index % 3)
+    for p in range(people):
+        cx = width / 2 + (p - (people - 1) / 2) * 175
+        scale = 0.72 - 0.06 * abs(p - (people - 1) / 2)
+        head = 92 * scale
+        shoulders_top = height - 300 * scale
+        skin = _PEOPLE[(shot_index + p) % len(_PEOPLE)]
+        shirt = _SHIRTS[(shot_index * 2 + p) % len(_SHIRTS)]
+        draw.rounded_rectangle(
+            (cx - 190 * scale, shoulders_top, cx + 190 * scale, height + 60),
+            radius=round(150 * scale),
+            fill=shirt,
+        )
+        draw.rectangle(
+            (cx - 40 * scale, shoulders_top - 60 * scale, cx + 40 * scale, shoulders_top + 10),
+            fill=skin,
+        )
+        head_cy = shoulders_top - 60 * scale - head * 0.8
+        draw.ellipse((cx - head, head_cy - head, cx + head, head_cy + head), fill=skin)
+        # a happy face: eyes and smile
+        eye = 11 * scale
+        for dx in (-32, 32):
+            draw.ellipse(
+                (
+                    cx + dx * scale - eye,
+                    head_cy - 12 * scale - eye,
+                    cx + dx * scale + eye,
+                    head_cy - 12 * scale + eye,
+                ),
+                fill=(35, 30, 35),
+            )
+        smile = 44 * scale
+        draw.arc(
+            (cx - smile, head_cy - 8 * scale, cx + smile, head_cy + 46 * scale),
+            start=20,
+            end=160,
+            fill=(35, 30, 35),
+            width=max(4, round(8 * scale)),
+        )
+        hair = (40 + (p * 30) % 90, 30 + (p * 20) % 60, 25)
+        draw.chord(
+            (cx - head * 1.02, head_cy - head * 1.08, cx + head * 1.02, head_cy + head * 0.6),
+            start=180,
+            end=360,
+            fill=hair,
+        )
+    # shot badge (slot order) in the corner
+    badge = 44
+    left = width / 2 - 230  # inside the centre that portrait slots keep
+    draw.ellipse((left, 24, left + badge * 2, 24 + badge * 2), fill=(255, 255, 255, 220))
+    font = ImageFont.load_default(size=56)
+    text = str(shot_index)
+    box = draw.textbbox((0, 0), text, font=font)
+    draw.text(
+        (
+            left + badge - (box[2] - box[0]) / 2 - box[0],
+            24 + badge - (box[3] - box[1]) / 2 - box[1],
+        ),
+        text,
+        font=font,
+        fill=(40, 40, 50),
+    )
+    buffer = io.BytesIO()
+    image.convert("RGB").save(buffer, format="JPEG", quality=88)
+    return buffer.getvalue()

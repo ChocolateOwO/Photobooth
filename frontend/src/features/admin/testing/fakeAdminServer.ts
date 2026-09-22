@@ -12,6 +12,8 @@ import { DEVICE_KEY_HEADER } from '../../../shared/api/deviceKey'
 import { THEME_CATALOG } from './themeCatalog.fixture'
 
 export const DEVICE_KEY = 'k'.repeat(43)
+export const NO_FRAMES =
+  'No frames are available to participants. Enable at least one frame before this profile can be the active event.'
 
 export const BUILTIN_FAMILIES = [
   ['minimal_light', 'Minimal Light'],
@@ -38,19 +40,20 @@ function json(body: unknown, status = 200, headers: Record<string, string> = {})
 }
 
 function template(key: string, name: string): TemplateSummary {
+  const strip = key === 'strip_2x6'
   return {
     key,
     name,
     version: 1,
     dpi: 300,
-    width_in: 2,
+    width_in: strip ? 2 : 4,
     height_in: 6,
-    width_px: 600,
+    width_px: strip ? 600 : 1200,
     height_px: 1800,
     orientation: 'portrait',
-    photos_per_output: 3,
-    captures_per_session: 6,
-    outputs_per_session: 2,
+    photos_per_output: strip ? 3 : 4,
+    captures_per_session: strip ? 6 : 4,
+    outputs_per_session: strip ? 2 : 1,
     links: { spec: '', blank_png: '', guide_png: '' },
   } as TemplateSummary
 }
@@ -167,8 +170,8 @@ export class FakeAdminServer {
         logo_asset_id: null,
         background_asset_id: null,
         theme: defaultTheme(),
-        enabled_layouts: ['strip_2x6'],
-        frame_selections: {},
+        available_frames: this.builtinIds(),
+        allow_surprise_me: false,
         countdown_seconds: 5,
         mirror: true,
         inactivity_timeout_s: 120,
@@ -181,10 +184,40 @@ export class FakeAdminServer {
       created_at: now,
       updated_at: now,
       deleted_at: null,
+      available_layouts: [],
       ...extra,
     }
-    this.profiles.set(profile.id, profile)
-    return profile
+    const stored = this.withLayouts(profile)
+    this.profiles.set(stored.id, stored)
+    return stored
+  }
+
+  /** Profiles offering a frame (the Frames page shows them). */
+  usedBy(frameId: string): string[] {
+    return [...this.profiles.values()]
+      .filter((p) => p.settings.available_frames.includes(frameId))
+      .map((p) => (p.deleted_at === null ? p.settings.name : `${p.settings.name} (deleted)`))
+  }
+
+  /** Every built-in frame id, in library order (a new profile's default). */
+  builtinIds(): string[] {
+    return [...this.frames.values()].filter((f) => f.builtin).map((f) => f.id)
+  }
+
+  /** The server's rule: a layout is offered when an available frame uses it. */
+  private withLayouts(profile: EventProfile): EventProfile {
+    const layouts: string[] = []
+    for (const id of profile.settings.available_frames) {
+      const key = this.frames.get(id)?.template_key
+      if (key && !layouts.includes(key)) layouts.push(key)
+    }
+    return { ...profile, available_layouts: layouts }
+  }
+
+  private unknownFrame(ids: string[]): string | undefined {
+    if (new Set(ids).size !== ids.length) return 'a frame can be made available only once'
+    const missing = ids.find((id) => !this.frames.has(id))
+    return missing ? `frame ${missing} does not exist` : undefined
   }
 
   /** Simulates another admin tab saving the same profile. */
@@ -279,7 +312,7 @@ export class FakeAdminServer {
           return json({ detail: 'internal error' }, 500)
         }
         const templateKey = url.searchParams.get('template_key')
-        const all = [...this.frames.values()]
+        const all = [...this.frames.values()].map((f) => ({ ...f, used_by: this.usedBy(f.id) }))
         return json(templateKey ? all.filter((f) => f.template_key === templateKey) : all)
       }
       const form = init?.body as FormData
@@ -310,7 +343,7 @@ export class FakeAdminServer {
       const frame = this.frames.get(frameMatch[1] ?? '')
       if (!frame) return json({ detail: 'frame not found' }, 404)
       const action = frameMatch[2]
-      if (!action && method === 'GET') return json(frame)
+      if (!action && method === 'GET') return json({ ...frame, used_by: this.usedBy(frame.id) })
       if (frame.builtin) {
         return json(
           {
@@ -321,7 +354,8 @@ export class FakeAdminServer {
         )
       }
       if (!action && method === 'DELETE') {
-        const reason = this.framesInUse.get(frame.id)
+        const reason =
+          this.framesInUse.get(frame.id) ?? (this.usedBy(frame.id).join(', ') || undefined)
         if (reason) {
           return json({ detail: `this frame is still used by: ${reason}` }, 409)
         }
@@ -358,12 +392,9 @@ export class FakeAdminServer {
         return json(includeDeleted ? all : all.filter((p) => p.deleted_at === null))
       }
       const settings = JSON.parse(String(init?.body)) as ProfileSettings
-      const badFrame = Object.entries(settings.frame_selections ?? {}).find(
-        ([key, frameId]) => this.frames.get(frameId)?.template_key !== key,
-      )
-      if (badFrame) {
-        return json({ detail: `that frame does not belong to ${badFrame[0]}` }, 422)
-      }
+      settings.available_frames = settings.available_frames ?? this.builtinIds()
+      const badFrame = this.unknownFrame(settings.available_frames)
+      if (badFrame) return json({ detail: badFrame }, 422)
       const clash = [...this.profiles.values()].some(
         (p) => p.deleted_at === null && p.settings.name.toLowerCase() === settings.name.toLowerCase(),
       )
@@ -378,11 +409,10 @@ export class FakeAdminServer {
     if (!action && method === 'GET') return json(profile)
     if (!action && method === 'PUT') {
       const body = JSON.parse(String(init?.body)) as ProfileSettings & { revision: number }
-      const mismatch = Object.entries(body.frame_selections ?? {}).find(
-        ([key, frameId]) => this.frames.get(frameId)?.template_key !== key,
-      )
-      if (mismatch) {
-        return json({ detail: `that frame does not belong to ${mismatch[0]}` }, 422)
+      const badFrame = this.unknownFrame(body.available_frames)
+      if (badFrame) return json({ detail: badFrame }, 422)
+      if (profile.is_active && body.available_frames.length === 0) {
+        return json({ detail: NO_FRAMES }, 422)
       }
       if (body.revision !== profile.revision) {
         return json(
@@ -394,7 +424,7 @@ export class FakeAdminServer {
       }
       const settings: ProfileSettings = { ...body }
       delete (settings as Partial<typeof body>).revision
-      const updated = { ...profile, settings, revision: profile.revision + 1 }
+      const updated = this.withLayouts({ ...profile, settings, revision: profile.revision + 1 })
       this.profiles.set(profile.id, updated)
       return json(updated)
     }
@@ -407,6 +437,7 @@ export class FakeAdminServer {
       return json(deleted)
     }
     if (action === 'activate') {
+      if (profile.settings.available_frames.length === 0) return json({ detail: NO_FRAMES }, 409)
       for (const p of this.profiles.values()) this.profiles.set(p.id, { ...p, is_active: p.id === profile.id })
       return json(this.profiles.get(profile.id))
     }

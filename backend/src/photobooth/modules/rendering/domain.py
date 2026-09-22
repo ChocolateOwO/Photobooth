@@ -126,3 +126,7 @@ class SampleImageFactory(Protocol):
     """Synthetic numbered placeholder photos for previews (no real guest photos)."""
 
     def sample_capture(self, shot_index: int) -> bytes: ...
+
+    def sample_photo(self, shot_index: int) -> bytes:
+        """An illustrated stand-in photo (people on a backdrop) for frame previews."""
+        ...

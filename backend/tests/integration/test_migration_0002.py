@@ -13,10 +13,10 @@ from photobooth.core.db import Base, create_sqlite_engine
 from photobooth.core.migrations import Migrator
 from photobooth.modules.assets.repository import MediaAssetRow
 from photobooth.modules.auth.repository import AdminUserRow
-from photobooth.modules.event_profiles.repository import EventProfileLayoutRow, EventProfileRow
+from photobooth.modules.event_profiles.repository import EventProfileRow
 
 PHASE3_TABLES = {"admin_users", "media_assets", "event_profiles", "event_profile_layouts"}
-ORM_TABLES = (AdminUserRow, MediaAssetRow, EventProfileRow, EventProfileLayoutRow)
+ORM_TABLES = (AdminUserRow, MediaAssetRow, EventProfileRow)  # layouts: dropped in 0005
 
 
 def _tables(db: Path) -> set[str]:

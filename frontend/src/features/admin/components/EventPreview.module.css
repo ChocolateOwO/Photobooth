@@ -108,3 +108,30 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.previewTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.modeButton {
+  min-height: 44px;
+}
+
+.modeButton[aria-pressed='true'] {
+  outline: 3px solid var(--pb-color-primary);
+}
+
+/* The compact gallery's preview dialog stays inside this box. */
+.screenBox {
+  position: relative;
+}

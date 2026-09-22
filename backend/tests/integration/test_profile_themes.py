@@ -24,11 +24,9 @@ def _body(**overrides: Any) -> dict[str, Any]:
     body: dict[str, Any] = {
         "name": "Themed",
         "title": "Welcome",
-        "enabled_layouts": ["strip_2x6", "print_3x4", "print_4x6"],
-        "frame_selections": {
-            key: builtin_frame_id("midnight", key)
-            for key in ("strip_2x6", "print_3x4", "print_4x6")
-        },
+        "available_frames": [
+            builtin_frame_id("midnight", key) for key in ("strip_2x6", "print_3x4", "print_4x6")
+        ],
     }
     body.update(overrides)
     return body
@@ -51,7 +49,7 @@ def test_theme_and_builtin_frames_are_saved_and_normalized(
     assert (
         settings["theme"]["source"] == "custom" and settings["theme"]["preset"] == "blush_wedding"
     )
-    assert settings["frame_selections"]["print_4x6"] == builtin_frame_id("midnight", "print_4x6")
+    assert builtin_frame_id("midnight", "print_4x6") in settings["available_frames"]
 
 
 def test_extracted_theme_keeps_its_palette(kiosk_client: TestClient, container: Container) -> None:
@@ -83,15 +81,15 @@ def test_switching_between_builtin_and_custom_frames(
         headers=headers,
     ).json()
     revision = profile["revision"]
-    for frame_id in (custom["id"], builtin_frame_id("celebration_gold", "strip_2x6"), custom["id"]):
-        selections = {**profile["settings"]["frame_selections"], "strip_2x6": frame_id}
-        body = {**_body(frame_selections=selections), "revision": revision}
+    gold = builtin_frame_id("celebration_gold", "strip_2x6")
+    for frames in ([custom["id"]], [gold, custom["id"]], [custom["id"], gold]):
+        body = {**_body(available_frames=frames), "revision": revision}
         updated = kiosk_client.put(f"{BASE}/{profile['id']}", json=body, headers=headers)
         assert updated.status_code == 200, updated.text
-        assert updated.json()["settings"]["frame_selections"]["strip_2x6"] == frame_id
+        assert updated.json()["settings"]["available_frames"] == frames
         revision = updated.json()["revision"]
-    # A built-in frame of another layout is refused, like any frame.
-    wrong = {**_body(frame_selections={"strip_2x6": builtin_frame_id("midnight", "print_3x4")})}
+    # An unknown frame is refused, like before.
+    wrong = {**_body(available_frames=["00000000-0000-4000-8000-000000000000"])}
     refused = kiosk_client.put(
         f"{BASE}/{profile['id']}", json={**wrong, "revision": revision}, headers=headers
     )
@@ -126,7 +124,7 @@ def test_theme_edits_use_revision_conflicts_and_duplicates_copy_the_theme(
 
     copy = kiosk_client.post(f"{BASE}/{profile['id']}/duplicate", json={}, headers=headers).json()
     assert copy["settings"]["theme"] == current["settings"]["theme"]
-    assert copy["settings"]["frame_selections"] == current["settings"]["frame_selections"]
+    assert copy["settings"]["available_frames"] == current["settings"]["available_frames"]
 
 
 def test_theme_and_frames_survive_a_restart(settings: AppSettings) -> None:
@@ -155,7 +153,7 @@ def test_theme_and_frames_survive_a_restart(settings: AppSettings) -> None:
             reloaded = client.get(f"{BASE}/{created['id']}").json()
             assert reloaded["settings"]["theme"] == created["settings"]["theme"]
             assert (
-                reloaded["settings"]["frame_selections"] == created["settings"]["frame_selections"]
+                reloaded["settings"]["available_frames"] == created["settings"]["available_frames"]
             )
             frame_id = builtin_frame_id("midnight", "strip_2x6")
             assert client.get(f"/api/admin/frames/{frame_id}/content").status_code == 200

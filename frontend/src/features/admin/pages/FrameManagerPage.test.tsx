@@ -40,7 +40,8 @@ describe('FrameManagerPage', () => {
     expect(guides[0]).toHaveAttribute('href', '/api/templates/strip_2x6/guide.png')
     const blanks = screen.getAllByRole('link', { name: 'Download blank canvas' })
     expect(blanks[0]).toHaveAttribute('href', '/api/templates/strip_2x6/blank.png')
-    expect((await screen.findAllByText(/Size: exactly 600 x 1800 px/)).length).toBe(2)
+    expect(await screen.findByText(/Size: exactly 600 x 1800 px/)).toBeInTheDocument()
+    expect(await screen.findByText(/Size: exactly 1200 x 1800 px/)).toBeInTheDocument()
     expect(
       (await screen.findAllByText(/File: PNG with transparency \(RGBA\), not animated\./)).length,
     ).toBe(2)
@@ -223,5 +224,35 @@ describe('FrameManagerPage', () => {
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete frame' }),
     )
     await waitFor(() => expect(server.customFrames()).toHaveLength(0))
+  })
+
+  it('searches the library, filters it and shows which profiles offer each frame', async () => {
+    const server = signedInServer()
+    const gold = server.seedFrame('strip_2x6', 'Gold rush')
+    server.seedProfile({ name: 'Wedding', available_frames: [gold.id] })
+    renderAdmin('/admin/frames', { server })
+    const card = (await screen.findAllByTestId('frame-card')).find((c) =>
+      within(c).queryByRole('heading', { name: 'Gold rush' }),
+    ) as HTMLElement
+    expect(within(card).getByText('Uploaded')).toBeInTheDocument()
+    expect(within(card).getByTestId('frame-usage')).toHaveTextContent('Offered by: Wedding')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Uploaded' }))
+    expect(screen.queryByRole('list', { name: /Built-in frames/ })).toBeNull()
+    expect(screen.getAllByTestId('frame-card')).toHaveLength(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Built-in' }))
+    expect(screen.queryByRole('heading', { name: 'Gold rush' })).toBeNull()
+    expect(screen.getAllByTestId('frame-card').every((c) => within(c).queryByText('Built-in'))).toBe(true)
+
+    await userEvent.click(screen.getByRole('button', { name: 'All' }))
+    await userEvent.click(screen.getByRole('button', { name: '4\u00d76' }))
+    expect(screen.queryByRole('heading', { name: '2x6 photo strip' })).toBeNull()
+    expect(screen.getByRole('heading', { name: '4x6 print' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'All' }))
+    await userEvent.type(screen.getByLabelText('Search by frame name'), 'gold')
+    const names = screen.getAllByTestId('frame-card').map((c) => within(c).getByRole('heading').textContent)
+    expect(names).toEqual(['Celebration Gold', 'Gold rush', 'Celebration Gold'])
   })
 })

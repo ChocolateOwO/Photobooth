@@ -15,6 +15,11 @@ COUNTDOWN_SECONDS = 5  # fixed in the MVP (plan: countdown locked to 5 s)
 NAME_MAX_LENGTH = 80
 INACTIVITY_MIN_S = 30
 INACTIVITY_MAX_S = 900
+MAX_AVAILABLE_FRAMES = 200
+NO_FRAMES_FOR_ACTIVE = (
+    "No frames are available to participants. Enable at least one frame before this profile "
+    "can be the active event."
+)
 
 
 class RetakeMode(StrEnum):
@@ -56,10 +61,12 @@ class ProfileSettings:
     background_asset_id: str | None = None
     # Complete semantic colour set for every event-facing element (see themes.domain).
     theme: EventTheme = field(default_factory=default_theme)
-    enabled_layouts: tuple[str, ...] = field(default=("strip_2x6",))
-    # One chosen frame per enabled layout: ((template_key, frame_id), ...). A layout may be left
-    # without a frame; the admin UI shows that clearly.
-    frame_selections: tuple[tuple[str, str], ...] = field(default=())
+    # Frames participants may choose from, in the order they are shown. A layout is offered to
+    # participants exactly when at least one of these frames uses it; the participant's chosen
+    # frame decides the capture count and the outputs.
+    available_frames: tuple[str, ...] = field(default=())
+    # Offer a "Surprise me" card (random choice among the available frames; needs two or more).
+    allow_surprise_me: bool = False
     countdown_seconds: int = COUNTDOWN_SECONDS
     mirror: bool = True
     inactivity_timeout_s: int = 120
@@ -85,16 +92,10 @@ class ProfileSettings:
             if any(ord(ch) < 32 for ch in value):
                 found.append(f"{label} must not contain control characters")
         found.extend(self.theme.problems())
-        if not self.enabled_layouts:
-            found.append("at least one layout must be enabled")
-        if len(set(self.enabled_layouts)) != len(self.enabled_layouts):
-            found.append("enabled_layouts must not repeat a layout")
-        chosen = [key for key, _frame in self.frame_selections]
-        if len(set(chosen)) != len(chosen):
-            found.append("only one frame can be chosen per layout")
-        outside = sorted(set(chosen) - set(self.enabled_layouts))
-        if outside:
-            found.append(f"frames chosen for layouts that are not enabled: {', '.join(outside)}")
+        if len(set(self.available_frames)) != len(self.available_frames):
+            found.append("a frame can be made available only once")
+        if len(self.available_frames) > MAX_AVAILABLE_FRAMES:
+            found.append(f"at most {MAX_AVAILABLE_FRAMES} frames can be made available")
         if self.countdown_seconds != COUNTDOWN_SECONDS:
             found.append(f"countdown_seconds is fixed at {COUNTDOWN_SECONDS}")
         if not INACTIVITY_MIN_S <= self.inactivity_timeout_s <= INACTIVITY_MAX_S:
@@ -153,7 +154,11 @@ class EventProfileRepository(ABC):
 
     @abstractmethod
     def names_using_frame(self, frame_id: str) -> list[str]:
-        """Names of profiles that selected this frame, including soft-deleted ones (restorable)."""
+        """Names of profiles offering this frame, including soft-deleted ones (restorable)."""
+
+    @abstractmethod
+    def usage_by_frame(self) -> dict[str, list[str]]:
+        """frame id -> names of the profiles offering it (soft-deleted ones marked)."""
 
 
 class AssetLookup(Protocol):
@@ -164,6 +169,10 @@ class FrameLookup(Protocol):
     """The layout a frame belongs to, or None when the frame does not exist (frames module)."""
 
     def frame_template(self, frame_id: str) -> str | None: ...
+
+    def builtin_frame_ids(self) -> list[str]:
+        """Every built-in frame, in library order (the default for a new profile)."""
+        ...
 
 
 class HasKey(Protocol):

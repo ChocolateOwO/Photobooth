@@ -94,7 +94,7 @@ class RenderService:
     def render_frame_preview(
         self, key: str, output_index: int, frame_png: bytes, version: int | None = None
     ) -> Future[RenderedOutput]:
-        """Sample output with a candidate frame composited on top (admin frame preview).
+        """Sample output: illustrated sample photos with the frame on top (frame previews).
 
         Cached per (template version, output, frame bytes) so repeated views are rendered once;
         the cache keeps the newest PREVIEW_CACHE_SIZE entries.
@@ -110,7 +110,7 @@ class RenderService:
                 self._preview_cache.move_to_end(cache_key)
                 return cached
             future = self._scheduler.submit(
-                lambda: self._render_one_sample(template, output_index, frame_png)
+                lambda: self._render_one_sample(template, output_index, frame_png, photos=True)
             )
             self._preview_cache[cache_key] = future
             while len(self._preview_cache) > PREVIEW_CACHE_SIZE:
@@ -127,14 +127,18 @@ class RenderService:
                     del self._preview_cache[cache_key]
 
     def _render_one_sample(
-        self, template: PhotoTemplate, output_index: int, frame_png: bytes | None = None
+        self,
+        template: PhotoTemplate,
+        output_index: int,
+        frame_png: bytes | None = None,
+        photos: bool = False,
     ) -> RenderedOutput:
         captures = [
             CaptureRef(capture_id=f"sample-{shot}", shot_index=shot)
             for shot in range(1, template.captures_per_session + 1)
         ]
         plan = plan_outputs(template, captures)[output_index - 1]
-        source = _SampleSource(self._samples)
+        source = _SampleSource(self._samples, photos)
         images = {capture_id: source.read(capture_id) for capture_id in plan.capture_ids}
         return self._renderer.render(
             RenderJob(template=template, plan=plan, images=images, frame_png=frame_png)
@@ -150,8 +154,12 @@ class RenderService:
 
 
 class _SampleSource:
-    def __init__(self, samples: SampleImageFactory) -> None:
+    def __init__(self, samples: SampleImageFactory, photos: bool = False) -> None:
         self._samples = samples
+        self._photos = photos
 
     def read(self, capture_id: str) -> bytes:
-        return self._samples.sample_capture(int(capture_id.removeprefix("sample-")))
+        shot = int(capture_id.removeprefix("sample-"))
+        return (
+            self._samples.sample_photo(shot) if self._photos else self._samples.sample_capture(shot)
+        )

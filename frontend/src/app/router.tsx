@@ -5,6 +5,7 @@ import { AdminGate } from '../features/admin/pages/AdminGate'
 import { FrameManagerPage } from '../features/admin/pages/FrameManagerPage'
 import { ProfileEditorPage } from '../features/admin/pages/ProfileEditorPage'
 import { ProfileListPage } from '../features/admin/pages/ProfileListPage'
+import { FrameSelectPage } from '../features/booth/FrameSelectPage'
 import { SystemHomePage } from '../features/system/SystemHomePage'
 import { buildInstance } from '../shared/config/instance'
 
@@ -26,6 +27,7 @@ export const routes = [
       { path: 'frames', element: <FrameManagerPage /> },
     ],
   },
+  { path: '/booth/frames', element: <FrameSelectPage /> },
   { path: '*', element: <SystemHomePage instance={buildInstance} /> },
 ]
 

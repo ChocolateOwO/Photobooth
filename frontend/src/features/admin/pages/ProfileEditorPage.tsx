@@ -13,7 +13,6 @@ import {
   type TemplateSummary,
   type ThemeCatalog,
 } from '../../../shared/api/adminClient'
-import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import { BigButton } from '../../../shared/ui/BigButton'
 import {
   useCreateProfile,
@@ -25,21 +24,10 @@ import {
   useUpdateProfile,
 } from '../api/hooks'
 import { AssetPicker } from '../components/AssetPicker'
+import { AvailableFramesEditor } from '../components/AvailableFramesEditor'
 import { EventPreview } from '../components/EventPreview'
-import { RetryingImage } from '../components/RetryingImage'
 import { ThemeEditor } from '../components/ThemeEditor'
-import { builtinFrameFor, preferredFamily } from '../frameDefaults'
 import styles from './ProfileEditorPage.module.css'
-
-/** Frame selections without one layout (no mutation of the current state). */
-function withoutLayout(
-  selections: Record<string, string> | undefined,
-  templateKey: string,
-): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(selections ?? {}).filter(([key]) => key !== templateKey),
-  )
-}
 
 interface ProfileEditorFormProps {
   catalog: ThemeCatalog
@@ -65,11 +53,8 @@ function ProfileEditorForm({
   const navigate = useNavigate()
   const createMutation = useCreateProfile()
   const updateMutation = useUpdateProfile()
-  const api = useAdminApi()
   const framesQuery = useFrames()
   const frames = framesQuery.data
-  // Until the frame list is here, stored selections stay as they are and can not be changed.
-  const framesUnavailable = frames === undefined
 
   const [settings, setSettings] = useState<ProfileSettings>(() => initialSettings)
   const [currentRevision, setCurrentRevision] = useState<number>(() => initialRevision)
@@ -98,22 +83,15 @@ function ProfileEditorForm({
     themeRef.current = settings.theme // read by the extraction handler (an event, after render)
   }, [settings.theme])
 
-  // A new profile whose frame list arrives late still gets its built-in default frames.
+  // A new profile whose frame list arrives late still starts with every built-in frame.
   const [defaultsApplied, setDefaultsApplied] = useState(!isNew || frames !== undefined)
   if (!defaultsApplied && frames) {
     setDefaultsApplied(true)
-    setSettings((current) => ({
-      ...current,
-      frame_selections: {
-        ...Object.fromEntries(
-          current.enabled_layouts.flatMap((key) => {
-            const frame = builtinFrameFor(frames, key, preferredFamily(current, frames, catalog))
-            return frame ? [[key, frame.id]] : []
-          }),
-        ),
-        ...current.frame_selections,
-      },
-    }))
+    setSettings((current) =>
+      current.available_frames.length > 0
+        ? current
+        : { ...current, available_frames: frames.filter((f) => f.builtin).map((f) => f.id) },
+    )
   }
 
   const invalidateExtraction = () => {
@@ -177,9 +155,6 @@ function ProfileEditorForm({
       errors.push(
         `Inactivity timeout must be between ${INACTIVITY_LIMITS.min} and ${INACTIVITY_LIMITS.max} seconds.`,
       )
-    }
-    if (settings.enabled_layouts.length === 0) {
-      errors.push('Choose at least one layout.')
     }
     return errors
   }
@@ -420,165 +395,21 @@ function ProfileEditorForm({
           )}
         </section>
 
-        {/* Photo Layouts Section */}
-        <section className={styles.formSection}>
-          <h2 className={styles.sectionHeading}>Photo layouts</h2>
-          <p id="help-layouts" className={styles.helperText}>
-            Choose one or more print layouts guests can pick from.
-          </p>
-          {templates.map((tpl) => {
-            const isChecked = settings.enabled_layouts.includes(tpl.key)
-            const layoutFrames = frames?.filter((f) => f.template_key === tpl.key) ?? []
-            const currentFrameId = settings.frame_selections?.[tpl.key] ?? ''
-            const activeFrame = layoutFrames.find((f) => f.id === currentFrameId)
-
-            return (
-              <div key={tpl.key} className={styles.layoutItem}>
-                <label className={styles.checkboxLabel}>
-                  <input
-                    type="checkbox"
-                    value={tpl.key}
-                    aria-describedby="help-layouts"
-                    checked={isChecked}
-                    onChange={(e) => {
-                      const checked = e.target.checked
-                      setSettings((current) => {
-                        const nextLayouts = checked
-                          ? [...current.enabled_layouts.filter((k) => k !== tpl.key), tpl.key]
-                          : current.enabled_layouts.filter((k) => k !== tpl.key)
-                        // Switching a layout on picks a matching built-in frame; switching it off
-                        // drops its frame (the server refuses a frame for a layout that is off).
-                        const fallback =
-                          checked && frames && !current.frame_selections?.[tpl.key]
-                            ? builtinFrameFor(frames, tpl.key, preferredFamily(current, frames, catalog))
-                            : undefined
-                        return {
-                          ...current,
-                          enabled_layouts: nextLayouts,
-                          frame_selections: checked
-                            ? {
-                                ...current.frame_selections,
-                                ...(fallback ? { [tpl.key]: fallback.id } : {}),
-                              }
-                            : withoutLayout(current.frame_selections, tpl.key),
-                        }
-                      })
-                    }}
-                    disabled={isDeleted}
-                    className={styles.checkbox}
-                  />
-                  {tpl.name}
-                </label>
-
-                {isChecked && (
-                  <div className={styles.frameChooser}>
-                    <label htmlFor={`frame-for-${tpl.key}`} className={styles.label}>
-                      Frame for {tpl.name}
-                    </label>
-                    <select
-                      id={`frame-for-${tpl.key}`}
-                      value={framesUnavailable ? currentFrameId : activeFrame ? activeFrame.id : ''}
-                      onChange={(e) => {
-                        const val = e.target.value
-                        setSettings((current) => ({
-                          ...current,
-                          frame_selections: val
-                            ? { ...current.frame_selections, [tpl.key]: val }
-                            : withoutLayout(current.frame_selections, tpl.key),
-                        }))
-                      }}
-                      className={styles.select}
-                      disabled={isDeleted || framesUnavailable}
-                    >
-                      <option value="">No frame selected</option>
-                      {framesUnavailable && currentFrameId && (
-                        <option value={currentFrameId}>Saved frame (loading frames…)</option>
-                      )}
-                      {layoutFrames.some((f) => f.builtin) && (
-                        <optgroup label="Built-in">
-                          {layoutFrames
-                            .filter((f) => f.builtin)
-                            .map((frame) => (
-                              <option key={frame.id} value={frame.id}>
-                                {frame.name} (Built-in)
-                              </option>
-                            ))}
-                        </optgroup>
-                      )}
-                      {layoutFrames.some((f) => !f.builtin) && (
-                        <optgroup label="Your frames">
-                          {layoutFrames
-                            .filter((f) => !f.builtin)
-                            .map((frame) => (
-                              <option key={frame.id} value={frame.id}>
-                                {frame.name}
-                              </option>
-                            ))}
-                        </optgroup>
-                      )}
-                    </select>
-
-                    {framesUnavailable && !framesQuery.isError && (
-                      <p className={styles.helperText}>Loading frames…</p>
-                    )}
-
-                    {framesUnavailable && framesQuery.isError && (
-                      <div role="alert" className={styles.alert}>
-                        <p>
-                          The frames could not be loaded, so this choice can not be changed right
-                          now. Saving keeps the current frame.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void framesQuery.refetch()
-                          }}
-                          disabled={framesQuery.isFetching}
-                        >
-                          {framesQuery.isFetching ? 'Loading…' : 'Try again'}
-                        </button>
-                      </div>
-                    )}
-
-                    {!framesUnavailable && layoutFrames.length === 0 && (
-                      <p className={styles.noFramesText}>
-                        Upload a frame for this layout first.{' '}
-                        <Link to="/admin/frames" className={styles.inlineLink}>
-                          Frames
-                        </Link>
-                      </p>
-                    )}
-
-                    {!activeFrame && !(framesUnavailable && currentFrameId) && (
-                      <p className={styles.missingFrameWarning} data-testid="missing-frame-warning">
-                        No frame selected for {tpl.name}. Photos will print without a frame.
-                      </p>
-                    )}
-
-                    {activeFrame?.builtin && (
-                      <p className={styles.helperText}>
-                        Built-in frame. Upload your own under Frames to use a different design.
-                      </p>
-                    )}
-
-                    {activeFrame && (
-                      <RetryingImage
-                        src={api.framePreviewUrl(activeFrame.id, 1, activeFrame.sha256)}
-                        alt={`${tpl.name} frame preview`}
-                        className={styles.framePreviewThumbnail}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-          {settings.enabled_layouts.length === 0 && (
-            <div role="alert" className={styles.alert}>
-              Choose at least one layout.
-            </div>
-          )}
-        </section>
+        <AvailableFramesEditor
+          frames={frames}
+          loadFailed={framesQuery.isError}
+          onRetry={() => {
+            void framesQuery.refetch()
+          }}
+          templates={templates}
+          available={settings.available_frames}
+          onChange={(ids) => setSettings((current) => ({ ...current, available_frames: ids }))}
+          allowSurprise={settings.allow_surprise_me}
+          onSurpriseChange={(allow) =>
+            setSettings((current) => ({ ...current, allow_surprise_me: allow }))
+          }
+          disabled={isDeleted}
+        />
 
         {/* Booth Behaviour Section */}
         <section className={styles.formSection}>
@@ -685,7 +516,7 @@ function ProfileEditorForm({
         </BigButton>
       </form>
 
-      <div className={styles.previewColumn}>
+      <div className={styles.previewColumn} data-testid="preview-column" tabIndex={0} aria-label="Preview (scrolls on its own)">
         <EventPreview settings={settings} templates={templates} frames={frames} />
       </div>
     </div>
@@ -792,18 +623,15 @@ export function ProfileEditorPage() {
   const loaded = isNew ? undefined : profile
   const defaultPreset =
     catalog.presets.find((p) => p.id === catalog.default_preset) ?? catalog.presets[0]
-  const defaultFrames = Object.fromEntries(
-    templates.flatMap((t) => {
-      const frame = builtinFrameFor(framesQuery.data ?? [], t.key, defaultPreset?.frame_family ?? 'midnight')
-      return frame ? [[t.key, frame.id]] : []
-    }),
-  )
+  // A new profile offers every built-in frame (uploads are switched on by the admin).
+  const builtinIds = (framesQuery.data ?? []).filter((f) => f.builtin).map((f) => f.id)
   const initialSettings =
     loaded?.settings ??
     newProfileSettings(
-      templates.map((t) => t.key),
-      defaultPreset ? presetTheme(defaultPreset) : { tokens: {}, source: 'custom', preset: null, palette: [] },
-      defaultFrames,
+      defaultPreset
+        ? presetTheme(defaultPreset)
+        : { tokens: {}, source: 'custom', preset: null, palette: [] },
+      builtinIds,
     )
   const initialRevision = loaded?.revision ?? 1
   const isDeleted = loaded !== undefined && loaded.deleted_at !== null

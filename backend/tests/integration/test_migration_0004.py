@@ -126,7 +126,8 @@ def test_upgrade_converts_colours_adds_builtins_and_defaults_without_losing_data
         }
         assert {row[1] for row in builtins} == {f.id for f in FAMILIES}
 
-    # The application reads every migrated profile.
+    # The application (at head) reads every migrated profile.
+    migrator.upgrade("head")
     engine = create_sqlite_engine(db)
     try:
         repository = SqlEventProfileRepository(engine)
@@ -157,7 +158,7 @@ def test_uploads_with_builtin_names_get_the_first_free_name(thai_root: Path) -> 
                 (f"f{suffix}", f"a{suffix}", name, NOW, NOW),
             )
         conn.commit()
-    migrator.upgrade("head")
+    migrator.upgrade("0004_builtin_frames_themes")
     with sqlite3.connect(db) as conn:
         names = dict(conn.execute("SELECT id, name FROM frame_assets WHERE builtin = 0"))
         assert names == {
@@ -180,7 +181,7 @@ def test_downgrade_restores_the_old_columns_and_upgrade_again_works(thai_root: P
         conn.execute("PRAGMA foreign_keys=ON")
         _seed(conn)
         before = _kept(conn)
-    migrator.upgrade("head")
+    migrator.upgrade("0004_builtin_frames_themes")
     migrator.downgrade("0003_frames")
     with sqlite3.connect(db) as conn:
         assert _kept(conn) == before
@@ -194,7 +195,7 @@ def test_downgrade_restores_the_old_columns_and_upgrade_again_works(thai_root: P
             "FROM event_profiles WHERE id='p1'"
         ).fetchone()
         assert all(c.startswith("#") and len(c) == 7 for c in colours)
-    migrator.upgrade("head")
+    migrator.upgrade("0004_builtin_frames_themes")
     with sqlite3.connect(db) as conn:
         assert (
             conn.execute("SELECT COUNT(*) FROM frame_assets WHERE builtin = 1").fetchone()[0] == 9

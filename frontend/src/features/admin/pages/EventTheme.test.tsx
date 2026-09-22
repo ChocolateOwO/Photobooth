@@ -35,7 +35,9 @@ describe('event theme: quick presets', () => {
     expect(midnight).toBeChecked()
     const radios = screen.getAllByRole('radio', { name: /./ }).filter((r) => r.getAttribute('name') === 'theme-preset')
     expect(radios.length).toBeGreaterThanOrEqual(6)
-    expect(screen.getByRole('list', { name: 'Blush Wedding colours' }).children).toHaveLength(5)
+    // Collapsed tiles: name, selection and a few big swatches; details only on request.
+    expect(screen.getByRole('button', { name: 'View details of Blush Wedding' })).toBeInTheDocument()
+    expect(screen.queryByText('Soft blush pink with deep rose.')).toBeNull()
     expect(screen.getByTestId('contrast-ok')).toHaveTextContent('All text and buttons meet WCAG AA contrast.')
     expect(previewVar('background')).toBe(presetById('midnight_blue').tokens.background)
   })
@@ -57,6 +59,30 @@ describe('event theme: quick presets', () => {
       preset: 'forest_fresh',
       palette: [],
     })
+  })
+})
+
+describe('event theme: preset details', () => {
+  it('opens one details view without selecting, lists every token and applies on request', async () => {
+    renderAdmin('/admin/profiles/new', { server: signedInServer() })
+    const midnight = await screen.findByRole('radio', { name: /^Midnight Blue/ })
+    await userEvent.click(screen.getByRole('button', { name: 'View details of Neon Party' }))
+    const dialog = screen.getByRole('dialog', { name: 'Neon Party' })
+    expect(within(dialog).getByText('Dark violet with neon magenta and cyan.')).toBeInTheDocument()
+    expect(within(dialog).getAllByRole('row')).toHaveLength(35)
+    expect(within(dialog).getByRole('group', { name: 'Live theme examples' })).toBeInTheDocument()
+    expect(midnight).toBeChecked() // looking is not choosing
+    // Only one details view (the component samples inside are not modal dialogs).
+    expect(screen.getAllByRole('dialog').filter((d) => d.getAttribute('aria-modal') === 'true')).toHaveLength(1)
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog', { name: 'Neon Party' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'View details of Neon Party' })).toHaveFocus()
+    expect(midnight).toBeChecked()
+
+    await userEvent.click(screen.getByRole('button', { name: 'View details of Neon Party' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Use Neon Party' }))
+    expect(screen.getByRole('radio', { name: /^Neon Party/ })).toBeChecked()
+    expect(previewVar('background')).toBe(presetById('neon_party').tokens.background)
   })
 })
 
@@ -216,10 +242,10 @@ describe('event theme: colours from the background', () => {
     await userEvent.click(
       within(alert.closest('[role="alert"]') as HTMLElement).getByRole('button', { name: 'Try again' }),
     )
-    // The frames arrived: the first layout now gets its built-in default.
+    // The frames arrived: the new profile now offers every built-in frame.
     await waitFor(() =>
-      expect(screen.getByLabelText('Frame for 2x6 photo strip')).toHaveValue(
-        server.builtin('midnight', 'strip_2x6').id,
+      expect(screen.getByTestId('available-frames-summary')).toHaveTextContent(
+        '6 frames available to participants',
       ),
     )
     expect(server.frameListRequests).toBeLessThanOrEqual(3)

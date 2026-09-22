@@ -159,7 +159,7 @@ def test_admin_routes_require_session_and_csrf(
 ) -> None:
     headers = login(kiosk_client, container)
     no_csrf = {k: v for k, v in headers.items() if k != CSRF_HEADER}
-    body = {"name": "Event", "title": "Hi", "enabled_layouts": ["strip_2x6"]}
+    body = {"name": "Event", "title": "Hi"}
 
     assert kiosk_client.post("/api/admin/profiles", json=body, headers=no_csrf).status_code == 403
     forged = {**no_csrf, CSRF_HEADER: "forged"}

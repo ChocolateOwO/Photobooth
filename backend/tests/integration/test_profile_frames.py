@@ -1,4 +1,4 @@
-"""Per-layout frame selection in Event Profiles, and frame deletion while still referenced."""
+"""Frames offered to participants by an Event Profile: ordered, many per layout, safe to delete."""
 
 from __future__ import annotations
 
@@ -10,136 +10,143 @@ from photobooth.container import Container
 from photobooth.core.config import AppSettings
 from photobooth.core.migrations import Migrator
 from photobooth.main import KioskAppOptions, create_kiosk_app
+from photobooth.modules.frames.builtin import FAMILIES, LAYOUTS, builtin_frame_id
 from tests.integration.admin_support import login
 from tests.integration.test_frames_api import TEMPLATES, upload
 from tests.unit.test_frame_validator import frame_png
 
 PROFILES = "/api/admin/profiles"
 FRAMES = "/api/admin/frames"
+NO_FRAMES = "No frames are available to participants"
 
 
 def body(**overrides: Any) -> dict[str, Any]:
-    values: dict[str, Any] = {
-        "name": "Expo",
-        "title": "Welcome",
-        "enabled_layouts": ["strip_2x6", "print_4x6"],
-    }
+    values: dict[str, Any] = {"name": "Expo", "title": "Welcome"}
     values.update(overrides)
     return values
 
 
-def test_choose_a_frame_per_enabled_layout(kiosk_client: TestClient, container: Container) -> None:
-    headers = login(kiosk_client, container)
-    _s, strip = upload(kiosk_client, headers, key="strip_2x6", name="Strip frame")
-    _s, print46 = upload(kiosk_client, headers, key="print_4x6", name="Print frame")
+def put(
+    client: TestClient, headers: dict[str, str], profile: dict[str, Any], **changes: Any
+) -> Any:
+    settings = {**profile["settings"], **changes}
+    return client.put(
+        f"{PROFILES}/{profile['id']}",
+        json={**settings, "revision": profile["revision"]},
+        headers=headers,
+    )
 
+
+def test_a_new_profile_offers_every_builtin_frame_but_never_later_uploads(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    headers = login(kiosk_client, container)
     created = kiosk_client.post(PROFILES, json=body(), headers=headers)
     assert created.status_code == 201, created.text
     profile = created.json()
-    # A new profile has no frames yet: every enabled layout is unselected.
-    assert profile["settings"]["frame_selections"] == {}
+    builtin_ids = [f["id"] for f in kiosk_client.get(FRAMES).json() if f["builtin"]]
+    assert profile["settings"]["available_frames"] == builtin_ids
+    assert len(builtin_ids) == len(FAMILIES) * len(LAYOUTS)
+    assert sorted(profile["available_layouts"]) == sorted(LAYOUTS)
+    assert profile["settings"]["allow_surprise_me"] is False
 
-    chosen = {"strip_2x6": strip["id"], "print_4x6": print46["id"]}
-    updated = kiosk_client.put(
-        f"{PROFILES}/{profile['id']}",
-        json={**body(frame_selections=chosen), "revision": profile["revision"]},
-        headers=headers,
-    )
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["settings"]["frame_selections"] == chosen
-
+    _s, mine = upload(kiosk_client, headers, key="strip_2x6", name="Mine")
     reopened = kiosk_client.get(f"{PROFILES}/{profile['id']}").json()
-    assert reopened["settings"]["frame_selections"] == chosen
-
-    # Choosing a frame for only one layout is allowed (the other stays unselected).
-    one = kiosk_client.put(
-        f"{PROFILES}/{profile['id']}",
-        json={
-            **body(frame_selections={"strip_2x6": strip["id"]}),
-            "revision": reopened["revision"],
-        },
-        headers=headers,
-    )
-    assert one.status_code == 200
-    assert one.json()["settings"]["frame_selections"] == {"strip_2x6": strip["id"]}
+    assert mine["id"] not in reopened["settings"]["available_frames"]
+    assert reopened["settings"]["available_frames"] == builtin_ids
 
 
-def test_refuses_frames_from_another_layout_or_unknown_frames(
+def test_many_frames_per_layout_in_a_saved_order_and_derived_layouts(
     kiosk_client: TestClient, container: Container
 ) -> None:
     headers = login(kiosk_client, container)
-    _s, strip = upload(kiosk_client, headers, key="strip_2x6", name="Strip frame")
+    _s, a = upload(kiosk_client, headers, key="strip_2x6", name="Strip A")
+    _s, b = upload(kiosk_client, headers, key="strip_2x6", name="Strip B")
+    gold46 = builtin_frame_id("celebration_gold", "print_4x6")
+    order = [b["id"], gold46, a["id"]]
+    profile = kiosk_client.post(
+        PROFILES, json=body(available_frames=order, allow_surprise_me=True), headers=headers
+    ).json()
+    assert profile["settings"]["available_frames"] == order
+    assert profile["available_layouts"] == ["strip_2x6", "print_4x6"]  # first-use order
+    assert profile["settings"]["allow_surprise_me"] is True
+
+    # Reordering replaces the whole list at once.
+    reordered = put(kiosk_client, headers, profile, available_frames=[a["id"], b["id"], gold46])
+    assert reordered.status_code == 200, reordered.text
+    assert reordered.json()["settings"]["available_frames"] == [a["id"], b["id"], gold46]
+
+    # Switching off the last 4x6 frame removes the 4x6 layout from the participants' choices.
+    without_46 = put(kiosk_client, headers, reordered.json(), available_frames=[a["id"], b["id"]])
+    assert without_46.json()["available_layouts"] == ["strip_2x6"]
+    # ...and switching one on brings its layout back.
+    back = put(
+        kiosk_client,
+        headers,
+        without_46.json(),
+        available_frames=[a["id"], builtin_frame_id("midnight", "print_3x4"), b["id"]],
+    )
+    assert back.json()["available_layouts"] == ["strip_2x6", "print_3x4"]
+
+
+def test_refuses_repeats_unknown_frames_and_an_edit_without_the_list(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    headers = login(kiosk_client, container)
+    frame = builtin_frame_id("midnight", "strip_2x6")
+    repeated = kiosk_client.post(
+        PROFILES, json=body(available_frames=[frame, frame]), headers=headers
+    )
+    assert repeated.status_code == 422 and "only once" in repeated.json()["detail"]
     missing = "00000000-0000-4000-8000-000000000000"
-
-    wrong_layout = kiosk_client.post(
-        PROFILES, json=body(frame_selections={"print_4x6": strip["id"]}), headers=headers
-    )
-    assert wrong_layout.status_code == 422
-    assert "belongs to the strip_2x6 layout" in wrong_layout.json()["detail"]
-
-    unknown = kiosk_client.post(
-        PROFILES, json=body(frame_selections={"strip_2x6": missing}), headers=headers
-    )
+    unknown = kiosk_client.post(PROFILES, json=body(available_frames=[missing]), headers=headers)
     assert unknown.status_code == 422 and "does not exist" in unknown.json()["detail"]
-
-    not_enabled = kiosk_client.post(
-        PROFILES,
-        json=body(enabled_layouts=["print_4x6"], frame_selections={"strip_2x6": strip["id"]}),
-        headers=headers,
-    )
-    assert not_enabled.status_code == 422
-    assert "layouts that are not enabled" in not_enabled.json()["detail"]
     assert kiosk_client.get(PROFILES).json() == []
 
+    profile = kiosk_client.post(PROFILES, json=body(), headers=headers).json()
+    without_list = {k: v for k, v in profile["settings"].items() if k != "available_frames"}
+    refused = kiosk_client.put(
+        f"{PROFILES}/{profile['id']}",
+        json={**without_list, "revision": profile["revision"]},
+        headers=headers,
+    )
+    assert refused.status_code == 422  # an edit always states the full list
 
-def test_disabling_a_layout_requires_dropping_its_frame_selection(
+
+def test_activation_needs_at_least_one_frame(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    headers = login(kiosk_client, container)
+    empty = kiosk_client.post(PROFILES, json=body(available_frames=[]), headers=headers).json()
+    assert empty["available_layouts"] == []
+    refused = kiosk_client.post(f"{PROFILES}/{empty['id']}/activate", headers=headers)
+    assert refused.status_code == 409 and NO_FRAMES in refused.json()["detail"]
+
+    ready = kiosk_client.post(PROFILES, json=body(name="Ready"), headers=headers).json()
+    active = kiosk_client.post(f"{PROFILES}/{ready['id']}/activate", headers=headers).json()
+    assert active["is_active"] is True
+    # The active profile can not lose its last frame.
+    emptied = put(kiosk_client, headers, active, available_frames=[])
+    assert emptied.status_code == 422 and NO_FRAMES in emptied.json()["detail"]
+    assert kiosk_client.get(f"{PROFILES}/{ready['id']}").json()["revision"] == active["revision"]
+
+
+def test_offered_frames_are_protected_and_shown_as_used(
     kiosk_client: TestClient, container: Container
 ) -> None:
     headers = login(kiosk_client, container)
     _s, strip = upload(kiosk_client, headers, key="strip_2x6", name="Strip frame")
     created = kiosk_client.post(
-        PROFILES, json=body(frame_selections={"strip_2x6": strip["id"]}), headers=headers
+        PROFILES, json=body(name="Wedding", available_frames=[strip["id"]]), headers=headers
     ).json()
-    # Keeping a frame for a layout that is switched off is refused, not silently dropped.
-    stale = kiosk_client.put(
-        f"{PROFILES}/{created['id']}",
-        json={
-            **body(enabled_layouts=["print_4x6"], frame_selections={"strip_2x6": strip["id"]}),
-            "revision": created["revision"],
-        },
-        headers=headers,
-    )
-    assert stale.status_code == 422
-    assert "layouts that are not enabled" in stale.json()["detail"]
-
-    updated = kiosk_client.put(
-        f"{PROFILES}/{created['id']}",
-        json={**body(enabled_layouts=["print_4x6"]), "revision": created["revision"]},
-        headers=headers,
-    )
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["settings"]["frame_selections"] == {}
-    # The frame is now unused, so it can be deleted.
-    assert kiosk_client.delete(f"{FRAMES}/{strip['id']}", headers=headers).status_code == 204
-
-
-def test_a_frame_in_use_can_not_be_deleted_but_can_be_replaced(
-    kiosk_client: TestClient, container: Container
-) -> None:
-    headers = login(kiosk_client, container)
-    _s, strip = upload(kiosk_client, headers, key="strip_2x6", name="Strip frame")
-    created = kiosk_client.post(
-        PROFILES,
-        json=body(name="Wedding", frame_selections={"strip_2x6": strip["id"]}),
-        headers=headers,
-    ).json()
+    listed = {f["id"]: f for f in kiosk_client.get(FRAMES).json()}
+    assert listed[strip["id"]]["used_by"] == ["Wedding"]
+    assert kiosk_client.get(f"{FRAMES}/{strip['id']}").json()["used_by"] == ["Wedding"]
 
     refused = kiosk_client.delete(f"{FRAMES}/{strip['id']}", headers=headers)
-    assert refused.status_code == 409
-    assert "Wedding" in refused.json()["detail"]
-    assert kiosk_client.get(f"{FRAMES}/{strip['id']}").status_code == 200
+    assert refused.status_code == 409 and "Wedding" in refused.json()["detail"]
 
-    # The safe replacement flow: swap the file, keep the selection.
+    # Replacing the file keeps it offered.
     replacement = frame_png(TEMPLATES["strip_2x6"], fill=(9, 9, 9, 255))
     replaced = kiosk_client.post(
         f"{FRAMES}/{strip['id']}/replace",
@@ -147,72 +154,71 @@ def test_a_frame_in_use_can_not_be_deleted_but_can_be_replaced(
         headers=headers,
     )
     assert replaced.status_code == 200
-    assert kiosk_client.get(f"{FRAMES}/{strip['id']}/content").content == replacement
     still = kiosk_client.get(f"{PROFILES}/{created['id']}").json()
-    assert still["settings"]["frame_selections"] == {"strip_2x6": strip["id"]}
+    assert still["settings"]["available_frames"] == [strip["id"]]
 
-    # A soft-deleted profile still holds its frame, because it can be restored.
+    # A soft-deleted profile still holds its frames (it can be restored).
     deleted = kiosk_client.delete(
         f"{PROFILES}/{created['id']}?revision={still['revision']}", headers=headers
     )
     assert deleted.status_code == 200
     still_refused = kiosk_client.delete(f"{FRAMES}/{strip['id']}", headers=headers)
-    assert still_refused.status_code == 409
     assert "Wedding (deleted)" in still_refused.json()["detail"]
-
-    # Clearing the selection on the restored profile releases the frame.
     restored = kiosk_client.post(f"{PROFILES}/{created['id']}/restore", headers=headers).json()
-    cleared = kiosk_client.put(
-        f"{PROFILES}/{created['id']}",
-        json={**body(name="Wedding"), "revision": restored["revision"]},
-        headers=headers,
-    )
+    assert restored["settings"]["available_frames"] == [strip["id"]]
+    cleared = put(kiosk_client, headers, restored, available_frames=[])
     assert cleared.status_code == 200
     assert kiosk_client.delete(f"{FRAMES}/{strip['id']}", headers=headers).status_code == 204
 
 
-def test_stale_revision_does_not_change_frame_selection(
+def test_stale_revision_changes_neither_membership_nor_order(
     kiosk_client: TestClient, container: Container
 ) -> None:
     headers = login(kiosk_client, container)
-    _s, first = upload(kiosk_client, headers, key="strip_2x6", name="First")
-    _s, second = upload(kiosk_client, headers, key="strip_2x6", name="Second")
-    created = kiosk_client.post(
-        PROFILES, json=body(frame_selections={"strip_2x6": first["id"]}), headers=headers
+    a = builtin_frame_id("midnight", "strip_2x6")
+    b = builtin_frame_id("minimal_light", "strip_2x6")
+    profile = kiosk_client.post(
+        PROFILES, json=body(available_frames=[a, b]), headers=headers
     ).json()
-    assert (
-        kiosk_client.put(
-            f"{PROFILES}/{created['id']}",
-            json={**body(frame_selections={"strip_2x6": second["id"]}), "revision": 1},
-            headers=headers,
-        ).status_code
-        == 200
-    )
-    stale = kiosk_client.put(
-        f"{PROFILES}/{created['id']}",
-        json={**body(frame_selections={"strip_2x6": first["id"]}), "revision": 1},
-        headers=headers,
-    )
+    assert put(kiosk_client, headers, profile, available_frames=[b, a]).status_code == 200
+    stale = put(kiosk_client, headers, profile, available_frames=[a])
     assert stale.status_code == 409
-    current = kiosk_client.get(f"{PROFILES}/{created['id']}").json()
-    assert current["settings"]["frame_selections"] == {"strip_2x6": second["id"]}
+    current = kiosk_client.get(f"{PROFILES}/{profile['id']}").json()
+    assert current["settings"]["available_frames"] == [b, a]
 
 
-def test_frame_selection_survives_a_restart(settings: AppSettings) -> None:
+def test_duplicate_copies_frames_order_and_surprise(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    headers = login(kiosk_client, container)
+    order = [
+        builtin_frame_id("celebration_gold", "print_3x4"),
+        builtin_frame_id("midnight", "strip_2x6"),
+    ]
+    profile = kiosk_client.post(
+        PROFILES, json=body(available_frames=order, allow_surprise_me=True), headers=headers
+    ).json()
+    copy = kiosk_client.post(
+        f"{PROFILES}/{profile['id']}/duplicate", json={}, headers=headers
+    ).json()
+    assert copy["settings"]["available_frames"] == order
+    assert copy["settings"]["allow_surprise_me"] is True
+    assert copy["available_layouts"] == ["print_3x4", "strip_2x6"]
+
+
+def test_offered_frames_survive_a_restart(settings: AppSettings) -> None:
     Migrator(settings.db_path).upgrade("head")
     first = Container(settings)
     first.system_service.stamp_instance()
+    first.restore_builtin_files()
     try:
         app = create_kiosk_app(first.registry, KioskAppOptions())
         with TestClient(app, base_url="http://127.0.0.1:18111") as client:
             headers = login(client, first)
             _s, frame = upload(client, headers, key="print_4x6", name="Persisted")
+            order = [frame["id"], builtin_frame_id("midnight", "print_4x6")]
             profile = client.post(
-                PROFILES,
-                json=body(
-                    enabled_layouts=["print_4x6"], frame_selections={"print_4x6": frame["id"]}
-                ),
-                headers=headers,
+                PROFILES, json=body(available_frames=order, allow_surprise_me=True), headers=headers
             ).json()
     finally:
         first.close()
@@ -223,7 +229,8 @@ def test_frame_selection_survives_a_restart(settings: AppSettings) -> None:
         with TestClient(app, base_url="http://127.0.0.1:18111") as client:
             headers = login(client, second, create_user=False)
             reloaded = client.get(f"{PROFILES}/{profile['id']}").json()
-            assert reloaded["settings"]["frame_selections"] == {"print_4x6": frame["id"]}
+            assert reloaded["settings"]["available_frames"] == order
+            assert reloaded["settings"]["allow_surprise_me"] is True
             assert client.delete(f"{FRAMES}/{frame['id']}", headers=headers).status_code == 409
     finally:
         second.close()

@@ -10,9 +10,9 @@ test.describe.configure({ mode: 'serial' })
 
 // Exactly the approved templates, in the order the API returns them.
 const LAYOUTS = [
-  { key: 'print_3x4', name: '3x4 print', size: '900 × 1200 px', frame: 'Small print frame' },
-  { key: 'print_4x6', name: '4x6 print (2x2 grid)', size: '1200 × 1800 px', frame: 'Big print frame' },
-  { key: 'strip_2x6', name: '2x6 photo strip', size: '600 × 1800 px', frame: 'Strip frame' },
+  { key: 'print_3x4', name: '3x4 print', label: '3×4', size: '900 × 1200 px', frame: 'Small print frame' },
+  { key: 'print_4x6', name: '4x6 print (2x2 grid)', label: '4×6', size: '1200 × 1800 px', frame: 'Big print frame' },
+  { key: 'strip_2x6', name: '2x6 photo strip', label: '2×6', size: '600 × 1800 px', frame: 'Strip frame' },
 ] as const
 
 const STRIP = LAYOUTS[2]
@@ -114,50 +114,30 @@ test('invalid frames are refused with a plain reason', async ({ page }) => {
   await expect(frameCard(page, 'Opaque')).toHaveCount(0)
 })
 
-test('choose a frame per enabled layout in a profile', async ({ page }) => {
+function frameSwitch(page: Page, layout: (typeof LAYOUTS)[number], name: string = layout.frame) {
+  return page.getByRole('switch', { name: `Show ${name} (${layout.label}) to participants` })
+}
+
+test('a profile offers every built-in frame and the admin switches uploads on', async ({ page }) => {
   await pairAndSignIn(page)
   await page.getByRole('link', { name: 'New profile' }).click()
   await page.getByLabel('Profile name').fill(PROFILE)
   await page.getByLabel('Title', { exact: true }).fill('Frames please')
+  // New profile: all nine built-in frames on, the uploads off.
+  await expect(page.getByTestId('available-frames-summary')).toHaveText('9 frames available to participants')
   for (const layout of LAYOUTS) {
-    const checkbox = page.getByRole('checkbox', { name: layout.name, exact: true })
-    if (!(await checkbox.isChecked())) {
-      await checkbox.check()
-    }
+    await expect(frameSwitch(page, layout)).not.toBeChecked()
+    await frameSwitch(page, layout).check()
   }
-  // Every enabled layout starts with a built-in frame of the same family.
-  await expect(page.getByTestId('missing-frame-warning')).toHaveCount(0)
-  for (const layout of LAYOUTS) {
-    const select = page.getByLabel(`Frame for ${layout.name}`, { exact: true })
-    await expect(select.locator('option:checked')).toHaveText('Midnight (Built-in)')
-  }
-  // Choosing no frame is still possible and clearly marked.
-  await page.getByLabel(`Frame for ${LAYOUTS[0].name}`, { exact: true }).selectOption({ label: 'No frame selected' })
-  await expect(page.getByTestId('missing-frame-warning')).toHaveCount(1)
-  await expect(page.getByTestId('missing-frame-warning').first()).toContainText(
-    `No frame selected for ${LAYOUTS[0].name}. Photos will print without a frame.`,
-  )
-
-  for (const layout of LAYOUTS) {
-    await page.getByLabel(`Frame for ${layout.name}`, { exact: true }).selectOption({
-      label: layout.frame,
-    })
-  }
-  await expect(page.getByTestId('missing-frame-warning')).toHaveCount(0)
+  await expect(page.getByTestId('available-frames-summary')).toHaveText('12 frames available to participants')
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
 
   await page.reload()
   for (const layout of LAYOUTS) {
-    await expect(
-      page.getByLabel(`Frame for ${layout.name}`, { exact: true }),
-    ).toHaveValue(/[0-9a-f-]{36}/)
+    await expect(frameSwitch(page, layout)).toBeChecked()
   }
-  await expect(
-    page.getByRole('img', { name: '3x4 print frame preview', exact: true }),
-  ).toBeVisible()
 })
-
 test('a frame in use can not be deleted, but its file can be replaced', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/admin/frames')
@@ -290,12 +270,9 @@ test('frames and selections survive a backend restart @after-restart', async ({ 
 
   await page.goto('/admin')
   await profileRow(page, PROFILE).getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
-  for (const layout of LAYOUTS) {
-    await expect(
-      page.getByLabel(`Frame for ${layout.name}`, { exact: true }),
-    ).toHaveValue(/[0-9a-f-]{36}/)
-  }
-  await expect(page.getByTestId('missing-frame-warning')).toHaveCount(0)
+  await expect(frameSwitch(page, LAYOUTS[0])).toBeChecked()
+  await expect(frameSwitch(page, LAYOUTS[1])).toBeChecked()
+  await expect(frameSwitch(page, STRIP, RENAMED_STRIP)).toBeChecked()
   await page.getByLabel('Title', { exact: true }).fill('Frames after restart')
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page.getByRole('status')).toHaveText('Saved')

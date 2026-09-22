@@ -30,6 +30,7 @@ def test_single_linear_head_is_baseline() -> None:
         "0002_admin_profiles",
         "0003_frames",
         "0004_builtin_frames_themes",
+        "0005_available_frames",
     ]
     migrator = Migrator(Path("unused.sqlite"))
     assert migrator.head_revision() == _all_revisions()[-1]

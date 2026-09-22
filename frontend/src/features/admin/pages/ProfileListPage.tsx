@@ -30,6 +30,9 @@ export function ProfileListPage() {
 
   const { data: profiles = [], error: profilesError } = useProfiles(showDeleted)
   const activateMutation = useActivateProfile()
+  const [activationError, setActivationError] = useState<{ id: string; messages: string[] } | null>(
+    null,
+  )
   const duplicateMutation = useDuplicateProfile()
   const deleteMutation = useDeleteProfile()
   const restoreMutation = useRestoreProfile()
@@ -47,11 +50,13 @@ export function ProfileListPage() {
   const handleActivate = async (profile: EventProfile) => {
     setMutationErrors(null)
     setActivationStatus(null)
+    setActivationError(null)
     try {
       await activateMutation.mutateAsync(profile.id)
       setActivationStatus(`${profile.settings.name} is now the active profile.`)
     } catch (err: unknown) {
-      setMutationErrors(extractErrorMessages(err))
+      // Shown right under that profile (e.g. no frames available to participants).
+      setActivationError({ id: profile.id, messages: extractErrorMessages(err) })
     }
   }
 
@@ -133,6 +138,21 @@ export function ProfileListPage() {
                     {isDeleted && <span className={styles.badgeDeleted}>Deleted</span>}
                   </div>
                   <div className={styles.profileTitle}>{profile.settings.title}</div>
+                  <div className={styles.profileTitle}>
+                    {profile.settings.available_frames.length === 1
+                      ? '1 frame for participants'
+                      : `${profile.settings.available_frames.length} frames for participants`}
+                  </div>
+                  {activationError?.id === profile.id && (
+                    <div role="alert" className={styles.alert} data-testid="activation-error">
+                      {activationError.messages.map((msg, index) => (
+                        <p key={index}>{msg}</p>
+                      ))}
+                      <Link to={`/admin/profiles/${profile.id}`} className={styles.actionLink}>
+                        Choose frames for {profile.settings.name}
+                      </Link>
+                    </div>
+                  )}
                 </div>
 
                 <div className={styles.rowActions}>

@@ -12,6 +12,11 @@ const COPY = 'E2E Themes (copy)'
 const LINK = '#FFD27A'
 const FAMILIES = ['Minimal Light', 'Midnight', 'Celebration Gold'] as const
 const LAYOUT_NAMES = ['3x4 print', '4x6 print (2x2 grid)', '2x6 photo strip'] as const
+const LABELS = ['3×4', '4×6', '2×6'] as const
+
+function goldSwitch(page: Page, label: string): Locator {
+  return page.getByRole('switch', { name: `Show Celebration Gold (${label}) to participants` })
+}
 
 interface Catalog {
   default_preset: string
@@ -90,9 +95,9 @@ test('a new profile starts with an accessible preset and built-in frames', async
   await page.getByRole('link', { name: 'New profile' }).click()
   await expect(page.getByRole('radio', { name: new RegExp(`^${fallback?.name ?? ''}`) })).toBeChecked()
   await expect(page.getByTestId('contrast-ok')).toBeVisible()
-  await expect(
-    page.getByLabel('Frame for 3x4 print', { exact: true }).locator('option:checked'),
-  ).toHaveText('Midnight (Built-in)') // the first layout starts with the default frame
+  await expect(page.getByTestId('available-frames-summary')).toHaveText(
+    '9 frames available to participants',
+  )
   await expectPreviewTokens(page, fallback?.tokens ?? {})
   // The admin shell keeps its own colours.
   await expect(page.getByRole('heading', { name: 'New Event Profile' })).toHaveCSS('color', 'rgb(244, 246, 248)')
@@ -106,10 +111,14 @@ test('presets, background colours, undo, advanced colours and saving', async ({ 
   await page.getByRole('link', { name: 'New profile' }).click()
   await page.getByLabel('Profile name').fill(PROFILE)
   await page.getByLabel('Title', { exact: true }).fill('Theme party')
-  for (const layout of LAYOUT_NAMES) {
-    const box = page.getByRole('checkbox', { name: layout, exact: true })
-    if (!(await box.isChecked())) await box.check()
-  }
+
+  // Compact tiles: details open without selecting anything.
+  await page.getByRole('button', { name: 'View details of Neon Party' }).click()
+  const details = page.getByRole('dialog', { name: 'Neon Party' })
+  await expect(details.getByRole('row')).toHaveCount(35)
+  await details.getByRole('button', { name: 'Close' }).click()
+  await expect(details).toHaveCount(0)
+  await expect(page.getByRole('radio', { name: /^Midnight Blue/ })).toBeChecked()
 
   // Quick theme: the whole preset, not two colours.
   await page.getByRole('radio', { name: /^Celebration Gold/ }).check()
@@ -149,20 +158,27 @@ test('presets, background colours, undo, advanced colours and saving', async ({ 
   await expect(page.getByTestId('contrast-warning')).toHaveCount(0)
   await page.getByLabel('Links hex value', { exact: true }).fill(LINK)
 
-  // Built-in Celebration Gold frames to match, and save.
-  for (const layout of LAYOUT_NAMES) {
-    await page.getByLabel(`Frame for ${layout}`, { exact: true }).selectOption({ label: 'Celebration Gold (Built-in)' })
+  // Only the Celebration Gold frames stay available to participants, and save.
+  for (const family of ['Minimal Light', 'Midnight']) {
+    for (const label of LABELS) {
+      await page.getByRole('switch', { name: `Show ${family} (${label}) to participants` }).uncheck()
+    }
   }
-  await expect(preview(page).getByText('Celebration Gold · Built-in')).toBeVisible()
+  await expect(page.getByTestId('available-frames-summary')).toHaveText(
+    '3 frames available to participants',
+  )
+  await page.getByRole('button', { name: 'Frame selection' }).click()
+  const cards = preview(page).getByRole('list', { name: 'Frames' }).getByRole('button')
+  await expect(cards).toHaveCount(3)
+  await expect(cards.first()).toHaveAccessibleName(/^Celebration Gold, /)
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
 
   await page.reload()
   await page.getByText('Advanced colors').click()
   await expect(page.getByLabel('Links hex value', { exact: true })).toHaveValue(LINK)
-  await expect(page.getByLabel('Frame for 2x6 photo strip', { exact: true }).locator('option:checked')).toHaveText(
-    'Celebration Gold (Built-in)',
-  )
+  await expect(goldSwitch(page, '2×6')).toBeChecked()
+  await expect(page.getByRole('switch', { name: 'Show Midnight (2×6) to participants' })).not.toBeChecked()
 })
 
 test('duplicating a profile keeps its theme and frames', async ({ page }) => {
@@ -172,8 +188,9 @@ test('duplicating a profile keeps its theme and frames', async ({ page }) => {
   await page.getByRole('link', { name: `Edit ${COPY}`, exact: true }).click()
   await page.getByText('Advanced colors').click()
   await expect(page.getByLabel('Links hex value', { exact: true })).toHaveValue(LINK)
-  await expect(page.getByLabel('Frame for 3x4 print', { exact: true }).locator('option:checked')).toHaveText(
-    'Celebration Gold (Built-in)',
+  await expect(goldSwitch(page, '3×4')).toBeChecked()
+  await expect(page.getByTestId('available-frames-summary')).toHaveText(
+    '3 frames available to participants',
   )
 })
 
@@ -194,12 +211,15 @@ test('themes and built-in frames survive a backend restart @after-restart', asyn
   await page.getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
   await page.getByText('Advanced colors').click()
   await expect(page.getByLabel('Links hex value', { exact: true })).toHaveValue(LINK)
-  await expect(preview(page).getByText('Celebration Gold · Built-in')).toBeVisible()
+  await expect(goldSwitch(page, '4×6')).toBeChecked()
+  await page.getByRole('button', { name: 'Frame selection' }).click()
   await expect
     .poll(
       () =>
         preview(page)
-          .getByRole('img', { name: /with Celebration Gold$/ })
+          .getByRole('list', { name: 'Frames' })
+          .locator('img')
+          .first()
           .evaluate((img: HTMLImageElement) => img.naturalWidth),
       { timeout: 20_000 },
     )

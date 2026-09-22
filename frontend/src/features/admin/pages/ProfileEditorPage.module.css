@@ -44,17 +44,31 @@
   gap: calc(var(--pb-space) * 2);
 }
 
-@media (min-width: 1000px) {
+/* Desktop and tablet landscape: editor left, preview right. The preview stays in view and has
+   its own scrollbar: scrolling over it never moves the editor, and reaching its end does not
+   hand the scroll to the page. Phones get one normal stacked column. */
+@media (min-width: 900px) {
   .editorLayout {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: start;
   }
 
   .previewColumn {
     position: sticky;
-    top: calc(var(--pb-space) * 2);
+    top: var(--pb-space);
+    max-height: calc(100vh - 2 * var(--pb-space));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 6px;
+    padding-bottom: var(--pb-space);
+    box-sizing: border-box;
   }
+}
+
+.previewColumn {
+  min-width: 0;
 }
 
 .formColumn {

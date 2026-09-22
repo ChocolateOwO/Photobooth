@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import type { Frame, ProfileSettings, RetakeMode, TemplateSummary } from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import {
@@ -9,8 +11,11 @@ import {
   EventScreen,
   EventText,
 } from '../../../shared/eventUi/EventUi'
-import { RetryingImage } from './RetryingImage'
+import { FrameGallery } from '../../../shared/eventUi/FrameGallery'
+import { galleryFrames, offeredLayouts } from '../frameCatalog'
 import styles from './EventPreview.module.css'
+
+type Mode = 'preparation' | 'frames'
 
 interface EventPreviewProps {
   settings: ProfileSettings
@@ -26,23 +31,50 @@ const RETAKE_LABELS: Record<RetakeMode, string> = {
 
 interface ScreenProps extends EventPreviewProps {
   phone: boolean
+  mode: Mode
 }
 
 /**
  * One event screen drawn only from the draft settings. Button labels such as "Back" and the
  * example messages are fixed booth wording, never profile content; admin hints stay outside.
  */
-function PreviewScreen({ settings, templates, frames, phone }: ScreenProps) {
+function PreviewScreen({ settings, templates, frames, phone, mode }: ScreenProps) {
   const api = useAdminApi()
+  // The participant gallery itself, with this draft's frames and order (a local choice only).
+  const [chosen, setChosen] = useState<string | null>(null)
   const backgroundUrl = settings.background_asset_id
     ? api.assetContentUrl(settings.background_asset_id)
     : null
   const logoUrl = settings.logo_asset_id ? api.assetContentUrl(settings.logo_asset_id) : null
-  const firstLayout = settings.enabled_layouts[0]
-  const template = templates.find((t) => t.key === firstLayout)
-  const frameId = firstLayout ? settings.frame_selections?.[firstLayout] : undefined
-  const frame = frameId ? frames?.find((f) => f.id === frameId) : undefined
+  const offered = galleryFrames(settings.available_frames, frames ?? [], templates, (frame) =>
+    api.framePreviewUrl(frame.id, 1, frame.sha256),
+  )
   const prefix = phone ? 'phone' : 'wide'
+
+  if (mode === 'frames') {
+    return (
+      <EventScreen
+        tokens={settings.theme.tokens}
+        backgroundImageUrl={backgroundUrl}
+        className={phone ? styles.phoneScreen : styles.wideScreen}
+        label={phone ? 'Phone-width frame selection preview' : 'Frame selection preview'}
+      >
+        {offered.length === 0 ? (
+          <EventMessage kind="info">No frames are available to participants yet.</EventMessage>
+        ) : (
+          <FrameGallery
+            compact
+            frames={offered}
+            allowSurprise={settings.allow_surprise_me}
+            selectedId={chosen}
+            onConfirm={(frame) => setChosen(frame.id)}
+            onStart={() => undefined}
+            onChooseAgain={() => setChosen(null)}
+          />
+        )}
+      </EventScreen>
+    )
+  }
 
   return (
     <EventScreen
@@ -71,23 +103,11 @@ function PreviewScreen({ settings, templates, frames, phone }: ScreenProps) {
         </EventCard>
 
         <EventCard className={styles.details}>
-          {frame ? (
-            <figure className={styles.frameFigure}>
-              <RetryingImage
-                src={api.framePreviewUrl(frame.id, 1, frame.sha256)}
-                alt={`${template?.name ?? 'Layout'} with ${frame.name}`}
-                className={styles.frameImage}
-              />
-              <figcaption className={styles.frameCaption}>
-                <EventText muted>
-                  {frame.name}
-                  {frame.builtin ? ' · Built-in' : ''}
-                </EventText>
-              </figcaption>
-            </figure>
-          ) : (
-            firstLayout && <EventText muted>No frame for {template?.name ?? firstLayout}</EventText>
-          )}
+          <EventText muted>
+            {offered.length === 1
+              ? '1 frame to choose from'
+              : `${offered.length} frames to choose from`}
+          </EventText>
           <EventInput
             id={`${prefix}-preview-email`}
             label="Email for your photos"
@@ -105,30 +125,51 @@ function PreviewScreen({ settings, templates, frames, phone }: ScreenProps) {
 }
 
 export function EventPreview({ settings, templates, frames }: EventPreviewProps) {
+  const [mode, setMode] = useState<Mode>('preparation')
   const retakeText = RETAKE_LABELS[settings.retake_mode]
   const mirrorText = settings.mirror ? 'Mirror: on' : 'Mirror: off'
   const timeoutText = `Timeout: ${settings.inactivity_timeout_s} s`
-  const layoutNames = settings.enabled_layouts.map(
+  const layoutNames = offeredLayouts(settings.available_frames, frames ?? []).map(
     (key) => templates.find((t) => t.key === key)?.name ?? key,
   )
 
   return (
     <section
-      aria-label="Preparation screen preview"
+      aria-label="Event preview"
       data-testid="preparation-preview"
       className={styles.previewSection}
     >
-      <h2 className={styles.previewHeading}>Preview</h2>
-      <div data-testid="event-preview">
-        <PreviewScreen settings={settings} templates={templates} frames={frames} phone={false} />
+      <div className={styles.previewTop}>
+        <h2 className={styles.previewHeading}>Preview</h2>
+        <div className={styles.modes} role="group" aria-label="Preview screen">
+          {(
+            [
+              ['preparation', 'Preparation screen'],
+              ['frames', 'Frame selection'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={mode === value}
+              className={styles.modeButton}
+              onClick={() => setMode(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div data-testid="event-preview" className={styles.screenBox}>
+        <PreviewScreen settings={settings} templates={templates} frames={frames} phone={false} mode={mode} />
       </div>
       <p className={styles.caption}>
         <span>{mirrorText}</span>, <span>{timeoutText}</span>, <span>{retakeText}</span>
-        {layoutNames.length > 0 && <span>. Layouts: {layoutNames.join(', ')}</span>}
+        {layoutNames.length > 0 && <span>. Layouts offered: {layoutNames.join(', ')}</span>}
       </p>
       <h3 className={styles.phoneHeading}>Phone width</h3>
-      <div className={styles.phoneFrame} data-testid="event-preview-phone">
-        <PreviewScreen settings={settings} templates={templates} frames={frames} phone />
+      <div className={`${styles.phoneFrame} ${styles.screenBox}`} data-testid="event-preview-phone">
+        <PreviewScreen settings={settings} templates={templates} frames={frames} phone mode={mode} />
       </div>
     </section>
   )

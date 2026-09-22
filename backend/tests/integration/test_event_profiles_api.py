@@ -15,10 +15,14 @@ from photobooth.core.config import AppSettings
 from photobooth.core.migrations import Migrator
 from photobooth.main import KioskAppOptions, create_kiosk_app
 from photobooth.modules.event_profiles.domain import ProfileConflictError, ProfileSettings
+from photobooth.modules.frames.builtin import builtin_frame_id
 from photobooth.modules.themes.domain import DEFAULT_PRESET, PRESETS
 from tests.integration.admin_support import jpeg, login, png
 
 BASE = "/api/admin/profiles"
+STRIP = builtin_frame_id("midnight", "strip_2x6")
+PRINT46 = builtin_frame_id("midnight", "print_4x6")
+PRINT34 = builtin_frame_id("midnight", "print_3x4")
 
 
 def body(name: str = "Wedding", **overrides: Any) -> dict[str, Any]:
@@ -27,7 +31,7 @@ def body(name: str = "Wedding", **overrides: Any) -> dict[str, Any]:
         "title": "Welcome to the booth",
         "subtitle": "Tap start when you are ready",
         "start_button_text": "Start",
-        "enabled_layouts": ["strip_2x6", "print_4x6"],
+        "available_frames": [STRIP, PRINT46],
         "countdown_seconds": 5,
         "mirror": True,
         "inactivity_timeout_s": 90,
@@ -70,21 +74,23 @@ def test_create_get_list_update(kiosk_client: TestClient, admin: dict[str, str])
     # No theme sent: the default preset, complete.
     assert settings["theme"]["preset"] == DEFAULT_PRESET
     assert settings["theme"]["tokens"] == PRESETS[DEFAULT_PRESET].tokens
-    assert settings["enabled_layouts"] == ["strip_2x6", "print_4x6"]  # order kept
+    assert settings["available_frames"] == [STRIP, PRINT46]  # order kept
+    assert created["available_layouts"] == ["strip_2x6", "print_4x6"]
     assert settings["logo_asset_id"] == logo and settings["background_asset_id"] == background
     assert settings["mirror"] is False and settings["countdown_seconds"] == 5
 
     assert kiosk_client.get(f"{BASE}/{created['id']}").json() == created
     assert [p["id"] for p in kiosk_client.get(BASE).json()] == [created["id"]]
 
-    changed = body(title="New title", enabled_layouts=["print_3x4"], retake_mode="all")
+    changed = body(title="New title", available_frames=[PRINT34], retake_mode="all")
     updated = kiosk_client.put(
         f"{BASE}/{created['id']}", json={**changed, "revision": 1}, headers=admin
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["revision"] == 2
     assert updated.json()["settings"]["title"] == "New title"
-    assert updated.json()["settings"]["enabled_layouts"] == ["print_3x4"]
+    assert updated.json()["settings"]["available_frames"] == [PRINT34]
+    assert updated.json()["available_layouts"] == ["print_3x4"]
     assert updated.json()["settings"]["logo_asset_id"] is None
 
 
@@ -104,10 +110,11 @@ def test_stale_revision_is_rejected(kiosk_client: TestClient, admin: dict[str, s
     "overrides",
     [
         {"countdown_seconds": 3},
-        {"enabled_layouts": []},
-        {"enabled_layouts": ["unknown_layout"]},
-        {"enabled_layouts": ["strip_2x6", "strip_2x6"]},
-        {"enabled_layouts": ["../strip"]},
+        {"available_frames": [STRIP, STRIP]},
+        {"available_frames": ["../strip"]},
+        {"available_frames": ["00000000-0000-4000-8000-000000000000"]},
+        {"enabled_layouts": ["strip_2x6"]},  # replaced by available_frames (unknown field)
+        {"frame_selections": {}},
         {"inactivity_timeout_s": 5},
         {"inactivity_timeout_s": 5000},
         {"theme": {"tokens": {**PRESETS[DEFAULT_PRESET].tokens, "heading": "red"}}},
@@ -223,8 +230,8 @@ def test_concurrent_activation_leaves_exactly_one_active(
 
 def test_database_refuses_a_second_active_row(container: Container) -> None:
     service = container.profile_service
-    a = service.create(ProfileSettings(name="A", title="t"))
-    b = service.create(ProfileSettings(name="B", title="t"))
+    a = service.create(ProfileSettings(name="A", title="t", available_frames=(STRIP,)))
+    b = service.create(ProfileSettings(name="B", title="t", available_frames=(STRIP,)))
     service.activate(a.id)
     with pytest.raises(IntegrityError), container.engine.begin() as conn:
         conn.execute(text("UPDATE event_profiles SET is_active = 1 WHERE id = :id"), {"id": b.id})
