@@ -259,4 +259,86 @@ describe('Main colours (Button and Text only)', () => {
     )
     expect(screen.getByLabelText('Text colour')).toHaveValue((server.extractResult.tokens.heading ?? '').toLowerCase())
   })
+
+  it('a late colour answer never overwrites Undo or a background Reset done meanwhile (P5R5-001)', async () => {
+    const server = signedInServer()
+    renderAdmin('/admin/profiles/new', { server })
+    await fillRequired()
+    await userEvent.upload(
+      screen.getByLabelText('Background image'),
+      new File([new Uint8Array(256)], 'bg.jpg', { type: 'image/jpeg' }),
+    )
+    expect(await screen.findByText('Colors extracted from background')).toBeInTheDocument()
+    const extracted = server.extractResult.tokens
+    const midnight = presetById('midnight_blue').tokens
+    const button = screen.getByLabelText('Button colour')
+    const late = async (colour: string) => {
+      let release = () => {}
+      server.mainColourGates.push(new Promise<void>((resolve) => { release = resolve }))
+      const before = server.mainColourRequests.length
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(button, colour)
+        button.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      await waitFor(() => expect(server.mainColourRequests).toHaveLength(before + 1))
+      return release
+    }
+
+    // Reset (background): the extraction answers first, the older colour answer later.
+    let release = await late('#aa2244')
+    await userEvent.click(screen.getByRole('button', { name: 'Reset to recommended colours' }))
+    await waitFor(() => expect(server.extractedFrom).toHaveLength(2))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save profile' })).toBeEnabled())
+    await act(async () => {
+      release()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+    expect(previewVar('primary_bg')).toBe(extracted.primary_bg)
+    expect(screen.getByText('Colors extracted from background')).toBeInTheDocument()
+
+    // Undo: back to the theme before the last extraction, whatever answers later.
+    release = await late('#123456')
+    await userEvent.click(screen.getByRole('button', { name: 'Undo extracted theme' }))
+    await act(async () => {
+      release()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+    expect(previewVar('primary_bg')).toBe(extracted.primary_bg)
+    await userEvent.click(screen.getByRole('button', { name: 'Undo extracted theme' }))
+    expect(previewVar('primary_bg')).toBe(midnight.primary_bg)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    })
+    expect(previewVar('primary_bg')).toBe(midnight.primary_bg)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    await waitFor(() => expect(server.profiles.size).toBe(1))
+    expect([...server.profiles.values()][0]?.settings.theme.tokens.primary_bg).toBe(midnight.primary_bg)
+  })
+
+  it('a refused colour change says so in Main colours, even without a background, and can be retried (P5R5-003)', async () => {
+    const server = signedInServer()
+    server.mainColourFailures = 1
+    renderAdmin('/admin/profiles/new', { server })
+    await fillRequired()
+    const button = screen.getByLabelText('Button colour')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(button, '#aa2244')
+      button.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const main = screen.getByRole('group', { name: 'Main colours' })
+    const alert = await within(main).findByRole('alert')
+    expect(alert).toHaveTextContent('Your colour change was not applied; the previous colours are kept.')
+    // The previous colours are shown and kept.
+    const midnight = presetById('midnight_blue').tokens
+    expect(button).toHaveValue((midnight.primary_bg ?? '').toLowerCase())
+    expect(previewVar('primary_bg')).toBe(midnight.primary_bg)
+
+    await userEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(previewVar('primary_bg')).toBe('#AA2244'))
+    expect(within(main).queryByRole('alert')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    await waitFor(() => expect(server.profiles.size).toBe(1))
+    expect([...server.profiles.values()][0]?.settings.theme.tokens.primary_bg).toBe('#AA2244')
+  })
 })

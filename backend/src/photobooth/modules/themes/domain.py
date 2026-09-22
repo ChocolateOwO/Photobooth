@@ -387,7 +387,8 @@ def with_main_colours(tokens: Mapping[str, str], button: str, text: str) -> dict
     """Regenerate every colour that belongs to the Button and Text colours.
 
     Page colours (background, cards, backdrop, input fields) and the semantic danger/status
-    colours stay as they are; buttons with their hover/pressed/disabled shades, the secondary
+    colours stay as they are (cards, input fields and those texts move only when they could
+    not otherwise be read); buttons with their hover/pressed/disabled shades, the secondary
     button, text shades, links, borders, placeholder and focus colours are derived from the two
     main colours. Every result meets the WCAG AA contrast rules: a chosen colour is changed only
     as much as that needs (same hue), and button labels are picked for readability.
@@ -396,21 +397,30 @@ def with_main_colours(tokens: Mapping[str, str], button: str, text: str) -> dict
     surface = to_rgb(tokens["surface"])
     input_bg = to_rgb(tokens["input_bg"])
     accent = to_rgb(button)
-    heading = fit(
-        to_rgb(text),
-        [(background, TEXT_AA), (surface, TEXT_AA), (input_bg, TEXT_AA)],
-        [(background, HEADING_TARGET)],
-    )
-    body = fit(mix(heading, background, 0.1), [(background, TEXT_AA), (surface, TEXT_AA)])
-    muted = fit(
-        mix(heading, background, 0.36),
-        [(background, TEXT_AA), (surface, TEXT_AA), (input_bg, TEXT_AA)],
-    )
+    pages = [(background, TEXT_AA), (surface, TEXT_AA), (input_bg, TEXT_AA)]
+    heading = fit(to_rgb(text), pages, [(background, HEADING_TARGET)])
+    if not _meets(heading, pages):
+        # No one text colour reads on all three (e.g. a black page with grey cards): the text
+        # follows the page, and cards and input fields move just enough (same hue) to carry it.
+        heading = fit(to_rgb(text), [(background, TEXT_AA)], [(background, HEADING_TARGET)])
+        surface = fit(surface, [(heading, TEXT_AA)])
+        input_bg = fit(input_bg, [(heading, TEXT_AA)])
+    readable = [(background, TEXT_AA), (surface, TEXT_AA)]
+    body = _or_heading(fit(mix(heading, background, 0.1), readable), heading, readable)
+    muted = _or_heading(fit(mix(heading, background, 0.36), pages), heading, pages)
     primary = _button(accent, background)
     # The secondary button is a quieter tint of the main colour, so the two stay related.
     secondary = _button(mix(background, primary.bg, 0.3), background)
-    link = fit(accent, [(background, TEXT_AA), (surface, TEXT_AA)])
+    link = _or_heading(fit(accent, readable), heading, readable)
+    field = [(input_bg, NON_TEXT_AA)]
+    visible = [(background, NON_TEXT_AA), (surface, NON_TEXT_AA)]
+    kept = {key: to_rgb(tokens[key]) for key in TOKEN_KEYS}
+    # Kept pairs (delete button, messages) whose own text is unreadable get a readable text.
+    for bg_key, text_key in _KEPT_PAIRS:
+        kept[text_key] = fit(kept[text_key], [(kept[bg_key], TEXT_AA)])
     derived: dict[str, RGB] = {
+        "surface": surface,
+        "input_bg": input_bg,
         "heading": heading,
         "body": body,
         "muted": muted,
@@ -429,11 +439,26 @@ def with_main_colours(tokens: Mapping[str, str], button: str, text: str) -> dict
         "secondary_pressed": secondary.pressed,
         "secondary_disabled_bg": secondary.disabled_bg,
         "secondary_disabled_text": secondary.disabled_text,
-        "input_border": fit(mix(heading, input_bg, 0.5), [(input_bg, NON_TEXT_AA)]),
-        "input_focus_border": fit(primary.bg, [(input_bg, NON_TEXT_AA)]),
-        "focus_ring": fit(link, [(background, NON_TEXT_AA), (surface, NON_TEXT_AA)]),
+        "input_border": _or_heading(fit(mix(heading, input_bg, 0.5), field), heading, field),
+        "input_focus_border": _or_heading(fit(primary.bg, field), heading, field),
+        "focus_ring": _or_heading(fit(link, visible), heading, visible),
     }
-    return {key: to_hex(derived[key]) if key in derived else tokens[key] for key in TOKEN_KEYS}
+    return {key: to_hex(derived.get(key, kept[key])) for key in TOKEN_KEYS}
+
+
+# Background/text pairs that with_main_colours keeps (only their text is repaired when unreadable).
+_KEPT_PAIRS: tuple[tuple[str, str], ...] = (
+    ("danger_bg", "danger_text"),
+    ("success_bg", "success_text"),
+    ("warning_bg", "warning_text"),
+    ("error_bg", "error_text"),
+    ("info_bg", "info_text"),
+)
+
+
+def _or_heading(candidate: RGB, heading: RGB, required: Sequence[Constraint]) -> RGB:
+    """The candidate shade, or the text colour itself when no shade of that hue is readable."""
+    return candidate if _meets(candidate, required) else heading
 
 
 @dataclass(frozen=True)

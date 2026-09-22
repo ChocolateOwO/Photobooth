@@ -173,16 +173,26 @@ def test_activation_is_refused_when_no_valid_frame_exists_for_the_sizes(
     profile = kiosk_client.post(
         PROFILES, json=body(enabled_layouts=["print_3x4"]), headers=headers
     ).json()
-    # No valid frame of that size (as if the built-in files were retired).
-    service = container.frame_service
-    original = service.offered_frames
-    service.offered_frames = lambda layouts: []  # type: ignore[method-assign]
-    try:
-        refused = activate(kiosk_client, headers, profile)
-    finally:
-        service.offered_frames = original  # type: ignore[method-assign]
+    # Stored frames of that size that can not be offered: made for a template version that no
+    # longer exists (a frame is stored only once validated, so "valid" is its only status).
+    frames = [
+        f
+        for f in kiosk_client.get(FRAMES, headers=headers).json()
+        if f["template_key"] == "print_3x4"
+    ]
+    assert len(frames) == len(FAMILIES)
+    with container.engine.begin() as conn:
+        for frame in frames:
+            conn.exec_driver_sql(
+                "UPDATE frame_assets SET template_version = 999 WHERE id = ?", (frame["id"],)
+            )
+    refused = activate(kiosk_client, headers, profile)
     assert refused.status_code == 409 and NO_FRAMES in refused.json()["detail"]
+
+    # A valid upload of that size makes it possible; only that frame is offered.
+    _s, mine = upload(kiosk_client, headers, key="print_3x4", name="Mine")
     assert activate(kiosk_client, headers, profile).status_code == 200
+    assert menu_ids(kiosk_client) == [mine["id"]]
 
 
 def test_frames_page_shows_which_profiles_offer_each_size(

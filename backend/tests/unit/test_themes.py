@@ -214,9 +214,6 @@ def test_empty_palette_falls_back_safely() -> None:
     _assert_accessible(theme_from_palette([PaletteColor((128, 128, 128), 1.0)]))
 
 
-STATUS = ("success", "warning", "error", "info", "danger")
-
-
 @pytest.mark.parametrize("preset", PRESET_LIST, ids=lambda p: p.id)
 def test_main_colours_always_give_an_accessible_related_theme(preset: object) -> None:
     base = PRESETS[preset.id].tokens  # type: ignore[attr-defined]
@@ -229,7 +226,7 @@ def test_main_colours_always_give_an_accessible_related_theme(preset: object) ->
         # Only the page and status colours stay as they were; everything meets the rules.
         for key in ("background", "surface", "overlay", "input_bg"):
             assert tokens[key] == base[key]
-        assert [p for p in contrast_problems(tokens) if not p.foreground.startswith(STATUS)] == []
+        assert contrast_problems(tokens) == []
         # The chosen hue survives (only its lightness/saturation move, for contrast).
         assert (
             tokens["primary_bg"] == button
@@ -244,3 +241,29 @@ def test_main_colours_are_read_from_and_round_trip_through_the_tokens() -> None:
         again = with_main_colours(preset.tokens, button, text)
         assert main_colours(again) == (button, text)
         assert contrast_problems(again) == []
+
+
+def test_main_colours_repair_a_custom_theme_whose_page_colours_clash() -> None:
+    # A black page with grey cards and inputs: no one text colour reads on all three.
+    base = dict(PRESETS[DEFAULT_PRESET].tokens)
+    base.update(background="#000000", surface="#808080", input_bg="#808080")
+    tokens = with_main_colours(base, base["primary_bg"], "#FFFFFF")
+    assert contrast_problems(tokens) == []
+    assert tokens["background"] == "#000000"
+    assert tokens["heading"] == "#FFFFFF"
+    assert tokens["surface"] != "#808080"  # darkened just enough to carry the white text
+
+
+def test_main_colours_always_give_an_accessible_theme_from_any_custom_theme() -> None:
+    # Any complete theme the old 35-colour editor could have saved, with any two main colours.
+    rng = random.Random("custom")
+
+    def colour() -> str:
+        return f"#{rng.randrange(1 << 24):06X}"
+
+    for _ in range(400):
+        base = {key: colour() for key in TOKEN_KEYS}
+        tokens = with_main_colours(base, colour(), colour())
+        assert set(tokens) == set(TOKEN_KEYS)
+        assert contrast_problems(tokens) == [], contrast_problems(tokens)[0].message
+        assert tokens["background"] == base["background"]

@@ -10,7 +10,7 @@ import pytest
 from photobooth.core.db import create_sqlite_engine
 from photobooth.core.migrations import Migrator
 from photobooth.modules.event_profiles.repository import SqlEventProfileRepository
-from tests.integration.test_migration_0005 import KEPT, _prepare, _tables
+from tests.integration.test_migration_0005 import _prepare, _tables
 
 SIZES = {
     # p1 offered a 4x6 built-in frame and an uploaded strip; p2 (deleted) a 3x4 frame;
@@ -34,8 +34,15 @@ def _at_0005(db: Path) -> tuple[Migrator, list[tuple[object, ...]]]:
     migrator, _before = _prepare(db)
     migrator.upgrade("0005_available_frames")
     with sqlite3.connect(db) as conn:
-        before = conn.execute(f"SELECT {KEPT} FROM event_profiles ORDER BY id").fetchall()  # noqa: S608
+        before = _profiles(conn)
     return migrator, before
+
+
+def _profiles(conn: sqlite3.Connection) -> list[dict[str, object]]:
+    """Every column of every profile (names included), so no field can be lost unnoticed."""
+    cursor = conn.execute("SELECT * FROM event_profiles ORDER BY id")
+    names = [d[0] for d in cursor.description]
+    return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
 
 
 def test_offered_frames_become_sizes_and_nothing_else_changes(thai_root: Path) -> None:
@@ -47,7 +54,8 @@ def test_offered_frames_become_sizes_and_nothing_else_changes(thai_root: Path) -
     migrator.upgrade("0006_photo_sizes_countdown")
     with sqlite3.connect(db) as conn:
         conn.execute("PRAGMA foreign_keys=ON")
-        assert conn.execute(f"SELECT {KEPT} FROM event_profiles ORDER BY id").fetchall() == before  # noqa: S608
+        assert _profiles(conn) == before
+        assert {"name_key", "allow_surprise_me", "theme", "countdown_seconds"} <= set(before[0])
         assert _sizes(conn) == SIZES
         assert "event_profile_available_frames" not in _tables(conn)
         # Frames and their stored files are untouched.
@@ -95,15 +103,24 @@ def test_downgrade_rebuilds_the_frame_list_and_the_fixed_countdown(thai_root: Pa
         assert conn.execute("SELECT DISTINCT countdown_seconds FROM event_profiles").fetchall() == [
             (5,)
         ]
-        assert conn.execute(f"SELECT {KEPT} FROM event_profiles ORDER BY id").fetchall() == before  # noqa: S608
+        assert _profiles(conn) == before
+        # Exactly every valid frame of each size, sizes in their order, built-in first, then name.
         offered = {
-            pid: {key for (key,) in conn.execute(
-                "SELECT DISTINCT f.template_key FROM event_profile_available_frames a "
-                "JOIN frame_assets f ON f.id = a.frame_id WHERE a.profile_id = ?", (pid,)
-            )}
+            pid: [fid for (fid,) in conn.execute(
+                "SELECT frame_id FROM event_profile_available_frames WHERE profile_id = ? "
+                "ORDER BY position", (pid,)
+            )]
             for pid in SIZES
         }  # fmt: skip
-        assert offered == {pid: set(keys) for pid, keys in SIZES.items()}
+        expected = {
+            pid: [fid for key in keys for (fid,) in conn.execute(
+                "SELECT id FROM frame_assets WHERE template_key = ? AND status = 'valid' "
+                "ORDER BY builtin DESC, name", (key,)
+            )]
+            for pid, keys in SIZES.items()
+        }  # fmt: skip
+        assert offered == expected
+        assert all(offered.values())
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute("UPDATE event_profiles SET countdown_seconds = 6 WHERE id = 'p1'")
     migrator.upgrade("head")

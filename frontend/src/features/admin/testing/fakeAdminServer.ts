@@ -91,6 +91,8 @@ export class FakeAdminServer {
   /** Main-colour derivations requested, in order; each waits for the next gate, if any. */
   mainColourRequests: { button: string; text: string }[] = []
   mainColourGates: Promise<void>[] = []
+  /** How many main-colour requests fail with a server error before they succeed again. */
+  mainColourFailures = 0
   /** How many times the frame list was requested. */
   frameListRequests = 0
   /** When set, extraction fails with this plain reason (422). */
@@ -363,6 +365,10 @@ export class FakeAdminServer {
       this.mainColourRequests.push({ button: body.button, text: body.text })
       const gate = this.mainColourGates.shift()
       if (gate) await gate
+      if (this.mainColourFailures > 0) {
+        this.mainColourFailures -= 1
+        return json({ detail: 'internal error' }, 500)
+      }
       // A stand-in for the server's derivation: the two colours and some of their related shades.
       const tokens = {
         ...body.tokens,

@@ -12,6 +12,7 @@ from photobooth.modules.themes.domain import (
     PaletteColor,
     Preset,
     ThemeSourceError,
+    contrast_problems,
     main_colours,
     theme_from_palette,
     with_main_colours,
@@ -52,5 +53,9 @@ class ThemeService:
         if set(tokens) != set(TOKEN_KEYS):
             raise ThemeSourceError("The theme must contain every colour.")
         derived = with_main_colours({k: v.upper() for k, v in tokens.items()}, button, text)
+        problems = contrast_problems(derived)
+        if problems:
+            # Not expected (derivation repairs every pair); never return an unreadable theme.
+            raise ThemeSourceError(f"These colours can not be made readable: {problems[0].message}")
         used_button, used_text = main_colours(derived)
         return derived, used_button, used_text

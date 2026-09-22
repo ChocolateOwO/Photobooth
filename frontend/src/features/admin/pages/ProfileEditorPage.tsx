@@ -135,18 +135,21 @@ function ProfileEditorForm({
   }
 
   // Main colours: the server regenerates every related colour from Button and Text. Each change
-  // is numbered; only the newest answer is applied, and any other theme change cancels it.
+  // is numbered; only the newest answer is applied, and any other theme change (Quick Theme,
+  // extraction, Reset, Undo, reload) cancels it (P5R5-001).
   const api = useAdminApi()
   const mainSeq = useRef(0)
   const mainTimer = useRef<number | undefined>(undefined)
   const [mainDraft, setMainDraft] = useState<{ button: string; text: string } | null>(null)
-  const [mainError, setMainError] = useState<string | null>(null)
+  // A refused change stays visible with a retry; the previous colours are kept meanwhile.
+  const [mainFailure, setMainFailure] = useState<{ button: string; text: string } | null>(null)
   // Saving before the related colours arrive would store the previous colours.
   const colourPending = mainDraft !== null
   const cancelMainColours = () => {
     mainSeq.current += 1
     window.clearTimeout(mainTimer.current)
     setMainDraft(null)
+    setMainFailure(null)
   }
   useEffect(() => () => window.clearTimeout(mainTimer.current), [])
   const changeMainColours = (button: string, text: string) => {
@@ -154,7 +157,7 @@ function ProfileEditorForm({
     mainSeq.current += 1
     const seq = mainSeq.current
     setMainDraft({ button, text })
-    setMainError(null)
+    setMainFailure(null)
     window.clearTimeout(mainTimer.current)
     mainTimer.current = window.setTimeout(() => {
       void (async () => {
@@ -169,7 +172,7 @@ function ProfileEditorForm({
         } catch {
           if (mainSeq.current !== seq) return
           setMainDraft(null)
-          setMainError('The colours could not be applied. Try again.')
+          setMainFailure({ button, text })
         }
       })()
     }, 120)
@@ -179,6 +182,7 @@ function ProfileEditorForm({
   const extractFrom = async (assetId: string) => {
     extractionSeq.current += 1
     const seq = extractionSeq.current
+    cancelMainColours() // the background's colours replace a pending Button/Text change
     setPendingExtraction(seq)
     setExtractError(null)
     try {
@@ -211,6 +215,7 @@ function ProfileEditorForm({
     const previous = themeHistory[themeHistory.length - 1]
     if (!previous) return
     invalidateExtraction()
+    cancelMainColours()
     setThemeHistory((history) => history.slice(0, -1))
     setSettings((current) => ({ ...current, theme: previous }))
   }
@@ -318,6 +323,8 @@ function ProfileEditorForm({
   const handleReloadLatest = async () => {
     const fresh = await onReloadLatest()
     if (fresh) {
+      invalidateExtraction()
+      cancelMainColours()
       setSettings(fresh.settings)
       setCurrentRevision(fresh.revision)
       setConflictError(null)
@@ -432,6 +439,12 @@ function ProfileEditorForm({
             }
           }
           onMainColours={changeMainColours}
+          mainColoursFailure={
+            mainFailure && {
+              message: 'Your colour change was not applied; the previous colours are kept.',
+              retry: () => changeMainColours(mainFailure.button, mainFailure.text),
+            }
+          }
           catalog={catalog}
           hasBackground={Boolean(settings.background_asset_id)}
           extraction={{
@@ -441,7 +454,7 @@ function ProfileEditorForm({
             undo: undoExtraction,
             canUndo: themeHistory.length > 0,
             pending: pendingExtraction !== null,
-            error: extractError ?? mainError,
+            error: extractError,
           }}
           disabled={isDeleted}
         />

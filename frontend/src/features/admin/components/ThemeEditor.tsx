@@ -45,6 +45,8 @@ interface ThemeEditorProps {
   mainColours: { button: string; text: string }
   /** Regenerate every related colour from new Button/Text colours. */
   onMainColours: (button: string, text: string) => void
+  /** A Button/Text change the server did not apply, shown in Main colours with a retry. */
+  mainColoursFailure?: { message: string; retry: () => void } | null
   disabled: boolean
 }
 
@@ -254,6 +256,7 @@ export function ThemeEditor({
   extraction,
   mainColours,
   onMainColours,
+  mainColoursFailure,
   disabled,
 }: ThemeEditorProps) {
   const firstPresetRef = useRef<HTMLInputElement>(null)
@@ -406,6 +409,19 @@ export function ThemeEditor({
             Reset to recommended colours
           </button>
         </div>
+        {mainColoursFailure && (
+          <div role="alert" className={styles.alert}>
+            {mainColoursFailure.message}{' '}
+            <button
+              type="button"
+              onClick={mainColoursFailure.retry}
+              disabled={disabled}
+              className={styles.actionButton}
+            >
+              Try again
+            </button>
+          </div>
+        )}
         <p className={styles.helper}>
           Hover, pressed and disabled shades, the other button, links, borders and helper text
           follow these two colours and stay readable.
