@@ -40,43 +40,40 @@ function preview(page: Page): Locator {
 
 async function expectPreviewTokens(page: Page, tokens: Record<string, string>) {
   const view = preview(page)
-  await expect(view.getByRole('group', { name: 'Kiosk screen preview' })).toHaveCSS(
+  // The start screen: background, the Photobooth mark (no logo yet) and the Start button.
+  await expect(view.getByRole('group', { name: 'Start screen preview' })).toHaveCSS(
     'background-color',
     rgb(tokens.background ?? ''),
   )
-  await expect(view.getByRole('button', { name: 'Back' })).toHaveCSS(
-    'background-color',
-    rgb(tokens.secondary_bg ?? ''),
-  )
-  await expect(view.getByRole('button', { name: 'Print' })).toHaveCSS(
-    'background-color',
-    rgb(tokens.primary_disabled_bg ?? ''),
-  )
-  await expect(view.getByText('Paper is running low.')).toHaveCSS('color', rgb(tokens.warning_text ?? ''))
-  await expect(view.getByLabel('Email for your photos')).toHaveCSS(
-    'background-color',
-    rgb(tokens.input_bg ?? ''),
-  )
+  const start = view.getByTestId('start-screen').getByRole('button')
+  await expect(start).toHaveCSS('background-color', rgb(tokens.primary_bg ?? ''))
+  await expect(start).toHaveCSS('color', rgb(tokens.primary_text ?? ''))
+  await expect(view.getByRole('img', { name: 'Photobooth' })).toHaveCSS('color', rgb(tokens.heading ?? ''))
+}
+
+function mark(page: Page): Locator {
+  return preview(page).getByRole('img', { name: 'Photobooth' })
 }
 
 test('built-in frames are there on a fresh setup and are read-only', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/admin/frames')
-  for (const layout of LAYOUT_NAMES) {
-    const list = page.getByRole('list', { name: `Built-in frames for ${layout}` })
-    const cards = list.getByTestId('frame-card')
-    await expect(cards).toHaveCount(FAMILIES.length)
-    for (const family of FAMILIES) {
-      const card = cards.filter({ has: page.getByRole('heading', { name: family, exact: true }) })
-      await expect(card.getByText('Built-in', { exact: true })).toBeVisible()
-      await expect(card.getByRole('button', { name: /Replace|Rename|Delete/ })).toHaveCount(0)
-      await card.scrollIntoViewIfNeeded()
+  await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Built-in' }).click()
+  const rows = page.getByTestId('frame-row')
+  await expect(rows).toHaveCount(FAMILIES.length * LAYOUT_NAMES.length)
+  for (const family of FAMILIES) {
+    const familyRows = rows.filter({ has: page.getByRole('heading', { name: family, exact: true }) })
+    await expect(familyRows).toHaveCount(LAYOUT_NAMES.length)
+    for (let i = 0; i < LAYOUT_NAMES.length; i++) {
+      const row = familyRows.nth(i)
+      await expect(row.getByText('Built-in', { exact: true })).toBeVisible()
+      await expect(row.getByText('Read-only', { exact: true })).toBeVisible()
+      await expect(row.getByRole('button', { name: /Replace|Rename|Delete/ })).toHaveCount(0)
+      await expect(row.getByRole('img')).toHaveCount(1)
+      await row.scrollIntoViewIfNeeded()
       await expect
         .poll(
-          () =>
-            card
-              .getByRole('img', { name: `${family} sample output` })
-              .evaluate((img: HTMLImageElement) => img.naturalWidth),
+          () => row.getByRole('img', { name: `${family} sample output` }).evaluate((img: HTMLImageElement) => img.naturalWidth),
           { timeout: 20_000 },
         )
         .toBeGreaterThan(0)
@@ -87,6 +84,41 @@ test('built-in frames are there on a fresh setup and are read-only', async ({ pa
   expect(frames.filter((f) => f.builtin)).toHaveLength(9)
 })
 
+test('quick themes sit in one row of compact options with round colour dots', async ({ page }) => {
+  await pairAndSignIn(page)
+  await page.getByRole('link', { name: 'New profile' }).click()
+  const options = page.getByTestId('theme-option')
+  await expect(options).toHaveCount(7)
+  const tops = await options.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)))
+  expect(new Set(tops).size).toBe(1) // one horizontal strip (it scrolls sideways if needed)
+  for (const box of await options.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height))) {
+    expect(box).toBeLessThanOrEqual(56)
+  }
+  const dots = options.first().locator('[data-swatch]')
+  await expect(dots).toHaveCount(3)
+  for (const radius of await dots.evaluateAll((els) => els.map((el) => getComputedStyle(el).borderRadius))) {
+    expect(radius).toBe('50%')
+  }
+  const selected = options.filter({ has: page.getByRole('radio', { checked: true }) })
+  await expect(selected).toHaveCount(1)
+  await expect(selected).toHaveAttribute('data-selected', '')
+  const selectedBorder = await selected.evaluate((el) => getComputedStyle(el).borderColor)
+  const otherBorder = await options.nth(1).evaluate((el) => getComputedStyle(el).borderColor)
+  expect(selectedBorder).toBe('rgb(47, 111, 214)')
+  expect(otherBorder).not.toBe(selectedBorder)
+  // Details never selects; one details view at a time.
+  await page.getByRole('button', { name: 'View details of Sunset Coral' }).click()
+  await expect(page.locator('[role="dialog"][aria-modal="true"]')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('radio', { name: /^Sunset Coral/ })).not.toBeChecked()
+  // Clicking anywhere on the option (its invisible radio covers it) selects it.
+  const coral = options.filter({ hasText: 'Sunset Coral' })
+  const coralBox = await coral.getByRole('radio').boundingBox()
+  const nameBox = await coral.getByText('Sunset Coral', { exact: true }).boundingBox()
+  expect((coralBox?.width ?? 0) >= (nameBox?.width ?? 1)).toBe(true)
+  await coral.getByRole('radio').click()
+  await expect(page.getByRole('radio', { name: /^Sunset Coral/ })).toBeChecked()
+})
 test('a new profile starts with an accessible preset and built-in frames', async ({ page }) => {
   await pairAndSignIn(page)
   const themes = await catalog(page)
@@ -130,7 +162,7 @@ test('presets, background colours, undo, advanced colours and saving', async ({ 
   const swatches = page.getByRole('list', { name: 'Colours found in the background' })
   await expect(swatches.getByRole('listitem').first()).toBeVisible()
   const lightSwatches = await swatches.innerText()
-  const heading = preview(page).getByRole('heading', { name: 'Theme party' })
+  const heading = mark(page)
   const darkText = await heading.evaluate((el) => getComputedStyle(el).color)
   expect(darkText).not.toBe(rgb(gold?.tokens.heading ?? ''))
 
@@ -199,7 +231,10 @@ test('the theme editor and previews fit a phone screen', async ({ page }) => {
   await pairAndSignIn(page)
   await page.getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
   await page.getByText('Advanced colors').click()
-  await expect(page.getByTestId('event-preview-phone')).toBeVisible()
+  // One preview only (no separate phone copy), and nothing wider than the phone.
+  await expect(page.getByText('Phone width')).toHaveCount(0)
+  await expect(page.getByTestId('preview-viewport')).toHaveCount(1)
+  await expect(page.getByTestId('theme-option').first()).toBeVisible()
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )

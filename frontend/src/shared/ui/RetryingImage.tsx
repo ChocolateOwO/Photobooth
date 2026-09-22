@@ -9,6 +9,10 @@ interface RetryingImageProps {
   src: string
   alt: string
   className?: string | undefined
+  /** Small thumbnails: no notice text, only a small Retry button after the automatic retries. */
+  compact?: boolean
+  /** Accessible name of the Retry button (defaults to "Retry <alt>"). */
+  retryLabel?: string
 }
 
 interface LoadState {
@@ -31,7 +35,7 @@ function attemptUrl(src: string, attempt: number): string {
  * A lazily loaded server image (rendered frame previews) that retries with a growing delay and
  * then offers a visible Retry button, instead of leaving a broken image behind.
  */
-export function RetryingImage({ src, alt, className }: RetryingImageProps) {
+export function RetryingImage({ src, alt, className, compact = false, retryLabel }: RetryingImageProps) {
   const [state, setState] = useState<LoadState>(() => initial(src))
   // A new source (for example a replaced frame file) starts over.
   const current = state.src === src ? state : initial(src)
@@ -72,13 +76,24 @@ export function RetryingImage({ src, alt, className }: RetryingImageProps) {
         hidden={current.phase !== 'loading'}
         onError={handleError}
       />
-      {current.phase === 'waiting' && (
+      {compact && current.phase === 'failed' && (
+        <button
+          type="button"
+          onClick={handleManualRetry}
+          aria-label={retryLabel ?? `Retry ${alt}`}
+          title="The preview could not be loaded. Retry"
+          className={styles.compactRetry}
+        >
+          ↻
+        </button>
+      )}
+      {!compact && current.phase === 'waiting' && (
         <p className={styles.notice}>Preparing the preview…</p>
       )}
-      {current.phase === 'failed' && (
+      {!compact && current.phase === 'failed' && (
         <div className={styles.failed}>
           <p className={styles.notice}>The preview could not be loaded. The booth may be busy.</p>
-          <button type="button" onClick={handleManualRetry} aria-label={`Retry ${alt}`}>
+          <button type="button" onClick={handleManualRetry} aria-label={retryLabel ?? `Retry ${alt}`}>
             Retry
           </button>
         </div>

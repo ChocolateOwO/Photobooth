@@ -38,6 +38,9 @@ describe('event UI stylesheet', () => {
     expect(CSS.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
     const gallery = read('./FrameGallery.module.css').replace(/\/\*[\s\S]*?\*\//g, '')
     expect(gallery.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
+    const start = read('./StartScreen.module.css').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(start.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
+    expect(start).toContain('var(--ev-heading)')
   })
 
   it.each([

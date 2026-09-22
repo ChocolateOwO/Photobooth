@@ -11,8 +11,11 @@
 
 .tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 4px;
 }
 
 .tab {
@@ -25,7 +28,13 @@
   color: var(--ev-body);
   font: inherit;
   font-weight: 700;
+  white-space: nowrap;
+  flex: 0 0 auto;
   cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
 }
 
 .tab[aria-selected='true'] {
@@ -206,43 +215,8 @@
   gap: 12px;
 }
 
-/* Admin preview: same component, scaled down and kept inside its preview box. */
-.compact {
-  padding: 12px;
-  gap: 10px;
-  font-size: 14px;
-}
-
-.compact .grid {
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 10px;
-}
-
-.compact .imageBox {
-  height: 130px;
-}
-
-.compact .surprise {
-  min-height: 190px;
-}
-
-.compact .surpriseMark {
-  width: 56px;
-  height: 56px;
-  font-size: 32px;
-}
-
-.compact .tab {
-  min-height: 40px;
-  min-width: 56px;
-  padding: 6px 14px;
-}
-
-.compact .backdrop {
-  position: absolute;
-}
-
-@media (max-width: 480px) {
+/* Narrow screens (the real booth screen or the logical preview size), not the admin window. */
+@container (max-width: 480px) {
   .gallery {
     padding: 14px;
   }

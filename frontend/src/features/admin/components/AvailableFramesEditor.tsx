@@ -5,6 +5,7 @@ import type { Frame, TemplateSummary } from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import { RetryingImage } from '../../../shared/ui/RetryingImage'
 import { layoutLabel } from '../frameCatalog'
+import { IconButton, PillButton, PillGroup, Switch } from './ui/Controls'
 import styles from './AvailableFramesEditor.module.css'
 
 interface AvailableFramesEditorProps {
@@ -110,49 +111,50 @@ export function AvailableFramesEditor({
       }}
       onDrop={(e) => on && dropOn(frame, e)}
     >
-      {on && (
-        <span className={styles.handle} aria-hidden="true" title="Drag to reorder">
-          ⋮⋮
-        </span>
-      )}
-      <RetryingImage
-        src={api.framePreviewUrl(frame.id, 1, frame.sha256)}
-        alt=""
-        className={styles.thumb}
-      />
-      <span className={styles.name}>{frame.name}</span>
-      <span className={styles.badge}>{labelOf(frame.template_key)}</span>
-      <label className={styles.switch}>
-        <input
-          type="checkbox"
-          role="switch"
-          checked={on}
-          disabled={locked}
-          onChange={(e) => toggle(frame, e.target.checked)}
-          aria-label={`Show ${frame.name} (${labelOf(frame.template_key)}) to participants`}
+      <span
+        className={styles.handle}
+        aria-hidden="true"
+        title={on ? 'Drag to reorder' : undefined}
+        data-hidden={on ? undefined : ''}
+      >
+        ⋮⋮
+      </span>
+      <span className={styles.thumbBox}>
+        <RetryingImage
+          compact
+          src={api.framePreviewUrl(frame.id, 1, frame.sha256)}
+          alt=""
+          retryLabel={`Retry the preview of ${frame.name}`}
+          className={styles.thumb}
         />
-        <span aria-hidden="true">{on ? 'On' : 'Off'}</span>
-      </label>
-      {on && (
-        <span className={styles.moves}>
-          <button
-            type="button"
-            onClick={() => move(frame, -1)}
-            disabled={locked || index === 0}
-            aria-label={`Move ${frame.name} up`}
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            onClick={() => move(frame, 1)}
-            disabled={locked || index === enabledShown.length - 1}
-            aria-label={`Move ${frame.name} down`}
-          >
-            ↓
-          </button>
-        </span>
-      )}
+      </span>
+      <span className={styles.name} data-frame-name="">{frame.name}</span>
+      <span className={styles.badge}>{labelOf(frame.template_key)}</span>
+      <Switch
+        checked={on}
+        disabled={locked}
+        onChange={(checked) => toggle(frame, checked)}
+        className={styles.switchCell}
+        ariaLabel={`Show ${frame.name} (${labelOf(frame.template_key)}) to participants`}
+      />
+      <span className={styles.moves} data-hidden={on ? undefined : ''}>
+        {on && (
+          <>
+            <IconButton
+              icon="up"
+              label={`Move ${frame.name} up`}
+              onClick={() => move(frame, -1)}
+              disabled={locked || index === 0}
+            />
+            <IconButton
+              icon="down"
+              label={`Move ${frame.name} down`}
+              onClick={() => move(frame, 1)}
+              disabled={locked || index === enabledShown.length - 1}
+            />
+          </>
+        )}
+      </span>
     </li>
   )
 
@@ -183,9 +185,7 @@ export function AvailableFramesEditor({
       {loadFailed && frames === undefined && (
         <div role="alert" className={styles.alert}>
           <p>The frames could not be loaded, so they can not be changed right now. {unloadedNote}</p>
-          <button type="button" onClick={onRetry}>
-            Try again
-          </button>
+          <PillButton onClick={onRetry}>Try again</PillButton>
         </div>
       )}
 
@@ -199,30 +199,24 @@ export function AvailableFramesEditor({
             onChange={(e) => setQuery(e.target.value)}
           />
         </label>
-        <div className={styles.tabs} role="group" aria-label="Show frames of">
-          {[{ key: ALL, label: 'All' }, ...templates.map((t) => ({ key: t.key, label: layoutLabel(t) }))].map(
-            (item) => (
-              <button
-                key={item.key}
-                type="button"
-                aria-pressed={tab === item.key}
-                className={styles.tab}
-                onClick={() => setTab(item.key)}
-              >
-                {item.label}
-              </button>
-            ),
-          )}
-        </div>
-        <div className={styles.bulk}>
+        <PillGroup
+          label="Show frames of"
+          options={[
+            { value: ALL, label: 'All' },
+            ...templates.map((t) => ({ value: t.key, label: layoutLabel(t) })),
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
+        <div className={styles.bulk} role="group" aria-label="Turn a whole size on or off">
           {layoutKeys.map((key) => (
             <span key={key} className={styles.bulkGroup}>
-              <button type="button" disabled={locked} onClick={() => setLayout(key, true)}>
+              <PillButton disabled={locked} onClick={() => setLayout(key, true)}>
                 Enable all {labelOf(key)}
-              </button>
-              <button type="button" disabled={locked} onClick={() => setLayout(key, false)}>
+              </PillButton>
+              <PillButton disabled={locked} onClick={() => setLayout(key, false)}>
                 Disable all {labelOf(key)}
-              </button>
+              </PillButton>
             </span>
           ))}
         </div>
@@ -250,16 +244,15 @@ export function AvailableFramesEditor({
         </>
       )}
 
-      <label className={styles.surprise}>
-        <input
-          type="checkbox"
-          checked={allowSurprise}
-          disabled={disabled}
-          onChange={(e) => onSurpriseChange(e.target.checked)}
-          aria-describedby="help-surprise"
-        />
+      <Switch
+        checked={allowSurprise}
+        disabled={disabled}
+        onChange={onSurpriseChange}
+        describedBy="help-surprise"
+        className={styles.surprise}
+      >
         Allow “Surprise me” random frame
-      </label>
+      </Switch>
       <p id="help-surprise" className={styles.helper}>
         Shown to participants only when at least two frames are available; it picks one of them.
       </p>

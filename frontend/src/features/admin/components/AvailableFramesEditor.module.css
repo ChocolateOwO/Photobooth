@@ -74,31 +74,24 @@
   font: inherit;
 }
 
-.tabs,
 .bulk {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.tab,
-.bulk button,
-.moves button,
-.alert button {
-  min-height: 48px;
-  min-width: 48px;
-}
-
-.tab[aria-pressed='true'] {
-  outline: 3px solid var(--pb-color-primary);
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 2px;
 }
 
 .bulkGroup {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
   gap: 6px;
 }
 
+.alert button {
+  min-height: 44px;
+}
 .listHeading {
   margin: 6px 0 0;
   font-size: 16px;
@@ -114,18 +107,21 @@
   gap: 6px;
 }
 
+/* handle | thumbnail | name | size | switch | order */
 .row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 18px 40px minmax(0, 1fr) auto auto 94px;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
+  padding: 4px 8px;
   border-radius: 12px;
   background-color: var(--pb-color-bg);
   min-width: 0;
 }
 
-.row:not([data-enabled]) {
-  opacity: 0.8;
+.row:not([data-enabled]) .name,
+.row:not([data-enabled]) .thumbBox {
+  opacity: 0.7;
 }
 
 .handle {
@@ -135,66 +131,79 @@
   user-select: none;
 }
 
-.thumb {
+.handle[data-hidden] {
+  visibility: hidden;
+}
+
+.thumbBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 40px;
   height: 52px;
+}
+
+.thumb {
+  max-width: 40px;
+  max-height: 52px;
   object-fit: contain;
-  flex: 0 0 auto;
 }
 
 .name {
-  flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--pb-color-text);
+  font-size: 17px;
 }
 
 .badge {
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  font-size: 14px;
+  font-size: 13px;
   color: var(--pb-color-muted);
-}
-
-.switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 48px;
-  color: var(--pb-color-text);
-}
-
-.switch input {
-  width: 26px;
-  height: 26px;
+  white-space: nowrap;
 }
 
 .moves {
   display: inline-flex;
-  gap: 4px;
+  justify-content: flex-end;
+  gap: 6px;
 }
-
 .surprise {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  color: var(--pb-color-text);
   font-weight: 600;
 }
 
-.surprise input {
-  width: 24px;
-  height: 24px;
-}
-
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .row {
-    flex-wrap: wrap;
+    grid-template-columns: 18px 40px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'handle thumb name switch'
+      'handle thumb badge moves';
+  }
+
+  .handle {
+    grid-area: handle;
+  }
+
+  .thumbBox {
+    grid-area: thumb;
+  }
+
+  .name {
+    grid-area: name;
   }
 
   .badge {
-    order: 3;
+    grid-area: badge;
+    justify-self: start;
+  }
+
+  .moves {
+    grid-area: moves;
+  }
+
+  .switchCell {
+    grid-area: switch;
   }
 }

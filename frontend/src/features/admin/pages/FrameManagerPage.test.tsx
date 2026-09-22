@@ -15,16 +15,28 @@ function png(name = 'frame.png', bytes = 256): File {
   return new File([new Uint8Array(bytes)], name, { type: 'image/png' })
 }
 
-function card(name: string): HTMLElement {
+function row(name: string): HTMLElement {
   const match = screen
-    .getAllByTestId('frame-card')
+    .getAllByTestId('frame-row')
     .find((element) => within(element).queryByRole('heading', { name }) !== null)
-  if (!match) throw new Error(`no frame card for ${name}`)
+  if (!match) throw new Error(`no frame row for ${name}`)
   return match
 }
 
-describe('FrameManagerPage', () => {
-  it('explains that frames are made outside the app and offers the guides', async () => {
+async function openUpload() {
+  await userEvent.click(await screen.findByRole('button', { name: 'Add frame' }))
+  return screen.getByRole('dialog', { name: 'Add frame' })
+}
+
+async function upload(dialog: HTMLElement, name: string, file: File, layout?: string) {
+  if (layout) await userEvent.selectOptions(within(dialog).getByLabelText('Layout'), layout)
+  if (name) await userEvent.type(within(dialog).getByLabelText('Frame name'), name)
+  await userEvent.upload(within(dialog).getByLabelText('Frame PNG file'), file)
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Upload frame' }))
+}
+
+describe('FrameManagerPage: compact layouts', () => {
+  it('lists one compact row per layout and keeps the specification behind Details', async () => {
     renderAdmin('/admin/frames', { server: signedInServer() })
     expect(await screen.findByRole('heading', { name: 'Frames' })).toBeInTheDocument()
     expect(
@@ -32,114 +44,154 @@ describe('FrameManagerPage', () => {
         'Design frames in your own software, then upload the finished PNG here. This app never edits your file.',
       ),
     ).toBeInTheDocument()
-    // One section per approved layout, each with its downloads and requirements.
-    for (const layout of ['2x6 photo strip', '4x6 print']) {
-      expect(await screen.findByRole('heading', { name: layout })).toBeInTheDocument()
+    const layouts = await screen.findAllByTestId('layout-row')
+    expect(layouts).toHaveLength(2)
+    const strip = layouts[0] as HTMLElement
+    expect(strip).toHaveTextContent('2x6 photo strip')
+    expect(strip).toHaveTextContent('2 × 6 in')
+    expect(strip).toHaveTextContent('600 × 1800 px')
+    // Nothing technical is inline, and the blank canvas download is gone.
+    expect(screen.queryByText(/Size: exactly/)).toBeNull()
+    expect(screen.queryByText(/DPI/)).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Download blank canvas' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Download guide image' })).toBeNull()
+    expect(screen.queryByLabelText('Frame PNG file')).toBeNull() // no upload form per layout
+
+    await userEvent.click(within(strip).getByRole('button', { name: 'Details of 2x6 photo strip' }))
+    const details = screen.getByRole('dialog', { name: '2x6 photo strip: specification' })
+    for (const text of [
+      '2 × 6 in (portrait)',
+      '600 × 1800 px',
+      '300 DPI',
+      'PNG with transparency (RGBA), sRGB, not animated, exactly this pixel size',
+      'At least 95% transparent',
+      '10 MB',
+      'x 30, y 30, 540 × 1740 px',
+      'x 30, y 1590, 540 × 180 px',
+    ]) {
+      expect(within(details).getByText(text)).toBeInTheDocument()
     }
-    const guides = await screen.findAllByRole('link', { name: 'Download guide image' })
-    expect(guides[0]).toHaveAttribute('href', '/api/templates/strip_2x6/guide.png')
-    const blanks = screen.getAllByRole('link', { name: 'Download blank canvas' })
-    expect(blanks[0]).toHaveAttribute('href', '/api/templates/strip_2x6/blank.png')
-    expect(await screen.findByText(/Size: exactly 600 x 1800 px/)).toBeInTheDocument()
-    expect(await screen.findByText(/Size: exactly 1200 x 1800 px/)).toBeInTheDocument()
-    expect(
-      (await screen.findAllByText(/File: PNG with transparency \(RGBA\), not animated\./)).length,
-    ).toBe(2)
-    expect(screen.getAllByText('No frames uploaded for this layout yet.')).toHaveLength(2)
+    const slots = within(details).getByRole('table', { name: 'Photo slot coordinates (px)' })
+    expect(within(slots).getAllByRole('row')).toHaveLength(4) // header + three photos
+    expect(within(details).getByText('Size: exactly 600 x 1800 px.')).toBeInTheDocument()
+    expect(within(details).getByRole('link', { name: 'Download guide image' })).toHaveAttribute(
+      'href',
+      '/api/templates/strip_2x6/guide.png',
+    )
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(within(strip).getByRole('button', { name: 'Details of 2x6 photo strip' })).toHaveFocus()
+
     // There is no frame editor anywhere on the page.
     expect(screen.queryByRole('button', { name: /draw|design|edit frame/i })).toBeNull()
   })
 
-  it('uploads a frame and shows the file and a sample preview', async () => {
-    const server = signedInServer()
-    renderAdmin('/admin/frames', { server })
-    const names = await screen.findAllByLabelText('Frame name')
-    await userEvent.type(names[0] as HTMLElement, 'Gold border')
-    await userEvent.upload(screen.getAllByLabelText('Frame PNG file')[0] as HTMLElement, png())
-    await userEvent.click(screen.getAllByRole('button', { name: 'Upload frame' })[0] as HTMLElement)
-
-    expect(await screen.findByRole('status')).toHaveTextContent('Gold border was added.')
-    const frame = server.customFrames()[0]
-    expect(frame?.template_key).toBe('strip_2x6')
-    const gold = card('Gold border')
-    expect(within(gold).getByRole('img', { name: 'Gold border frame file' })).toHaveAttribute(
-      'src',
-      `/api/admin/frames/${frame?.id ?? ''}/content?v=${frame?.sha256 ?? ''}`,
-    )
-    const preview = within(gold).getByRole('img', { name: 'Gold border sample output' })
-    expect(preview).toHaveAttribute(
-      'src',
-      `/api/admin/frames/${frame?.id ?? ''}/preview/1.jpg?v=${frame?.sha256 ?? ''}`,
-    )
-    expect(preview).toHaveAttribute('loading', 'lazy')
-    expect(within(gold).getByText('Sample output with placeholder photos')).toBeInTheDocument()
-    expect(within(gold).getByText('600 × 1800 px')).toBeInTheDocument()
-    expect(screen.getAllByLabelText('Frame name')[0]).toHaveValue('') // cleared for the next one
+  it('previews a layout guide in one large dialog', async () => {
+    renderAdmin('/admin/frames', { server: signedInServer() })
+    await userEvent.click(await screen.findByRole('button', { name: 'Preview of 4x6 print' }))
+    const dialog = screen.getByRole('dialog', { name: '4x6 print: layout guide' })
+    const images = within(dialog).getAllByRole('img')
+    expect(images).toHaveLength(1)
+    expect(images[0]).toHaveAttribute('src', '/api/templates/print_4x6/guide.png')
+    expect(within(dialog).getByRole('link', { name: 'Download guide image' })).toBeInTheDocument()
   })
+})
 
-  it('refuses a file that is not a PNG, an oversized file and a missing name', async () => {
+describe('FrameManagerPage: frame library', () => {
+  it('shows each frame as one compact row with one thumbnail and icon actions', async () => {
     const server = signedInServer()
-    renderAdmin('/admin/frames', { server })
-    const fileInput = (await screen.findAllByLabelText('Frame PNG file'))[0] as HTMLElement
-    await userEvent.upload(fileInput, new File(['x'], 'f.jpg', { type: 'image/jpeg' }), {
-      applyAccept: false,
-    })
-    expect(await screen.findByRole('alert')).toHaveTextContent('The frame must be a PNG file.')
-
-    await userEvent.upload(fileInput, png('big.png', 10 * 1024 * 1024 + 1))
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'The frame must be 10 MB or smaller.',
-    )
-
-    await userEvent.upload(fileInput, png())
-    await userEvent.click(screen.getAllByRole('button', { name: 'Upload frame' })[0] as HTMLElement)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Enter a frame name.')
-    expect(server.customFrames()).toHaveLength(0)
-  })
-
-  it('shows the server reason when a frame is rejected or already exists', async () => {
-    const server = signedInServer()
-    server.seedFrame('strip_2x6', 'Gold')
-    renderAdmin('/admin/frames', { server })
-    await userEvent.type(
-      (await screen.findAllByLabelText('Frame name'))[0] as HTMLElement,
-      'Gold',
-    )
-    await userEvent.upload(screen.getAllByLabelText('Frame PNG file')[0] as HTMLElement, png())
-    await userEvent.click(screen.getAllByRole('button', { name: 'Upload frame' })[0] as HTMLElement)
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      "A frame called 'Gold' already exists for this layout.",
-    )
-  })
-
-  it('shows validation warnings recorded with a frame', async () => {
-    const server = signedInServer()
-    server.seedFrame('strip_2x6', 'Lab profile', ['The frame uses the colour profile Lab.'])
-    renderAdmin('/admin/frames', { server })
-    expect(await screen.findByText('The frame uses the colour profile Lab.')).toBeInTheDocument()
-  })
-
-  it('replaces the file of an existing frame', async () => {
-    const server = signedInServer()
-    const frame = server.seedFrame('strip_2x6', 'Gold')
+    const gold = server.seedFrame('strip_2x6', 'Gold')
+    server.seedProfile({ name: 'Wedding', available_frames: [gold.id] })
     renderAdmin('/admin/frames', { server })
     await screen.findByRole('heading', { name: 'Gold' })
-    await userEvent.upload(screen.getByLabelText('Replace file for Gold'), png('new.png', 999))
-    await waitFor(() => expect(server.frames.get(frame.id)?.bytes).toBe(999))
-    expect(server.frames.get(frame.id)?.name).toBe('Gold') // same frame, new file
-    // The new file has a new sha256, so both images get new URLs and never show the old file.
-    const updated = server.frames.get(frame.id)?.sha256 ?? ''
-    expect(updated).not.toBe(frame.sha256)
-    await waitFor(() =>
-      expect(screen.getByRole('img', { name: 'Gold frame file' })).toHaveAttribute(
-        'src',
-        `/api/admin/frames/${frame.id}/content?v=${updated}`,
-      ),
-    )
-    expect(screen.getByRole('img', { name: 'Gold sample output' })).toHaveAttribute(
-      'src',
-      `/api/admin/frames/${frame.id}/preview/1.jpg?v=${updated}`,
-    )
+    const goldRow = row('Gold')
+    const images = within(goldRow).getAllByRole('img')
+    expect(images).toHaveLength(1) // one rendered thumbnail, never the raw file as well
+    expect(images[0]).toHaveAttribute('src', `/api/admin/frames/${gold.id}/preview/1.jpg?v=${gold.sha256}`)
+    expect(images[0]).toHaveAttribute('loading', 'lazy')
+    expect(within(goldRow).getByText('2×6 · 600 × 1800 px')).toBeInTheDocument()
+    expect(within(goldRow).getByText('Uploaded')).toBeInTheDocument()
+    expect(within(goldRow).getByTestId('frame-usage')).toHaveTextContent('Offered by: Wedding')
+    for (const label of ['Details of Gold', 'Preview Gold', 'Rename Gold', 'Replace file for Gold', 'Delete Gold']) {
+      expect(within(goldRow).getByRole('button', { name: label })).toBeInTheDocument()
+    }
+    expect(screen.getAllByTestId('frame-row')).toHaveLength(7) // six built-in frames and Gold
+  })
+
+  it('opens one large preview from the Preview button or the thumbnail', async () => {
+    const server = signedInServer()
+    const gold = server.seedFrame('strip_2x6', 'Gold')
+    renderAdmin('/admin/frames', { server })
+    await userEvent.click(await screen.findByRole('button', { name: 'Preview Gold' }))
+    let dialog = screen.getByRole('dialog', { name: 'Gold' })
+    const images = within(dialog).getAllByRole('img')
+    expect(images).toHaveLength(1)
+    expect(images[0]).toHaveAttribute('src', `/api/admin/frames/${gold.id}/preview/1.jpg?v=${gold.sha256}`)
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    const thumbButton = row('Gold').querySelector('button[aria-hidden="true"]') as HTMLElement
+    await userEvent.click(thumbButton)
+    dialog = screen.getByRole('dialog', { name: 'Gold' })
+    expect(within(dialog).getAllByRole('img')).toHaveLength(1)
+  })
+
+  it('shows frame details with usage, size and warnings', async () => {
+    const server = signedInServer()
+    const frame = server.seedFrame('strip_2x6', 'Lab profile', ['The frame uses the colour profile Lab.'])
+    server.seedProfile({ name: 'Wedding', available_frames: [frame.id] })
+    renderAdmin('/admin/frames', { server })
+    // A warning is visible in the row itself.
+    expect(await screen.findByText('The frame uses the colour profile Lab.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Details of Lab profile' }))
+    const dialog = screen.getByRole('dialog', { name: 'Lab profile: details' })
+    expect(within(dialog).getByText('Uploaded')).toBeInTheDocument()
+    expect(within(dialog).getByText('Wedding')).toBeInTheDocument()
+    expect(within(dialog).getByText('600 × 1800 px')).toBeInTheDocument()
+  })
+
+  it('searches the library, filters it with pills and keeps the selected pill distinct', async () => {
+    const server = signedInServer()
+    server.seedFrame('strip_2x6', 'Gold rush')
+    renderAdmin('/admin/frames', { server })
+    await screen.findByRole('heading', { name: 'Gold rush' })
+    const pills = screen.getByRole('group', { name: 'Show' })
+    const all = within(pills).getByRole('button', { name: 'All' })
+    expect(all).toHaveAttribute('aria-pressed', 'true')
+    expect(within(pills).getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') === 'true')).toHaveLength(1)
+
+    await userEvent.click(within(pills).getByRole('button', { name: 'Uploaded' }))
+    expect(screen.getAllByTestId('frame-row')).toHaveLength(1)
+    expect(all).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(within(pills).getByRole('button', { name: 'Built-in' }))
+    expect(screen.queryByRole('heading', { name: 'Gold rush' })).toBeNull()
+    expect(screen.getAllByTestId('frame-row').every((r) => within(r).queryByText('Built-in'))).toBe(true)
+
+    await userEvent.click(within(pills).getByRole('button', { name: '4×6' }))
+    expect(screen.getAllByTestId('frame-row').every((r) => within(r).queryByText(/^4×6 ·/))).toBe(true)
+
+    await userEvent.click(within(pills).getByRole('button', { name: 'All' }))
+    await userEvent.type(screen.getByLabelText('Search by frame name'), 'gold')
+    const names = screen.getAllByTestId('frame-row').map((r) => within(r).getByRole('heading').textContent)
+    expect(names).toEqual(['Celebration Gold', 'Gold rush', 'Celebration Gold'])
+  })
+
+  it('moves between the filter pills with the arrow keys', async () => {
+    renderAdmin('/admin/frames', { server: signedInServer() })
+    const pills = await screen.findByRole('group', { name: 'Show' })
+    const all = within(pills).getByRole('button', { name: 'All' })
+    expect(all).toHaveAttribute('tabindex', '0')
+    expect(within(pills).getByRole('button', { name: 'Uploaded' })).toHaveAttribute('tabindex', '-1')
+    all.focus()
+    await userEvent.keyboard('{ArrowRight}')
+    const strip = within(pills).getByRole('button', { name: '2×6' })
+    expect(strip).toHaveFocus()
+    expect(strip).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.keyboard('{End}')
+    expect(within(pills).getByRole('button', { name: 'Uploaded' })).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.keyboard('{Home}')
+    expect(all).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('says it is loading instead of "no frames" until the list arrives (P5-005)', async () => {
@@ -150,8 +202,8 @@ describe('FrameManagerPage', () => {
       release = resolve
     })
     renderAdmin('/admin/frames', { server })
-    expect((await screen.findAllByText('Loading frames…')).length).toBe(2)
-    expect(screen.queryByText('No frames uploaded for this layout yet.')).toBeNull()
+    expect(await screen.findByText('Loading frames…')).toBeInTheDocument()
+    expect(screen.queryByText(/No frames/)).toBeNull()
     release()
     expect(await screen.findByRole('heading', { name: 'Gold' })).toBeInTheDocument()
     expect(screen.queryByText('Loading frames…')).toBeNull()
@@ -162,14 +214,14 @@ describe('FrameManagerPage', () => {
     server.seedFrame('strip_2x6', 'Gold')
     server.frameListFailures = 1
     renderAdmin('/admin/frames', { server })
-    expect(await screen.findByText('The uploaded frames could not be loaded.')).toBeInTheDocument()
-    expect(screen.queryByText('No frames uploaded for this layout yet.')).toBeNull()
+    expect(await screen.findByText('The frames could not be loaded.')).toBeInTheDocument()
+    expect(screen.queryByText(/No frames/)).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByRole('heading', { name: 'Gold' })).toBeInTheDocument()
-    expect(screen.queryByText('The uploaded frames could not be loaded.')).toBeNull()
+    expect(screen.queryByText('The frames could not be loaded.')).toBeNull()
   })
 
-  it('loads the previews of a library larger than the render queue lazily (P5-006)', async () => {
+  it('loads the thumbnails of a library larger than the render queue lazily (P5-006)', async () => {
     const server = signedInServer()
     for (let n = 1; n <= 6; n++) server.seedFrame('strip_2x6', `Frame ${n}`)
     renderAdmin('/admin/frames', { server })
@@ -178,81 +230,132 @@ describe('FrameManagerPage', () => {
     expect(previews).toHaveLength(6 + 6) // six uploads plus the six built-in frames
     for (const preview of previews) expect(preview).toHaveAttribute('loading', 'lazy')
   })
+})
 
-  it('renames a frame', async () => {
+describe('FrameManagerPage: add, replace, rename and delete', () => {
+  it('uploads from one Add frame dialog with layout, name, file and guidance', async () => {
+    const server = signedInServer()
+    renderAdmin('/admin/frames', { server })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const dialog = await openUpload()
+    expect(within(dialog).getByLabelText('Layout')).toHaveValue('strip_2x6')
+    expect(within(dialog).getByTestId('upload-guidance')).toHaveTextContent('exactly 600 × 1800 px')
+    await userEvent.selectOptions(within(dialog).getByLabelText('Layout'), 'print_4x6')
+    expect(within(dialog).getByTestId('upload-guidance')).toHaveTextContent('exactly 1200 × 1800 px')
+    await upload(dialog, 'Gold border', png())
+
+    const done = await screen.findByRole('alertdialog', { name: 'Frame added' })
+    expect(done).toHaveTextContent('Gold border was added.')
+    expect(screen.queryByRole('dialog', { name: 'Add frame' })).toBeNull()
+    expect(server.customFrames()[0]?.template_key).toBe('print_4x6')
+    expect(row('Gold border')).toHaveTextContent('4×6 · 1200 × 1800 px')
+  })
+
+  it('refuses a file that is not a PNG, an oversized file and a missing name inside the dialog', async () => {
+    const server = signedInServer()
+    renderAdmin('/admin/frames', { server })
+    const dialog = await openUpload()
+    const fileInput = within(dialog).getByLabelText('Frame PNG file')
+    await userEvent.upload(fileInput, new File(['x'], 'f.jpg', { type: 'image/jpeg' }), { applyAccept: false })
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('The frame must be a PNG file.')
+    await userEvent.upload(fileInput, png('big.png', 10 * 1024 * 1024 + 1))
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('The frame must be 10 MB or smaller.')
+    await userEvent.upload(fileInput, png())
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Upload frame' }))
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Enter a frame name.')
+    expect(server.customFrames()).toHaveLength(0)
+  })
+
+  it('shows the server reason for a refused upload inside the dialog', async () => {
+    const server = signedInServer()
+    server.seedFrame('strip_2x6', 'Gold')
+    renderAdmin('/admin/frames', { server })
+    const dialog = await openUpload()
+    await upload(dialog, 'Gold', png())
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      "A frame called 'Gold' already exists for this layout.",
+    )
+  })
+
+  it('replaces the file of an existing frame and confirms it in a pop-up', async () => {
+    const server = signedInServer()
+    const frame = server.seedFrame('strip_2x6', 'Gold')
+    renderAdmin('/admin/frames', { server })
+    await screen.findByRole('heading', { name: 'Gold' })
+    await userEvent.upload(screen.getByLabelText('New PNG file for Gold'), png('new.png', 999))
+    await waitFor(() => expect(server.frames.get(frame.id)?.bytes).toBe(999))
+    expect(await screen.findByRole('alertdialog', { name: 'File replaced' })).toBeInTheDocument()
+    expect(server.frames.get(frame.id)?.name).toBe('Gold') // same frame, new file
+    const updated = server.frames.get(frame.id)?.sha256 ?? ''
+    expect(updated).not.toBe(frame.sha256)
+    await waitFor(() =>
+      expect(within(row('Gold')).getByRole('img', { name: 'Gold sample output' })).toHaveAttribute(
+        'src',
+        `/api/admin/frames/${frame.id}/preview/1.jpg?v=${updated}`,
+      ),
+    )
+  })
+
+  it('reports a refused replacement file in a pop-up', async () => {
+    const server = signedInServer()
+    server.seedFrame('strip_2x6', 'Gold')
+    renderAdmin('/admin/frames', { server })
+    await screen.findByRole('heading', { name: 'Gold' })
+    await userEvent.upload(
+      screen.getByLabelText('New PNG file for Gold'),
+      new File(['x'], 'f.jpg', { type: 'image/jpeg' }),
+      { applyAccept: false },
+    )
+    const message = await screen.findByRole('alertdialog', { name: 'The file was not replaced' })
+    expect(message).toHaveTextContent('The frame must be a PNG file.')
+  })
+
+  it('renames a frame in a dialog', async () => {
     const server = signedInServer()
     const frame = server.seedFrame('strip_2x6', 'Gold')
     renderAdmin('/admin/frames', { server })
     await userEvent.click(await screen.findByRole('button', { name: 'Rename Gold' }))
-    const input = within(card('Gold')).getByLabelText('Frame name')
+    const dialog = screen.getByRole('dialog', { name: 'Rename Gold' })
+    const input = within(dialog).getByLabelText('Frame name')
+    expect(input).toHaveFocus()
     await userEvent.clear(input)
     await userEvent.type(input, 'Silver edge')
-    await userEvent.click(screen.getByRole('button', { name: 'Save name' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save name' }))
     await waitFor(() => expect(server.frames.get(frame.id)?.name).toBe('Silver edge'))
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('asks before deleting and reports when a profile still uses the frame', async () => {
+  it('asks before deleting and reports in a pop-up when a profile still uses the frame', async () => {
     const server = signedInServer()
     const frame = server.seedFrame('strip_2x6', 'Gold')
     server.framesInUse.set(frame.id, 'Wedding')
     renderAdmin('/admin/frames', { server })
 
     await userEvent.click(await screen.findByRole('button', { name: 'Delete Gold' }))
-    const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByRole('heading', { name: 'Delete Gold?' })).toBeInTheDocument()
+    let confirm = screen.getByRole('alertdialog', { name: 'Delete Gold?' })
     expect(
-      within(dialog).getByText(
+      within(confirm).getByText(
         'The file is removed from this booth. Event Profiles that use it must pick another frame first.',
       ),
     ).toBeInTheDocument()
-    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus() // the safe choice
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(server.customFrames()).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: 'Delete Gold' }))
-    await userEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete frame' }),
-    )
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'this frame is still used by: Wedding',
-    )
+    confirm = screen.getByRole('alertdialog', { name: 'Delete Gold?' })
+    await userEvent.click(within(confirm).getByRole('button', { name: 'Delete frame' }))
+    const refused = await screen.findByRole('alertdialog', { name: 'Gold was not deleted' })
+    expect(refused).toHaveTextContent('this frame is still used by: Wedding')
     expect(server.customFrames()).toHaveLength(1)
+    await userEvent.click(within(refused).getByRole('button', { name: 'Close' }))
 
     server.framesInUse.delete(frame.id)
     await userEvent.click(screen.getByRole('button', { name: 'Delete Gold' }))
     await userEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete frame' }),
+      within(screen.getByRole('alertdialog', { name: 'Delete Gold?' })).getByRole('button', { name: 'Delete frame' }),
     )
     await waitFor(() => expect(server.customFrames()).toHaveLength(0))
-  })
-
-  it('searches the library, filters it and shows which profiles offer each frame', async () => {
-    const server = signedInServer()
-    const gold = server.seedFrame('strip_2x6', 'Gold rush')
-    server.seedProfile({ name: 'Wedding', available_frames: [gold.id] })
-    renderAdmin('/admin/frames', { server })
-    const card = (await screen.findAllByTestId('frame-card')).find((c) =>
-      within(c).queryByRole('heading', { name: 'Gold rush' }),
-    ) as HTMLElement
-    expect(within(card).getByText('Uploaded')).toBeInTheDocument()
-    expect(within(card).getByTestId('frame-usage')).toHaveTextContent('Offered by: Wedding')
-
-    await userEvent.click(screen.getByRole('button', { name: 'Uploaded' }))
-    expect(screen.queryByRole('list', { name: /Built-in frames/ })).toBeNull()
-    expect(screen.getAllByTestId('frame-card')).toHaveLength(1)
-
-    await userEvent.click(screen.getByRole('button', { name: 'Built-in' }))
-    expect(screen.queryByRole('heading', { name: 'Gold rush' })).toBeNull()
-    expect(screen.getAllByTestId('frame-card').every((c) => within(c).queryByText('Built-in'))).toBe(true)
-
-    await userEvent.click(screen.getByRole('button', { name: 'All' }))
-    await userEvent.click(screen.getByRole('button', { name: '4\u00d76' }))
-    expect(screen.queryByRole('heading', { name: '2x6 photo strip' })).toBeNull()
-    expect(screen.getByRole('heading', { name: '4x6 print' })).toBeInTheDocument()
-
-    await userEvent.click(screen.getByRole('button', { name: 'All' }))
-    await userEvent.type(screen.getByLabelText('Search by frame name'), 'gold')
-    const names = screen.getAllByTestId('frame-card').map((c) => within(c).getByRole('heading').textContent)
-    expect(names).toEqual(['Celebration Gold', 'Gold rush', 'Celebration Gold'])
   })
 })

@@ -45,7 +45,7 @@ test('the organizer offers three frames in a chosen order, with Surprise me', as
   await page.getByRole('button', { name: 'Move Minimal Light down' }).click()
   const order = await shownOrder(page)
   expect(order.map((row) => OFFERED.findIndex((o) => row.includes(o.name)))).toEqual([0, 1, 2])
-  await page.getByRole('checkbox', { name: 'Allow “Surprise me” random frame' }).check()
+  await page.getByRole('switch', { name: 'Allow “Surprise me” random frame' }).check()
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
 
@@ -54,7 +54,7 @@ test('the organizer offers three frames in a chosen order, with Surprise me', as
   await expect(page.getByRole('status')).toHaveText(`${PROFILE} is now the active profile.`)
 })
 
-test('a profile without frames can not be activated and says so on its row', async ({ page }) => {
+test('a profile without frames can not be activated and says so in a centred pop-up', async ({ page }) => {
   await pairAndSignIn(page)
   await page.getByRole('link', { name: 'New profile' }).click()
   await page.getByLabel('Profile name').fill(EMPTY)
@@ -67,9 +67,12 @@ test('a profile without frames can not be activated and says so on its row', asy
   await page.goto('/admin')
   const row = profileRow(page, EMPTY)
   await row.getByRole('button', { name: `Activate ${EMPTY}` }).click()
-  await expect(row.getByTestId('activation-error')).toContainText(
-    'No frames are available to participants',
-  )
+  const refused = page.getByRole('alertdialog', { name: `${EMPTY} can not be activated` })
+  await expect(refused).toContainText('No frames are available to participants')
+  await expect(refused.getByRole('link', { name: `Choose frames for ${EMPTY}` })).toBeVisible()
+  await refused.getByRole('button', { name: 'Close' }).click()
+  await expect(refused).toHaveCount(0)
+  await expect(row.getByRole('button', { name: `Activate ${EMPTY}` })).toBeFocused()
   await expect(profileRow(page, PROFILE).getByText('Active', { exact: true })).toBeVisible()
 })
 
@@ -142,43 +145,82 @@ test('the participant screen fits a phone without sideways scrolling', async ({ 
   expect(overflow).toBeLessThanOrEqual(1)
 })
 
-test('the editor preview scrolls on its own on desktop and stacks on phones', async ({ page }) => {
+test('the editor preview stays still while the form scrolls, fits whole and stacks on phones', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 })
   await pairAndSignIn(page)
   await profileRow(page, PROFILE).getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
-  const preview = page.getByTestId('preview-column')
-  await expect(preview).toHaveCSS('position', 'sticky')
-  await expect(preview).toHaveCSS('overscroll-behavior-y', 'contain')
+  const column = page.getByTestId('preview-column')
+  const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save profile' }) })
+  const screen = page.getByTestId('preview-screen')
+  await expect(screen).toBeVisible()
+  // No scrollbar of its own: the logical screen is scaled to fit instead.
+  await expect(column).toHaveCSS('overflow-y', 'hidden')
+  expect(await column.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
+  await expect(page.getByText('Phone width')).toHaveCount(0)
+  await expect(page.getByTestId('preview-viewport')).toHaveCount(1)
+  // The preview sits below the header, whole, inside the window.
+  const header = await page.getByRole('banner').boundingBox()
+  const fitsWindow = async () => {
+    const box = await screen.boundingBox()
+    expect(box?.y ?? -1).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0))
+    expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(720 + 1)
+    return box
+  }
+  const start = await fitsWindow()
+  // Portrait 1080 x 1920 by default, drawn whole at its own proportions.
+  expect((start?.width ?? 0) / (start?.height ?? 1)).toBeCloseTo(1080 / 1920, 2)
+
+  // Scroll the long form: it moves in its own column; the window and the preview do not move.
+  const formBox = await form.boundingBox()
+  await page.mouse.move((formBox?.x ?? 0) + 60, 500)
+  await page.mouse.wheel(0, 900)
+  await expect.poll(() => form.evaluate((el) => el.scrollTop)).toBeGreaterThan(300)
+  await page.mouse.wheel(0, 1600)
+  await expect.poll(() => form.evaluate((el) => el.scrollTop)).toBeGreaterThan(1200)
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+  let box = await fitsWindow()
+  expect(Math.abs((box?.y ?? 0) - (start?.y ?? 0))).toBeLessThanOrEqual(1)
+  expect(Math.abs((box?.x ?? 0) - (start?.x ?? 0))).toBeLessThanOrEqual(1)
+  // A wheel over the preview moves nothing either (no scroll chaining).
+  await page.mouse.move((start?.x ?? 0) + 20, (start?.y ?? 0) + 20)
+  const formScroll = await form.evaluate((el) => el.scrollTop)
+  await page.mouse.wheel(0, 600)
+  await page.waitForTimeout(300)
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+  expect(await form.evaluate((el) => el.scrollTop)).toBe(formScroll)
+  box = await fitsWindow()
+  expect(Math.abs((box?.y ?? 0) - (start?.y ?? 0))).toBeLessThanOrEqual(1)
+
+  // Landscape and a typed size change the drawing, which still fits whole.
+  await page.getByRole('group', { name: 'Orientation' }).getByRole('button', { name: 'Landscape' }).click()
+  await expect(page.getByTestId('preview-size')).toHaveText('1920 × 1080 px')
+  box = await fitsWindow()
+  expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(1920 / 1080, 2)
+  await page.getByLabel('Preview width in pixels').fill('1280')
+  await page.getByLabel('Preview height in pixels').fill('800')
+  await expect(page.getByTestId('preview-size')).toHaveText('1280 × 800 px')
+  box = await fitsWindow()
+  expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(1280 / 800, 2)
   await page.getByRole('button', { name: 'Frame selection' }).click()
-
-  // Wheel over the preview: only the preview moves.
-  const box = await preview.boundingBox()
-  await page.mouse.move((box?.x ?? 0) + 40, (box?.y ?? 0) + 200)
-  const pageBefore = await page.evaluate(() => window.scrollY)
-  await page.mouse.wheel(0, 800)
-  await expect.poll(() => preview.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
-  expect(await page.evaluate(() => window.scrollY)).toBe(pageBefore)
-
-  // Scrolling the editor keeps the preview in view.
-  await page.mouse.move(80, 400)
-  await page.mouse.wheel(0, 1500)
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(pageBefore)
-  const after = await preview.boundingBox()
-  expect(after?.y ?? -1).toBeGreaterThanOrEqual(0)
-  expect((after?.y ?? 0) + (after?.height ?? 0)).toBeLessThanOrEqual(720 + 1)
+  await expect(screen.getByTestId('frame-gallery')).toBeVisible()
+  expect(await column.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
   const wide = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )
   expect(wide).toBeLessThanOrEqual(1)
 
+  // Narrow window: one stacked column, normal page scrolling, the same single preview.
   await page.setViewportSize({ width: 360, height: 800 })
-  await expect(preview).toHaveCSS('position', 'static')
+  await expect(form).toHaveCSS('overflow-y', 'visible')
+  await expect(page.getByTestId('preview-viewport')).toHaveCount(1)
+  const narrowBox = await screen.boundingBox()
+  expect((narrowBox?.x ?? -1) >= 0 && (narrowBox?.x ?? 0) + (narrowBox?.width ?? 0) <= 360).toBe(true)
   const narrow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )
   expect(narrow).toBeLessThanOrEqual(1)
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)).toBe(true)
 })
-
 test('the previously active profile is active again for the later specs', async ({ page }) => {
   await pairAndSignIn(page)
   await profileRow(page, PERSISTED.copy)

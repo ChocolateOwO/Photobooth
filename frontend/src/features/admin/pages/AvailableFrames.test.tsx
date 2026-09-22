@@ -18,7 +18,7 @@ function shownList() {
 function shownNames(): string[] {
   return within(shownList())
     .getAllByTestId('available-frame-row')
-    .map((row) => row.querySelector('span:nth-of-type(2)')?.textContent ?? '')
+    .map((row) => row.querySelector('[data-frame-name]')?.textContent ?? '')
 }
 
 async function fillRequired() {
@@ -59,6 +59,49 @@ describe('Available frames for participants', () => {
       'href',
       '/admin/frames',
     )
+  })
+
+  it('uses sliding switches that announce the frame and its state, and icon order buttons', async () => {
+    const server = signedInServer()
+    server.seedFrame('strip_2x6', 'Our strip')
+    renderAdmin('/admin/profiles/new', { server })
+    const on = await screen.findByRole('switch', { name: 'Show Minimal Light (2×6) to participants' })
+    expect(on).toBeChecked()
+    expect(on).toHaveAttribute('type', 'checkbox') // native control underneath
+    const off = screen.getByRole('switch', { name: 'Show Our strip (2×6) to participants' })
+    expect(off).not.toBeChecked()
+    // The whole switch, including its On/Off text, is clickable.
+    const offRow = off.closest('[data-testid="available-frame-row"]') as HTMLElement
+    await userEvent.click(within(offRow).getByText('Off'))
+    expect(screen.getByRole('switch', { name: 'Show Our strip (2×6) to participants' })).toBeChecked()
+
+    const first = within(shownList()).getAllByTestId('available-frame-row')[0] as HTMLElement
+    const up = within(first).getByRole('button', { name: /^Move .* up$/ })
+    expect(up).toBeDisabled()
+    expect(up).toHaveAttribute('title', up.getAttribute('aria-label'))
+    expect(up.querySelector('svg')).not.toBeNull()
+    expect(within(first).getByRole('button', { name: /^Move .* down$/ })).toBeEnabled()
+
+    // Layout tabs and bulk actions are compact pills.
+    const tabs = screen.getByRole('group', { name: 'Show frames of' })
+    expect(within(tabs).getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      within(tabs)
+        .getAllByRole('button')
+        .filter((b) => b.getAttribute('aria-pressed') === 'true'),
+    ).toHaveLength(1)
+    const bulk = screen.getByRole('group', { name: 'Turn a whole size on or off' })
+    expect(within(bulk).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Enable all 2×6',
+      'Disable all 2×6',
+      'Enable all 4×6',
+      'Disable all 4×6',
+    ])
+    await userEvent.click(within(tabs).getByRole('button', { name: '4×6' }))
+    expect(within(bulk).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Enable all 4×6',
+      'Disable all 4×6',
+    ])
   })
 
   it('switches frames on and off, reorders them and saves the exact list', async () => {
@@ -126,7 +169,10 @@ describe('Available frames for participants', () => {
     const server = signedInServer()
     const profile = server.seedProfile({ name: 'Expo' })
     renderAdmin(`/admin/profiles/${profile.id}`, { server })
-    await userEvent.click(await screen.findByRole('checkbox', { name: 'Allow “Surprise me” random frame' }))
+    const surprise = await screen.findByRole('switch', { name: 'Allow “Surprise me” random frame' })
+    expect(surprise).not.toBeChecked()
+    await userEvent.click(screen.getByText('Allow “Surprise me” random frame')) // the label toggles it too
+    expect(surprise).toBeChecked()
     await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
     await waitFor(() => expect(server.profiles.get(profile.id)?.settings.allow_surprise_me).toBe(true))
   })
@@ -179,6 +225,6 @@ describe('Preview: frame selection mode', () => {
     expect(gallery.textContent).not.toContain('Built-in')
     await userEvent.click(cards[0] as HTMLElement)
     expect(within(preview).getByRole('dialog', { name: 'Strip A' })).toBeInTheDocument()
-    expect(within(screen.getByTestId('event-preview-phone')).getByTestId('frame-gallery')).toBeInTheDocument()
+    expect(screen.getAllByTestId('frame-gallery')).toHaveLength(1) // one preview, no phone copy
   })
 })

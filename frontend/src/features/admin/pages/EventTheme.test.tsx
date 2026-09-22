@@ -18,7 +18,7 @@ function jpeg(name = 'bg.jpg'): File {
 
 function previewVar(key: string): string {
   const screenEl = within(screen.getByTestId('event-preview')).getByRole('group', {
-    name: 'Kiosk screen preview',
+    name: 'Start screen preview',
   })
   return screenEl.style.getPropertyValue(tokenVar(key))
 }
@@ -35,7 +35,13 @@ describe('event theme: quick presets', () => {
     expect(midnight).toBeChecked()
     const radios = screen.getAllByRole('radio', { name: /./ }).filter((r) => r.getAttribute('name') === 'theme-preset')
     expect(radios.length).toBeGreaterThanOrEqual(6)
-    // Collapsed tiles: name, selection and a few big swatches; details only on request.
+    // One horizontal strip of compact options: three colour dots, the name and a Details icon.
+    const options = screen.getAllByTestId('theme-option')
+    expect(options).toHaveLength(7)
+    expect(new Set(options.map((o) => o.parentElement)).size).toBe(1)
+    for (const option of options) expect(option.querySelectorAll('[data-swatch]')).toHaveLength(3)
+    expect(options.filter((o) => o.hasAttribute('data-selected'))).toHaveLength(1)
+    expect(options[0]).toHaveAttribute('data-selected')
     expect(screen.getByRole('button', { name: 'View details of Blush Wedding' })).toBeInTheDocument()
     expect(screen.queryByText('Soft blush pink with deep rose.')).toBeNull()
     expect(screen.getByTestId('contrast-ok')).toHaveTextContent('All text and buttons meet WCAG AA contrast.')
@@ -263,18 +269,16 @@ describe('event theme: colours from the background', () => {
 describe('built-in frames in the frame manager', () => {
   it('labels built-in frames and offers no replace, rename or delete for them', async () => {
     renderAdmin('/admin/frames', { server: signedInServer() })
-    const list = await screen.findByRole('list', { name: 'Built-in frames for 2x6 photo strip' })
-    const cards = within(list).getAllByTestId('frame-card')
-    expect(cards.map((c) => within(c).getByRole('heading').textContent)).toEqual([
-      'Minimal Light',
-      'Midnight',
-      'Celebration Gold',
-    ])
-    for (const card of cards) {
-      expect(within(card).getByText('Built-in')).toBeInTheDocument()
-      expect(within(card).queryByRole('button', { name: /Replace|Rename|Delete/ })).toBeNull()
-      expect(within(card).getByRole('img', { name: /sample output$/ })).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Built-in' }))
+    const rows = screen.getAllByTestId('frame-row')
+    expect(rows).toHaveLength(6)
+    for (const row of rows) {
+      expect(within(row).getByText('Built-in')).toBeInTheDocument()
+      expect(within(row).getByText('Read-only')).toBeInTheDocument()
+      expect(within(row).queryByRole('button', { name: /Replace|Rename|Delete/ })).toBeNull()
+      expect(within(row).getAllByRole('img', { name: /sample output$/ })).toHaveLength(1)
     }
-    expect(screen.getAllByText('No frames uploaded for this layout yet.')).toHaveLength(2)
+    await userEvent.click(screen.getByRole('button', { name: 'Uploaded' }))
+    expect(screen.getByText('No frames uploaded yet. Use Add frame to upload one.')).toBeInTheDocument()
   })
 })

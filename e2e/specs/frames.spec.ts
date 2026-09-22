@@ -19,99 +19,185 @@ const STRIP = LAYOUTS[2]
 const RENAMED_STRIP = 'Strip frame renamed'
 const PROFILE = 'E2E Frames profile'
 
-function section(page: Page, layoutName: string) {
-  return page
-    .locator('section')
-    .filter({ has: page.getByRole('heading', { name: layoutName, exact: true }) })
+function frameRow(page: Page, name: string) {
+  return page.getByTestId('frame-row').filter({ has: page.getByRole('heading', { name, exact: true }) })
 }
 
-function frameCard(page: Page, name: string) {
-  return page.getByTestId('frame-card').filter({ has: page.getByRole('heading', { name }) })
+function uploadDialog(page: Page) {
+  return page.getByRole('dialog', { name: 'Add frame' })
 }
 
 async function uploadFrame(page: Page, layout: (typeof LAYOUTS)[number], file: string, name: string) {
-  const area = section(page, layout.name)
-  await area.getByLabel('Frame name').fill(name)
-  await area.getByLabel('Frame PNG file').setInputFiles(join(fixturesDir, file))
-  await area.getByRole('button', { name: 'Upload frame' }).click()
+  await page.getByRole('button', { name: 'Add frame' }).click()
+  const dialog = uploadDialog(page)
+  await dialog.getByLabel('Layout').selectOption(layout.key)
+  await dialog.getByLabel('Frame name').fill(name)
+  await dialog.getByLabel('Frame PNG file').setInputFiles(join(fixturesDir, file))
+  await dialog.getByRole('button', { name: 'Upload frame' }).click()
 }
 
-test('the frame manager shows the specification and downloads for every layout', async ({ page }) => {
+async function closeMessage(page: Page, name: string) {
+  const message = page.getByRole('alertdialog', { name })
+  await expect(message).toBeVisible()
+  await message.getByRole('button', { name: 'Close' }).click()
+  await expect(message).toHaveCount(0)
+}
+
+test('the frame manager lists compact layout rows with specifications on request', async ({ page }) => {
   await pairAndSignIn(page)
   await page.getByRole('link', { name: 'Frames' }).first().click()
-  await expect(page.getByRole('heading', { name: 'Frames' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Frames', exact: true })).toBeVisible()
   await expect(
     page.getByText(
       'Design frames in your own software, then upload the finished PNG here. This app never edits your file.',
     ),
   ).toBeVisible()
 
+  const rows = page.getByTestId('layout-row')
+  await expect(rows).toHaveCount(3)
+  for (const [index, layout] of LAYOUTS.entries()) {
+    const row = rows.nth(index)
+    await expect(row).toContainText(layout.name)
+    await expect(row).toContainText(layout.size)
+    // One compact line per layout.
+    expect((await row.boundingBox())?.height ?? 999).toBeLessThanOrEqual(64)
+  }
+  // Specifications, downloads and upload forms are not on the page itself.
+  await expect(page.getByText(/File: PNG with transparency/)).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Download blank canvas' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Download guide image' })).toHaveCount(0)
+  await expect(page.getByLabel('Frame PNG file')).toHaveCount(0)
+
   for (const layout of LAYOUTS) {
-    const area = section(page, layout.name)
-    await expect(area.getByText(/File: PNG with transparency/)).toBeVisible()
-    await expect(area.getByRole('link', { name: 'Download guide image' })).toHaveAttribute(
+    await page.getByRole('button', { name: `Details of ${layout.name}` }).click()
+    const details = page.getByRole('dialog', { name: `${layout.name}: specification` })
+    await expect(details.getByText(/File: PNG with transparency/)).toBeVisible()
+    await expect(details.getByText('300 DPI', { exact: true })).toBeVisible()
+    await expect(details.getByRole('table', { name: 'Photo slot coordinates (px)' })).toBeVisible()
+    await expect(details.getByRole('link', { name: 'Download guide image' })).toHaveAttribute(
       'href',
       `/api/templates/${layout.key}/guide.png`,
     )
+    await page.keyboard.press('Escape')
+    await expect(details).toHaveCount(0)
     // The guide really downloads from the running backend.
     const guide = await page.request.get(`/api/templates/${layout.key}/guide.png`)
     expect(guide.status()).toBe(200)
     expect(guide.headers()['content-type']).toBe('image/png')
   }
+
+  await page.getByRole('button', { name: `Preview of ${STRIP.name}` }).click()
+  const preview = page.getByRole('dialog', { name: `${STRIP.name}: layout guide` })
+  await expect(preview.getByRole('img')).toHaveCount(1)
+  await expect
+    .poll(() => preview.getByRole('img').evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBe(600)
+  // The dialog is centred in the window.
+  const box = await preview.boundingBox()
+  const viewport = page.viewportSize()
+  expect(Math.abs((box?.x ?? 0) + (box?.width ?? 0) / 2 - (viewport?.width ?? 0) / 2)).toBeLessThan(4)
+  await page.keyboard.press('Escape')
+
   // No drawing or design tool anywhere.
   await expect(page.locator('canvas')).toHaveCount(0)
 })
 
-test('upload a valid frame for each of the three layouts', async ({ page }) => {
+test('the catalogue filters are compact pills with a distinct selected state', async ({ page }) => {
+  await pairAndSignIn(page)
+  await page.goto('/admin/frames')
+  const pills = page.getByRole('group', { name: 'Show' })
+  const all = pills.getByRole('button', { name: 'All' })
+  const uploaded = pills.getByRole('button', { name: 'Uploaded' })
+  await expect(all).toHaveAttribute('aria-pressed', 'true')
+  const allBox = await all.boundingBox()
+  expect(allBox?.height ?? 0).toBeGreaterThanOrEqual(44) // a real touch target...
+  expect(allBox?.height ?? 99).toBeLessThanOrEqual(48) // ...but slim, not a big rectangle
+  expect(await all.evaluate((el) => parseFloat(getComputedStyle(el).borderRadius))).toBeGreaterThanOrEqual(22)
+  const selectedBg = await all.evaluate((el) => getComputedStyle(el).backgroundColor)
+  const otherBg = await uploaded.evaluate((el) => getComputedStyle(el).backgroundColor)
+  expect(selectedBg).toBe('rgb(47, 111, 214)') // --pb-color-primary
+  expect(otherBg).not.toBe(selectedBg)
+  // All pills sit on one row.
+  const tops = await pills.getByRole('button').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)))
+  expect(new Set(tops).size).toBe(1)
+
+  await all.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(pills.getByRole('button', { name: '3×4' })).toBeFocused()
+  await expect(pills.getByRole('button', { name: '3×4' })).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Home')
+  await expect(all).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('upload a valid frame for each of the three layouts from one Add frame dialog', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/admin/frames')
   for (const layout of LAYOUTS) {
     await uploadFrame(page, layout, `frame_${layout.key}.png`, layout.frame)
-    const area = section(page, layout.name)
-    await expect(area.getByRole('status')).toHaveText(`${layout.frame} was added.`)
-    const card = frameCard(page, layout.frame)
-    await expect(card.getByText(layout.size)).toBeVisible()
-    // Both the uploaded file and a rendered sample output load from the server.
-    for (const alt of [`${layout.frame} frame file`, `${layout.frame} sample output`]) {
-      await expect
-        .poll(
-          () => card.getByRole('img', { name: alt }).evaluate((img: HTMLImageElement) => img.naturalWidth),
-          { timeout: 20_000 },
-        )
-        .toBeGreaterThan(0)
-    }
-    await expect(card.getByText('Sample output with placeholder photos')).toBeVisible()
-    expect(
-      (await area.getByRole('button', { name: 'Upload frame' }).boundingBox())?.height ?? 0,
-    ).toBeGreaterThanOrEqual(64)
+    const done = page.getByRole('alertdialog', { name: 'Frame added' })
+    await expect(done).toContainText(`${layout.frame} was added.`)
+    await done.getByRole('button', { name: 'Close' }).click()
+    const row = frameRow(page, layout.frame)
+    await expect(row.getByText(`${layout.label} · ${layout.size}`)).toBeVisible()
+    await expect(row.getByText('Uploaded')).toBeVisible()
+    // One rendered thumbnail only, loaded from the server.
+    await expect(row.getByRole('img')).toHaveCount(1)
+    await expect
+      .poll(
+        () => row.getByRole('img', { name: `${layout.frame} sample output` }).evaluate((img: HTMLImageElement) => img.naturalWidth),
+        { timeout: 20_000 },
+      )
+      .toBeGreaterThan(0)
+    expect((await row.boundingBox())?.height ?? 999).toBeLessThanOrEqual(110)
   }
 })
 
-test('invalid frames are refused with a plain reason', async ({ page }) => {
+test('a frame preview opens one large image, from the button or the thumbnail', async ({ page }) => {
+  await pairAndSignIn(page)
+  await page.goto('/admin/frames')
+  const row = frameRow(page, STRIP.frame)
+  await row.getByRole('button', { name: `Preview ${STRIP.frame}` }).click()
+  let dialog = page.getByRole('dialog', { name: STRIP.frame })
+  await expect(dialog.getByRole('img')).toHaveCount(1)
+  await expect
+    .poll(() => dialog.getByRole('img').evaluate((img: HTMLImageElement) => img.naturalWidth), { timeout: 20_000 })
+    .toBeGreaterThan(0)
+  expect((await dialog.getByRole('img').boundingBox())?.height ?? 0).toBeGreaterThan(300)
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+
+  // The whole thumbnail is a click target for the large preview.
+  await row.locator('button[aria-hidden="true"]').click()
+  dialog = page.getByRole('dialog', { name: STRIP.frame })
+  await expect(dialog.getByRole('img')).toHaveCount(1)
+  await dialog.getByRole('button', { name: 'Close' }).click()
+})
+
+test('invalid frames are refused with a plain reason inside the upload dialog', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/admin/frames')
   const layout = STRIP // the 2x6 strip, so the expected size in the message is 600 x 1800
-  const area = section(page, layout.name)
+  const dialog = uploadDialog(page)
 
   await uploadFrame(page, layout, 'frame_wrong_size.png', 'Wrong size')
-  await expect(area.getByRole('alert')).toContainText('exactly 600 x 1800 px')
+  await expect(dialog.getByRole('alert')).toContainText('exactly 600 x 1800 px')
+  await page.keyboard.press('Escape')
 
   await uploadFrame(page, layout, 'frame_opaque_slots.png', 'Opaque')
-  await expect(area.getByRole('alert')).toContainText(
-    'Photo 1 area must be at least 95% transparent',
-  )
+  await expect(dialog.getByRole('alert')).toContainText('Photo 1 area must be at least 95% transparent')
 
   // A JPEG is refused in the browser before it is sent.
-  await area.getByLabel('Frame name').fill('Not a png')
-  await area.getByLabel('Frame PNG file').setInputFiles(join(fixturesDir, 'frame_not_png.jpg'))
-  await expect(area.getByRole('alert')).toContainText('The frame must be a PNG file.')
+  await dialog.getByLabel('Frame PNG file').setInputFiles(join(fixturesDir, 'frame_not_png.jpg'))
+  await expect(dialog.getByRole('alert')).toContainText('The frame must be a PNG file.')
+  await page.keyboard.press('Escape')
 
   // A frame of the wrong layout is refused too (3x4 file offered to the 2x6 layout).
   await uploadFrame(page, layout, 'frame_print_3x4.png', 'Wrong layout')
-  await expect(area.getByRole('alert')).toContainText('exactly 600 x 1800 px')
+  await expect(dialog.getByRole('alert')).toContainText('exactly 600 x 1800 px')
+  await page.keyboard.press('Escape')
 
-  await expect(frameCard(page, 'Wrong size')).toHaveCount(0)
-  await expect(frameCard(page, 'Opaque')).toHaveCount(0)
+  await expect(frameRow(page, 'Wrong size')).toHaveCount(0)
+  await expect(frameRow(page, 'Opaque')).toHaveCount(0)
 })
 
 function frameSwitch(page: Page, layout: (typeof LAYOUTS)[number], name: string = layout.frame) {
@@ -138,51 +224,46 @@ test('a profile offers every built-in frame and the admin switches uploads on', 
     await expect(frameSwitch(page, layout)).toBeChecked()
   }
 })
+
 test('a frame in use can not be deleted, but its file can be replaced', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/admin/frames')
   const layout = STRIP
-  const area = section(page, layout.name)
-  const card = frameCard(page, layout.frame)
+  const row = frameRow(page, layout.frame)
 
-  await card.getByRole('button', { name: `Delete ${layout.frame}` }).click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: `Delete ${layout.frame}?` })).toBeVisible()
-  await dialog.getByRole('button', { name: 'Delete frame' }).click()
-  await expect(area.getByRole('alert')).toContainText(PROFILE)
-  await expect(card).toHaveCount(1)
+  await row.getByRole('button', { name: `Delete ${layout.frame}` }).click()
+  const confirm = page.getByRole('alertdialog', { name: `Delete ${layout.frame}?` })
+  await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await confirm.getByRole('button', { name: 'Delete frame' }).click()
+  const refused = page.getByRole('alertdialog', { name: `${layout.frame} was not deleted` })
+  await expect(refused).toContainText(PROFILE)
+  await refused.getByRole('button', { name: 'Close' }).click()
+  await expect(row).toHaveCount(1)
 
   // Replacing the file keeps the profile selection working, and the page shows the new file
   // (a new versioned URL whose bytes are the replacement), never the cached old image.
-  const fileImage = card.getByRole('img', { name: `${layout.frame} frame file` })
-  const oldSrc = await fileImage.getAttribute('src')
-  await card.getByLabel(`Replace file for ${layout.frame}`).setInputFiles(
+  const thumb = row.getByRole('img', { name: `${layout.frame} sample output` })
+  const oldSrc = (await thumb.getAttribute('src')) ?? ''
+  await row.getByLabel(`New PNG file for ${layout.frame}`).setInputFiles(
     join(fixturesDir, `frame_${layout.key}_v2.png`),
   )
-  await expect(fileImage).not.toHaveAttribute('src', oldSrc ?? '')
-  const newSrc = (await fileImage.getAttribute('src')) ?? ''
-  const served = await page.request.get(newSrc)
+  await closeMessage(page, 'File replaced')
+  await expect(thumb).not.toHaveAttribute('src', oldSrc)
+  const version = ((await thumb.getAttribute('src')) ?? '').split('?v=')[1] ?? 'missing'
+  const frameId = /frames\/([0-9a-f-]{36})\//.exec(oldSrc)?.[1] ?? 'missing'
+  const served = await page.request.get(`/api/admin/frames/${frameId}/content?v=${version}`)
   expect(served.status()).toBe(200)
   const replacement = readFileSync(join(fixturesDir, `frame_${layout.key}_v2.png`))
   expect(Buffer.compare(await served.body(), replacement)).toBe(0)
-  await expect(card.getByRole('img', { name: `${layout.frame} sample output` })).toHaveAttribute(
-    'src',
-    new RegExp(`\\?v=${newSrc.split('?v=')[1] ?? 'missing'}$`),
-  )
   await expect
-    .poll(
-      () =>
-        card
-          .getByRole('img', { name: `${layout.frame} sample output` })
-          .evaluate((img: HTMLImageElement) => img.naturalWidth),
-      { timeout: 20_000 },
-    )
+    .poll(() => thumb.evaluate((img: HTMLImageElement) => img.naturalWidth), { timeout: 20_000 })
     .toBeGreaterThan(0)
 
-  await card.getByRole('button', { name: `Rename ${layout.frame}` }).click()
-  await card.getByLabel('Frame name').fill(RENAMED_STRIP)
-  await card.getByRole('button', { name: 'Save name' }).click()
-  await expect(frameCard(page, RENAMED_STRIP)).toHaveCount(1)
+  await row.getByRole('button', { name: `Rename ${layout.frame}` }).click()
+  const rename = page.getByRole('dialog', { name: `Rename ${layout.frame}` })
+  await rename.getByLabel('Frame name').fill(RENAMED_STRIP)
+  await rename.getByRole('button', { name: 'Save name' }).click()
+  await expect(frameRow(page, RENAMED_STRIP)).toHaveCount(1)
 })
 
 test('an unused frame can be deleted', async ({ page }) => {
@@ -190,11 +271,12 @@ test('an unused frame can be deleted', async ({ page }) => {
   await page.goto('/admin/frames')
   const layout = LAYOUTS[1]
   await uploadFrame(page, layout, `frame_${layout.key}_v2.png`, 'Spare frame')
-  const card = frameCard(page, 'Spare frame')
-  await expect(card).toHaveCount(1)
-  await card.getByRole('button', { name: 'Delete Spare frame' }).click()
-  await page.getByRole('dialog').getByRole('button', { name: 'Delete frame' }).click()
-  await expect(frameCard(page, 'Spare frame')).toHaveCount(0)
+  await closeMessage(page, 'Frame added')
+  const row = frameRow(page, 'Spare frame')
+  await expect(row).toHaveCount(1)
+  await row.getByRole('button', { name: 'Delete Spare frame' }).click()
+  await page.getByRole('alertdialog', { name: 'Delete Spare frame?' }).getByRole('button', { name: 'Delete frame' }).click()
+  await expect(frameRow(page, 'Spare frame')).toHaveCount(0)
 })
 
 test('a busy sample preview is retried instead of staying broken', async ({ page }) => {
@@ -210,11 +292,11 @@ test('a busy sample preview is retried instead of staying broken', async ({ page
   })
   await pairAndSignIn(page)
   await page.goto('/admin/frames')
-  const card = frameCard(page, LAYOUTS[0].frame)
+  const row = frameRow(page, LAYOUTS[0].frame)
   await expect
     .poll(
       () =>
-        card
+        row
           .getByRole('img', { name: `${LAYOUTS[0].frame} sample output` })
           .evaluate((img: HTMLImageElement) => img.naturalWidth),
       { timeout: 20_000 },
@@ -240,33 +322,42 @@ test('the frame manager works on a narrow phone screen', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await pairAndSignIn(page)
   await page.goto('/admin/frames')
-  await expect(page.getByRole('heading', { name: 'Frames' })).toBeVisible()
-  const upload = section(page, LAYOUTS[0].name).getByRole('button', { name: 'Upload frame' })
-  const box = await upload.boundingBox()
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(64)
+  await expect(page.getByRole('heading', { name: 'Frames', exact: true })).toBeVisible()
+  const add = page.getByRole('button', { name: 'Add frame' })
+  const box = await add.boundingBox()
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
   expect(box?.width ?? 0).toBeLessThanOrEqual(360)
+  // The pill row scrolls sideways inside itself instead of widening the page.
+  const pills = page.getByRole('group', { name: 'Show' })
+  const tops = await pills.getByRole('button').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)))
+  expect(new Set(tops).size).toBe(1)
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )
   expect(overflow).toBeLessThanOrEqual(1) // no sideways scrolling
+  await add.click()
+  await expect(uploadDialog(page)).toBeVisible()
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+  ).toBeLessThanOrEqual(1)
 })
 
 test('frames and selections survive a backend restart @after-restart', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/admin/frames')
-  await expect(frameCard(page, RENAMED_STRIP)).toHaveCount(1)
-  await expect(frameCard(page, LAYOUTS[1].frame)).toHaveCount(1)
-  // Images load lazily: bring the card (below the built-in frames) into view.
-  await frameCard(page, RENAMED_STRIP).scrollIntoViewIfNeeded()
+  await expect(frameRow(page, RENAMED_STRIP)).toHaveCount(1)
+  await expect(frameRow(page, LAYOUTS[1].frame)).toHaveCount(1)
+  // Thumbnails load lazily: bring the row into view.
+  await frameRow(page, RENAMED_STRIP).scrollIntoViewIfNeeded()
   await expect
     .poll(
       () =>
-        frameCard(page, RENAMED_STRIP)
-          .getByRole('img', { name: `${RENAMED_STRIP} frame file` })
+        frameRow(page, RENAMED_STRIP)
+          .getByRole('img', { name: `${RENAMED_STRIP} sample output` })
           .evaluate((img: HTMLImageElement) => img.naturalWidth),
       { timeout: 20_000 },
     )
-    .toBe(600)
+    .toBeGreaterThan(0)
 
   await page.goto('/admin')
   await profileRow(page, PROFILE).getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
@@ -275,5 +366,5 @@ test('frames and selections survive a backend restart @after-restart', async ({ 
   await expect(frameSwitch(page, STRIP, RENAMED_STRIP)).toBeChecked()
   await page.getByLabel('Title', { exact: true }).fill('Frames after restart')
   await page.getByRole('button', { name: 'Save profile' }).click()
-  await expect(page.getByRole('status')).toHaveText('Saved')
+  await expect(page.getByRole('alertdialog', { name: 'Saved' })).toContainText('Profile saved successfully.')
 })

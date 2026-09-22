@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 
 import {
   presetTheme,
@@ -23,6 +23,8 @@ import {
   EventScreen,
   EventText,
 } from '../../../shared/eventUi/EventUi'
+import { Icon } from './ui/Icon'
+import { Modal } from './ui/Modal'
 import styles from './ThemeEditor.module.css'
 
 export interface ThemeExtraction {
@@ -57,10 +59,11 @@ function Swatches({ colours, label }: { colours: string[]; label: string }) {
   )
 }
 
-/** The two or three colours that tell presets apart at a glance. */
+/** The three colours that tell presets apart at a glance. */
 const TILE_TOKENS = ['background', 'primary_bg', 'secondary_bg'] as const
 
-function PresetTile({
+/** One compact option in the Quick theme strip: colour dots, name, selected mark, Details. */
+function PresetOption({
   preset,
   checked,
   onSelect,
@@ -76,8 +79,8 @@ function PresetTile({
   inputRef?: React.Ref<HTMLInputElement>
 }) {
   return (
-    <div className={styles.presetTile} data-selected={checked ? '' : undefined}>
-      <label className={styles.presetMain}>
+    <div className={styles.themeOption} data-selected={checked ? '' : undefined} data-testid="theme-option">
+      <label className={styles.themeChoice}>
         <input
           ref={inputRef}
           type="radio"
@@ -86,32 +89,39 @@ function PresetTile({
           checked={checked}
           onChange={onSelect}
           disabled={disabled}
-          className={styles.presetRadio}
+          className={styles.themeRadio}
         />
-        <span className={styles.presetName}>{preset.name}</span>
-        <span className={styles.bigSwatches} aria-hidden="true">
+        <span className={styles.dots} aria-hidden="true">
           {TILE_TOKENS.map((key) => (
             <span
               key={key}
-              className={styles.bigSwatch}
+              className={styles.dot}
+              data-swatch=""
               style={{ backgroundColor: preset.tokens[key] ?? '#000000' }}
             />
           ))}
         </span>
-        {checked && <span className={styles.selectedMark}>Selected</span>}
+        <span className={styles.themeName}>{preset.name}</span>
+        {checked && (
+          <span className={styles.check} aria-hidden="true">
+            <Icon name="check" size={18} />
+          </span>
+        )}
       </label>
       <button
         type="button"
-        className={styles.detailsButton}
+        className={styles.detailsIcon}
         onClick={(e) => onDetails(e.currentTarget)}
         aria-label={`View details of ${preset.name}`}
+        title={`Details of ${preset.name}`}
       >
-        View details
+        <Icon name="details" size={18} />
       </button>
     </div>
   )
 }
 
+/** Everything about one preset; looking never selects it (only "Use ..." does). */
 function PresetDetails({
   preset,
   catalog,
@@ -125,53 +135,41 @@ function PresetDetails({
   onApply: () => void
   onClose: () => void
 }) {
-  const closeRef = useRef<HTMLButtonElement>(null)
-  useEffect(() => closeRef.current?.focus({ preventScroll: true }), [])
   return (
-    <div className={styles.detailsBackdrop} onClick={onClose}>
-      <div
-        className={styles.detailsDialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="preset-details-title"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') onClose()
-        }}
-      >
-        <div className={styles.detailsHeader}>
-          <h3 id="preset-details-title" className={styles.subHeading}>
-            {preset.name}
-          </h3>
-          <button ref={closeRef} type="button" onClick={onClose} className={styles.actionButton}>
-            Close
+    <Modal
+      title={preset.name}
+      onClose={onClose}
+      size="large"
+      restoreFocus={false}
+      footer={
+        <div className={styles.dialogActions}>
+          <button type="button" onClick={onApply} disabled={checked} className={styles.actionButton}>
+            {checked ? 'This theme is selected' : `Use ${preset.name}`}
           </button>
         </div>
-        <p className={styles.helper}>{preset.description}</p>
-        <LiveExamples tokens={preset.tokens} />
-        <table className={styles.tokenTable}>
-          <caption className={styles.helper}>All {catalog.tokens.length} colours</caption>
-          <tbody>
-            {catalog.tokens.map((token) => (
-              <tr key={token.key}>
-                <th scope="row">{token.label}</th>
-                <td>
-                  <span
-                    className={styles.swatch}
-                    style={{ backgroundColor: preset.tokens[token.key] ?? '#000000' }}
-                    aria-hidden="true"
-                  />{' '}
-                  <span className={styles.swatchHex}>{preset.tokens[token.key]}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <button type="button" onClick={onApply} disabled={checked} className={styles.actionButton}>
-          {checked ? 'This theme is selected' : `Use ${preset.name}`}
-        </button>
-      </div>
-    </div>
+      }
+    >
+      <p className={styles.helper}>{preset.description}</p>
+      <LiveExamples tokens={preset.tokens} />
+      <table className={styles.tokenTable}>
+        <caption className={styles.helper}>All {catalog.tokens.length} colours</caption>
+        <tbody>
+          {catalog.tokens.map((token) => (
+            <tr key={token.key}>
+              <th scope="row">{token.label}</th>
+              <td>
+                <span
+                  className={styles.swatch}
+                  style={{ backgroundColor: preset.tokens[token.key] ?? '#000000' }}
+                  aria-hidden="true"
+                />{' '}
+                <span className={styles.swatchHex}>{preset.tokens[token.key]}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Modal>
   )
 }
 function ColourField({
@@ -330,9 +328,9 @@ export function ThemeEditor({
 
       <fieldset className={styles.fieldset} disabled={disabled}>
         <legend className={styles.legend}>Quick theme</legend>
-        <div className={styles.presetGrid}>
+        <div className={styles.themeStrip}>
           {catalog.presets.map((preset, index) => (
-            <PresetTile
+            <PresetOption
               key={preset.id}
               preset={preset}
               checked={theme.source === 'preset' && theme.preset === preset.id}

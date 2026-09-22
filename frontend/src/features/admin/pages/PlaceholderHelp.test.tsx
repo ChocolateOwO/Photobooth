@@ -76,7 +76,8 @@ describe('placeholder and helper text', () => {
     renderAdmin('/admin/profiles/new', { server })
     await userEvent.clear(await screen.findByLabelText('Inactivity timeout (seconds)'))
     await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
-    const text = (await screen.findAllByRole('alert')).map((a) => a.textContent).join(' ')
+    const text =
+      (await screen.findByRole('alertdialog', { name: 'Some information is missing or invalid' })).textContent ?? ''
     expect(text).toContain('Profile name is required.')
     expect(text).toContain('Title is required.')
     expect(text).toContain('Inactivity timeout must be between 30 and 900 seconds.')

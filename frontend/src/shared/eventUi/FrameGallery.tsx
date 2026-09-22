@@ -23,7 +23,7 @@ interface FrameGalleryProps {
   onCancel?: () => void
   /** Random source for "Surprise me" (injectable for tests). */
   random?: () => number
-  /** Admin preview: smaller cards, no focus trapping side effects. */
+  /** Shown inside the admin preview: a smaller heading level and a non-modal preview dialog. */
   compact?: boolean
   busy?: boolean
 }
@@ -57,6 +57,7 @@ export function FrameGallery({
   // A tab whose last frame disappeared falls back to All.
   const activeTab = tab === ALL || layouts.some((l) => l.key === tab) ? tab : ALL
   const shown = activeTab === ALL ? frames : frames.filter((f) => f.plan.template_key === activeTab)
+  const tabs = [{ key: ALL, label: 'All' }, ...layouts]
   const selected = frames.find((f) => f.id === selectedId) ?? null
   const surprise = allowSurprise && frames.length >= 2
 
@@ -75,20 +76,35 @@ export function FrameGallery({
   }
 
   return (
-    <div className={compact ? `${styles.gallery} ${styles.compact}` : styles.gallery} data-testid="frame-gallery">
+    <div className={styles.gallery} data-testid="frame-gallery">
       <EventHeading level={compact ? 3 : 1}>Choose your frame</EventHeading>
       <EventText muted>Tap a frame to see it bigger.</EventText>
 
       {layouts.length > 0 && (
         <div className={styles.tabs} role="tablist" aria-label="Frame sizes">
-          {[{ key: ALL, label: 'All' }, ...layouts].map((layout) => (
+          {tabs.map((layout, index) => (
             <button
               key={layout.key}
               type="button"
               role="tab"
               aria-selected={activeTab === layout.key}
+              tabIndex={activeTab === layout.key ? 0 : -1}
               className={styles.tab}
               onClick={() => setTab(layout.key)}
+              onKeyDown={(e) => {
+                // Arrow keys, Home and End move between the size pills (roving focus).
+                const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key]
+                const target =
+                  e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : step ? index + step : null
+                if (target === null) return
+                e.preventDefault()
+                const next = (target + tabs.length) % tabs.length
+                const nextTab = tabs[next]
+                if (!nextTab) return
+                setTab(nextTab.key)
+                const buttons = e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]')
+                buttons?.[next]?.focus()
+              }}
             >
               {layout.label}
             </button>

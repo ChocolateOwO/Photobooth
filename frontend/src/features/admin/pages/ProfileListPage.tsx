@@ -10,6 +10,8 @@ import {
   useProfiles,
   useRestoreProfile,
 } from '../api/hooks'
+import { PillButton } from '../components/ui/Controls'
+import { MessageDialog } from '../components/ui/MessageDialog'
 import styles from './ProfileListPage.module.css'
 
 function extractErrorMessages(err: unknown): string[] {
@@ -86,7 +88,8 @@ export function ProfileListPage() {
     }
   }
 
-  const allErrors = mutationErrors ?? (profilesError ? extractErrorMessages(profilesError) : null)
+  const loadErrors = profilesError ? extractErrorMessages(profilesError) : null
+  const refused = activationError ? profiles.find((p) => p.id === activationError.id) : undefined
 
   return (
     <div className={styles.container}>
@@ -114,9 +117,9 @@ export function ProfileListPage() {
         </div>
       )}
 
-      {allErrors && allErrors.length > 0 && (
+      {loadErrors && loadErrors.length > 0 && (
         <div role="alert" className={styles.alert}>
-          {allErrors.map((msg, index) => (
+          {loadErrors.map((msg, index) => (
             <p key={index}>{msg}</p>
           ))}
         </div>
@@ -143,16 +146,6 @@ export function ProfileListPage() {
                       ? '1 frame for participants'
                       : `${profile.settings.available_frames.length} frames for participants`}
                   </div>
-                  {activationError?.id === profile.id && (
-                    <div role="alert" className={styles.alert} data-testid="activation-error">
-                      {activationError.messages.map((msg, index) => (
-                        <p key={index}>{msg}</p>
-                      ))}
-                      <Link to={`/admin/profiles/${profile.id}`} className={styles.actionLink}>
-                        Choose frames for {profile.settings.name}
-                      </Link>
-                    </div>
-                  )}
                 </div>
 
                 <div className={styles.rowActions}>
@@ -216,40 +209,50 @@ export function ProfileListPage() {
       )}
 
       {deletingProfile && (
-        <div className={styles.dialogOverlay}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-dialog-title"
-            className={styles.dialog}
-          >
-            <h2 id="delete-dialog-title" className={styles.dialogHeading}>
-              Delete {deletingProfile.settings.name}?
-            </h2>
-            <p className={styles.dialogText}>
-              The profile is hidden but can be restored later.
-            </p>
-            <div className={styles.dialogButtons}>
-              <BigButton
-                type="button"
-                onClick={() => {
-                  void handleConfirmDelete()
-                }}
-                className={styles.deleteConfirmButton}
-              >
-                Delete profile
-              </BigButton>
-              <BigButton
-                type="button"
-                onClick={() => setDeletingProfile(null)}
-                className={styles.cancelButton}
-              >
-                Cancel
-              </BigButton>
-            </div>
-          </div>
-        </div>
+        <MessageDialog
+          kind="confirm"
+          title={`Delete ${deletingProfile.settings.name}?`}
+          onClose={() => setDeletingProfile(null)}
+          actions={
+            <PillButton
+              tone="danger"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                void handleConfirmDelete()
+              }}
+            >
+              Delete profile
+            </PillButton>
+          }
+        >
+          <p>The profile is hidden but can be restored later.</p>
+        </MessageDialog>
       )}
-    </div>
+
+      {activationError && (
+        <MessageDialog
+          kind="warning"
+          title={`${refused?.settings.name ?? 'This profile'} can not be activated`}
+          testId="activation-error"
+          onClose={() => setActivationError(null)}
+          actions={
+            <Link to={`/admin/profiles/${activationError.id}`} className={styles.dialogLink}>
+              Choose frames for {refused?.settings.name ?? 'this profile'}
+            </Link>
+          }
+        >
+          {activationError.messages.map((msg, index) => (
+            <p key={index}>{msg}</p>
+          ))}
+        </MessageDialog>
+      )}
+
+      {mutationErrors && mutationErrors.length > 0 && (
+        <MessageDialog kind="error" title="That did not work" onClose={() => setMutationErrors(null)}>
+          {mutationErrors.map((msg, index) => (
+            <p key={index}>{msg}</p>
+          ))}
+        </MessageDialog>
+      )}    </div>
   )
 }

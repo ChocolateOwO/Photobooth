@@ -258,3 +258,16 @@
   background-color: rgba(255, 255, 255, 0.1);
   color: var(--pb-color-text);
 }
+
+.dialogLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background-color: var(--pb-color-primary);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+}

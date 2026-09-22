@@ -1,0 +1,194 @@
+/* Compact admin controls: pills, icon buttons and switches. The visual shape is slim; the
+   clickable area keeps at least 44 px (WCAG 2.5.5) through padding and min sizes. */
+
+.pillRow {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  padding: 2px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--pb-color-muted);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.pill:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: var(--pb-color-text);
+}
+
+.pill[aria-pressed='true'] {
+  background-color: var(--pb-color-primary);
+  border-color: var(--pb-color-primary);
+  color: #ffffff;
+}
+
+.pill:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pill:focus-visible,
+.iconButton:focus-visible {
+  outline: 3px solid var(--pb-color-dummy);
+  outline-offset: 2px;
+}
+
+/* A call to action in pill form (for example Add frame). */
+.pillPrimary {
+  background-color: var(--pb-color-primary);
+  border-color: var(--pb-color-primary);
+  color: #ffffff;
+}
+
+.pillPrimary:hover:not(:disabled) {
+  background-color: #3c7ce3;
+  color: #ffffff;
+}
+
+.pillDanger {
+  border-color: var(--pb-color-error);
+  color: var(--pb-color-error);
+}
+
+.iconButton {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--pb-color-text);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.iconButton:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.iconButton:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.iconDanger {
+  color: var(--pb-color-error);
+}
+
+/* Sliding switch around a native checkbox with role="switch". */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--pb-color-text);
+}
+
+.switch[data-disabled] {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* The native checkbox covers the whole switch, invisible: it is what gets clicked and focused. */
+.switchInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+  z-index: 1;
+}
+
+.track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
+}
+
+.thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #c9d1d9;
+  transition:
+    transform 140ms ease,
+    background-color 140ms ease;
+}
+
+.switchInput:checked + .track {
+  background-color: var(--pb-color-ok);
+  border-color: var(--pb-color-ok);
+}
+
+.switchInput:checked + .track .thumb {
+  transform: translateX(20px);
+  background-color: #ffffff;
+}
+
+.switchInput:focus-visible + .track {
+  outline: 3px solid var(--pb-color-dummy);
+  outline-offset: 2px;
+}
+
+.switchText {
+  font-size: 15px;
+  font-weight: 600;
+  min-width: 2.2em;
+}
+
+.switchInput:not(:checked) ~ .switchText {
+  color: var(--pb-color-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill,
+  .track,
+  .thumb {
+    transition: none;
+  }
+}

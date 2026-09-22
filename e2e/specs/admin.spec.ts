@@ -84,8 +84,9 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
   await page.getByRole('radio', { name: 'Retake all photos' }).check()
 
   const preview = page.getByTestId('event-preview')
-  await expect(preview.getByText(PERSISTED.title)).toBeVisible()
-  await expect(preview.getByText(PERSISTED.startText)).toBeVisible()
+  // The start screen shows the Start button, never the title or subtitle.
+  await expect(preview.getByRole('button', { name: PERSISTED.startText })).toBeVisible()
+  await expect(preview.getByText(PERSISTED.title)).toHaveCount(0)
   await expect(page.getByTestId('preparation-preview').getByText('Mirror: off')).toBeVisible()
 
   await page.getByLabel('Logo image').setInputFiles(join(fixturesDir, 'logo.png'))
@@ -96,7 +97,7 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
   await expect(page.getByText('1280 × 720 px')).toBeVisible()
   // The uploaded image really loads from the server (admin cookie on a plain <img>).
   await expect
-    .poll(() => preview.getByRole('img', { name: 'Preview logo' }).evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .poll(() => preview.getByRole('img', { name: 'Event logo' }).evaluate((img: HTMLImageElement) => img.naturalWidth))
     .toBe(256)
 
   // Invalid upload is refused before it reaches the server.
@@ -105,7 +106,9 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
     mimeType: 'image/svg+xml',
     buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'),
   })
-  await expect(page.getByRole('alert')).toContainText('Logo must be a PNG or JPEG image.')
+  const refused = page.getByRole('alertdialog', { name: 'The logo was not uploaded' })
+  await expect(refused).toContainText('Logo must be a PNG or JPEG image.')
+  await refused.getByRole('button', { name: 'Close' }).click()
 
   // The background proposed its own colours; then one colour is changed by hand.
   await expect(page.getByText('Colors extracted from background')).toBeVisible()
@@ -122,6 +125,7 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
   await save.click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
   await expect(page.getByRole('heading', { name: 'Edit Event Profile' })).toBeVisible()
+  await expect(page.getByRole('alertdialog', { name: 'Saved' })).toContainText('Profile saved successfully.')
 
   await page.reload()
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
@@ -144,8 +148,8 @@ test('duplicate, activate, soft delete and restore', async ({ page }) => {
   await expect(page.getByRole('button', { name: `Delete ${PERSISTED.copy}`, exact: true })).toBeDisabled()
 
   await page.getByRole('button', { name: `Delete ${PERSISTED.original}`, exact: true }).click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog.getByRole('heading', { name: `Delete ${PERSISTED.original}?`, exact: true })).toBeVisible()
+  const dialog = page.getByRole('alertdialog', { name: `Delete ${PERSISTED.original}?` })
+  await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: 'Delete profile' }).click()
   await expect(profileRow(page, PERSISTED.original)).toHaveCount(0)
 
@@ -165,20 +169,19 @@ test('a stale edit is refused and can be reloaded', async ({ page, context }) =>
   await other.goto(page.url())
   await other.getByLabel('Subtitle').fill('Changed in the other tab')
   await other.getByRole('button', { name: 'Save profile' }).click()
-  await expect(other.getByRole('status')).toHaveText('Saved')
+  await expect(other.getByRole('alertdialog', { name: 'Saved' })).toBeVisible()
   await other.close()
 
   await page.getByLabel('Subtitle').fill('My older edit')
   await page.getByRole('button', { name: 'Save profile' }).click()
-  // (The hand-picked button colour of this profile also shows a contrast warning alert.)
-  await expect(
-    page.getByRole('alert').filter({ hasText: 'changed somewhere else' }),
-  ).toContainText('This profile was changed somewhere else. Reload to get the latest version.')
-  await page.getByRole('button', { name: 'Reload latest' }).click()
+  const conflict = page.getByRole('alertdialog', { name: 'Changed somewhere else' })
+  await expect(conflict).toContainText('This profile was changed somewhere else. Reload to get the latest version.')
+  await conflict.getByRole('button', { name: 'Reload latest' }).click()
+  await expect(conflict).toHaveCount(0)
   await expect(page.getByLabel('Subtitle')).toHaveValue('Changed in the other tab')
   await page.getByLabel('Subtitle').fill(PERSISTED.subtitle)
   await page.getByRole('button', { name: 'Save profile' }).click()
-  await expect(page.getByRole('status')).toHaveText('Saved')
+  await expect(page.getByRole('alertdialog', { name: 'Saved' })).toContainText('Profile saved successfully.')
 })
 
 test('an expired admin session returns to sign-in without showing data', async ({ page, context }) => {
@@ -224,7 +227,7 @@ test('saved profiles reopen and stay editable after a backend restart @after-res
 
   await page.getByLabel('Title', { exact: true }).fill('Edited after restart')
   await page.getByRole('button', { name: 'Save profile' }).click()
-  await expect(page.getByRole('status')).toHaveText('Saved')
+  await expect(page.getByRole('alertdialog', { name: 'Saved' })).toContainText('Profile saved successfully.')
   await page.reload()
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue('Edited after restart')
 })

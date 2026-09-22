@@ -55,14 +55,17 @@ describe('ProfileListPage', () => {
     renderAdmin('/admin', { server })
 
     await userEvent.click(await screen.findByRole('button', { name: 'Delete Party' }))
-    const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByRole('heading', { name: 'Delete Party?' })).toBeInTheDocument()
+    const dialog = screen.getByRole('alertdialog', { name: 'Delete Party?' })
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus() // the safe choice first
     await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Delete Party' })).toHaveFocus()
     expect(server.profiles.get(party.id)?.deleted_at).toBeNull()
 
     await userEvent.click(screen.getByRole('button', { name: 'Delete Party' }))
-    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete profile' }))
+    await userEvent.click(
+      within(screen.getByRole('alertdialog', { name: 'Delete Party?' })).getByRole('button', { name: 'Delete profile' }),
+    )
     expect(await screen.findByText('No event profiles yet.')).toBeInTheDocument()
     const deleteRequest = server.requests.find((r) => r.method === 'DELETE')
     expect(deleteRequest?.path).toBe(`/api/admin/profiles/${party.id}?revision=1`)
@@ -84,11 +87,15 @@ describe('ProfileListPage', () => {
     const current = server.profiles.get(party.id)
     if (!current) throw new Error('missing profile')
     server.profiles.set(party.id, { ...current, is_active: true })
-    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete profile' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('the active profile can not be deleted')
+    await userEvent.click(
+      within(screen.getByRole('alertdialog', { name: 'Delete Party?' })).getByRole('button', { name: 'Delete profile' }),
+    )
+    expect(await screen.findByRole('alertdialog', { name: 'That did not work' })).toHaveTextContent(
+      'the active profile can not be deleted',
+    )
   })
 
-  it('refuses to activate a profile without frames and says so on that row', async () => {
+  it('refuses to activate a profile without frames and says so in a pop-up', async () => {
     const server = signedInServer()
     const empty = server.seedProfile({ name: 'No frames yet', available_frames: [] })
     server.seedProfile({ name: 'Ready' })
@@ -97,7 +104,9 @@ describe('ProfileListPage', () => {
     const row = screen
       .getAllByTestId('profile-row')
       .find((r) => within(r).queryByText('No frames yet')) as HTMLElement
-    const error = await within(row).findByTestId('activation-error')
+    const error = await screen.findByTestId('activation-error')
+    expect(error).toHaveAttribute('role', 'alertdialog')
+    expect(error).toHaveAccessibleName('No frames yet can not be activated')
     expect(error).toHaveTextContent('No frames are available to participants.')
     expect(within(error).getByRole('link', { name: 'Choose frames for No frames yet' })).toHaveAttribute(
       'href',

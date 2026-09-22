@@ -1,0 +1,122 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background-color: rgba(4, 7, 10, 0.72);
+  box-sizing: border-box;
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background-color: var(--pb-color-surface);
+  color: var(--pb-color-text);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+  font-size: 17px;
+}
+
+.dialog:focus {
+  outline: none;
+}
+
+.small {
+  max-width: 420px;
+}
+
+.medium {
+  max-width: 620px;
+}
+
+.large {
+  max-width: 960px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.dialog[data-tone='success'] .icon {
+  color: var(--pb-color-ok);
+}
+
+.dialog[data-tone='warning'] .icon {
+  color: var(--pb-color-dummy);
+}
+
+.dialog[data-tone='error'] .icon {
+  color: var(--pb-color-error);
+}
+
+.title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: var(--pb-color-text);
+  cursor: pointer;
+}
+
+.close:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+.body p {
+  margin: 0;
+}
+
+.body ul {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.body li + li {
+  margin-top: 4px;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}

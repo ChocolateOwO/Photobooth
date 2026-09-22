@@ -246,8 +246,33 @@ export class FakeAdminServer {
     if (specMatch && method === 'GET') {
       const template = this.templates.find((t) => t.key === specMatch[1])
       if (!template) return json({ detail: 'template not found' }, 404)
+      const strip = template.key === 'strip_2x6'
       return json({
         ...template,
+        bleed: 0,
+        safe_area_inset: 30,
+        safe_area: { x: 30, y: 30, w: template.width_px - 60, h: template.height_px - 60 },
+        branding_area: strip ? { x: 30, y: 1590, w: 540, h: 180 } : null,
+        slots: [1, 2, 3].map((index) => ({
+          index,
+          x: 30,
+          y: 60 + (index - 1) * 510,
+          w: template.width_px - 60,
+          h: 480,
+          aspect: strip ? '6:5' : '3:2',
+          fit: 'cover',
+          anchor: 'center',
+        })),
+        output_capture_groups: strip ? [[1, 2, 3], [4, 5, 6]] : [[1, 2, 3, 4]],
+        frame_rules: {
+          format: 'PNG',
+          mode: 'RGBA',
+          color: 'sRGB',
+          animated: false,
+          exact_size: true,
+          max_bytes: 10 * 1024 * 1024,
+          slot_min_transparency: 0.95,
+        },
         frame_requirements: [
           `File: PNG with transparency (RGBA), not animated.`,
           `Size: exactly ${template.width_px} x ${template.height_px} px.`,

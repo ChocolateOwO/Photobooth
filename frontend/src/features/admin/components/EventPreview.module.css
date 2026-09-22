@@ -1,112 +1,14 @@
-/* Layout only. Event colours come from the event theme inside EventScreen; the frame around the
-   mock-ups and the captions belong to the admin shell. */
+/* Layout only. Event colours come from the event theme inside the event screens; the controls,
+   the frame around the screen and the caption belong to the admin shell. */
 
 .previewSection {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
+  height: 100%;
   min-width: 0;
-}
-
-.previewHeading,
-.phoneHeading {
-  margin: 0;
-  color: var(--pb-color-text);
-  font-size: 20px;
-}
-
-.phoneHeading {
-  font-size: 18px;
-  margin-top: 8px;
-}
-
-.wideScreen,
-.phoneScreen {
-  border-radius: var(--pb-radius);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-.wideScreen {
-  padding: 20px;
-  min-height: 320px;
-}
-
-.phoneScreen {
-  padding: 12px;
-}
-
-.wideGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.phoneGrid {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.welcome,
-.details {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-
-.logo {
-  max-height: 56px;
-  max-width: 180px;
-  object-fit: contain;
-  align-self: flex-start;
-}
-
-.buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.frameFigure {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.frameImage {
-  max-width: 100%;
-  max-height: 180px;
-  object-fit: contain;
-  align-self: center;
-}
-
-.frameCaption {
-  text-align: center;
-}
-
-.phoneFrame {
-  width: 100%;
-  max-width: 360px;
-  align-self: center;
-}
-
-.caption {
-  margin: 0;
-  color: var(--pb-color-muted);
-  font-size: 16px;
-  text-align: center;
-}
-
-@media (max-width: 640px) {
-  .wideGrid {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  min-height: 0;
 }
 
 .previewTop {
@@ -117,21 +19,137 @@
   gap: 8px;
 }
 
-.modes {
+.previewHeading {
+  margin: 0;
+  font-size: 20px;
+}
+
+.sizeControls {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
 }
 
-.modeButton {
+.presetSelect {
   min-height: 44px;
+  max-width: 100%;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background-color: var(--pb-color-bg);
+  color: var(--pb-color-text);
+  font: inherit;
+  font-size: 14px;
 }
 
-.modeButton[aria-pressed='true'] {
-  outline: 3px solid var(--pb-color-primary);
+.sizeField {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--pb-color-muted);
 }
 
-/* The compact gallery's preview dialog stays inside this box. */
+.sizeField input {
+  width: 78px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background-color: var(--pb-color-bg);
+  color: var(--pb-color-text);
+  font: inherit;
+  font-size: 15px;
+}
+
+.sizeField input[aria-invalid='true'] {
+  border-color: var(--pb-color-error);
+  box-shadow: 0 0 0 2px rgba(255, 107, 112, 0.35);
+}
+
+.sizeText {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--pb-color-muted);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sizeError {
+  margin: 0;
+  color: var(--pb-color-error);
+  font-size: 14px;
+}
+
+/* The screen box takes the room left in the preview column. */
 .screenBox {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* Stacked (narrow admin window): the stage keeps the screen's shape, at most most of the view. */
+.stage {
+  width: 100%;
+  aspect-ratio: var(--preview-ratio);
+  max-height: 78vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .stage {
+    aspect-ratio: auto;
+    max-height: none;
+    height: 100%;
+  }
+}
+
+.scaled {
+  flex: 0 0 auto;
   position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Drawn at the logical size, then scaled. The transform also keeps the gallery's preview
+   dialog (position: fixed) inside this screen. */
+.logical {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  container-type: size;
+  overflow: hidden;
+}
+
+.logical > * {
+  width: 100%;
+  height: 100%;
+}
+
+.galleryScreen {
+  overflow-y: auto;
+  scrollbar-width: none;
+  box-sizing: border-box;
+}
+
+.emptyGallery {
+  padding: 32px;
+}
+
+.caption {
+  margin: 0;
+  color: var(--pb-color-muted);
+  font-size: 14px;
+  text-align: center;
 }

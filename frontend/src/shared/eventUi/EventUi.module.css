@@ -1,6 +1,9 @@
 /* Event-facing UI: colours come only from the event theme tokens (--ev-*). No literal colours. */
 
 .screen {
+  /* Event screens size themselves by their own width (container queries), so a logical preview
+     size behaves like the real booth screen. */
+  container-type: inline-size;
   background-color: var(--ev-background);
   background-size: cover;
   background-position: center;

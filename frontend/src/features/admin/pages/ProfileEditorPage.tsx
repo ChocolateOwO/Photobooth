@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router'
 
 import {
   AdminApiError,
@@ -27,7 +27,36 @@ import { AssetPicker } from '../components/AssetPicker'
 import { AvailableFramesEditor } from '../components/AvailableFramesEditor'
 import { EventPreview } from '../components/EventPreview'
 import { ThemeEditor } from '../components/ThemeEditor'
+import { PillButton } from '../components/ui/Controls'
+import { MessageDialog } from '../components/ui/MessageDialog'
 import styles from './ProfileEditorPage.module.css'
+
+interface FieldProblem {
+  fieldId: string
+  message: string
+}
+
+/** Everything that blocks saving, in form order, each with the field that fixes it. */
+function validateSettings(settings: ProfileSettings): FieldProblem[] {
+  const problems: FieldProblem[] = []
+  if (!settings.name.trim()) {
+    problems.push({ fieldId: 'field-profile-name', message: 'Profile name is required.' })
+  }
+  if (!settings.title.trim()) {
+    problems.push({ fieldId: 'field-title', message: 'Title is required.' })
+  }
+  if (
+    isNaN(settings.inactivity_timeout_s) ||
+    settings.inactivity_timeout_s < INACTIVITY_LIMITS.min ||
+    settings.inactivity_timeout_s > INACTIVITY_LIMITS.max
+  ) {
+    problems.push({
+      fieldId: 'field-inactivity-timeout',
+      message: `Inactivity timeout must be between ${INACTIVITY_LIMITS.min} and ${INACTIVITY_LIMITS.max} seconds.`,
+    })
+  }
+  return problems
+}
 
 interface ProfileEditorFormProps {
   catalog: ThemeCatalog
@@ -71,8 +100,11 @@ function ProfileEditorForm({
   const [themeHistory, setThemeHistory] = useState<EventTheme[]>([])
   const [extractError, setExtractError] = useState<string | null>(null)
   const themeRef = useRef(initialSettings.theme)
-  const [saveStatus, setSaveStatus] = useState<string | null>(null)
-  const [clientErrors, setClientErrors] = useState<string[] | null>(null)
+  const location = useLocation()
+  // A newly created profile arrives here with its "saved" result to show.
+  const [saved, setSaved] = useState(() => (location.state as { saved?: boolean } | null)?.saved === true)
+  const [attempted, setAttempted] = useState(false)
+  const [showProblems, setShowProblems] = useState(false)
   const [serverErrors, setServerErrors] = useState<string[] | null>(null)
   const [conflictError, setConflictError] = useState<{
     message: string
@@ -139,24 +171,51 @@ function ProfileEditorForm({
     setSettings((current) => ({ ...current, theme: previous }))
   }
 
-  const validate = (): string[] => {
-    const errors: string[] = []
-    if (!settings.name.trim()) {
-      errors.push('Profile name is required.')
+  // Wide screens: the editor fills the window below the header; the form scrolls in its own
+  // column and the preview column stays exactly where it is. The layout's distance from the top
+  // of the page (header height) is measured, since it changes when the header wraps.
+  const layoutRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const measure = () => {
+      const layout = layoutRef.current
+      if (!layout) return
+      const top = layout.getBoundingClientRect().top + window.scrollY
+      layout.style.setProperty('--editor-top', `${Math.round(top)}px`)
     }
-    if (!settings.title.trim()) {
-      errors.push('Title is required.')
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
+
+  // Every problem at once, each tied to the field that fixes it.
+  const problems = validateSettings(settings)
+  const invalid = new Map(attempted ? problems.map((p) => [p.fieldId, p.message]) : [])
+  const fieldProps = (fieldId: string, helpId?: string) => {
+    const message = invalid.get(fieldId)
+    const describedBy = [helpId, message ? `${fieldId}-error` : undefined].filter(Boolean).join(' ')
+    return {
+      'aria-invalid': message ? true : undefined,
+      'aria-describedby': describedBy || undefined,
+      'data-invalid': message ? '' : undefined,
     }
-    if (
-      isNaN(settings.inactivity_timeout_s) ||
-      settings.inactivity_timeout_s < INACTIVITY_LIMITS.min ||
-      settings.inactivity_timeout_s > INACTIVITY_LIMITS.max
-    ) {
-      errors.push(
-        `Inactivity timeout must be between ${INACTIVITY_LIMITS.min} and ${INACTIVITY_LIMITS.max} seconds.`,
-      )
-    }
-    return errors
+  }
+  const fieldError = (fieldId: string) => {
+    const message = invalid.get(fieldId)
+    return message ? (
+      <p id={`${fieldId}-error`} className={styles.fieldError}>
+        {message}
+      </p>
+    ) : null
+  }
+
+  /** Moves to a field after a dialog closed (so the dialog's own focus handling is done). */
+  const goToField = (fieldId: string | undefined) => {
+    if (!fieldId) return
+    window.setTimeout(() => {
+      const field = document.getElementById(fieldId)
+      field?.scrollIntoView?.({ block: 'center' })
+      field?.focus({ preventScroll: true })
+    }, 0)
   }
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -164,16 +223,15 @@ function ProfileEditorForm({
     if (uploadPending || isSaving) {
       return
     }
-    setSaveStatus(null)
+    setSaved(false)
     setServerErrors(null)
     setConflictError(null)
 
-    const errors = validate()
-    if (errors.length > 0) {
-      setClientErrors(errors)
+    if (problems.length > 0) {
+      setAttempted(true)
+      setShowProblems(true)
       return
     }
-    setClientErrors(null)
 
     setIsSaving(true)
     try {
@@ -184,7 +242,7 @@ function ProfileEditorForm({
         const created = await createMutation.mutateAsync(
           defaultsApplied ? { ...rest, available_frames: draftFrames } : rest,
         )
-        void navigate(`/admin/profiles/${created.id}`)
+        void navigate(`/admin/profiles/${created.id}`, { state: { saved: true } })
       } else if (profileId) {
         const updated = await updateMutation.mutateAsync({
           id: profileId,
@@ -192,10 +250,16 @@ function ProfileEditorForm({
           revision: currentRevision,
         })
         setCurrentRevision(updated.revision)
-        setSaveStatus('Saved')
+        setSaved(true)
       }
     } catch (err: unknown) {
-      if (err instanceof AdminApiError && err.kind === 'conflict') {
+      // A stale revision offers a reload; other conflicts (a name already in use) are plain
+      // save failures with the server's reason.
+      const stale =
+        err instanceof AdminApiError &&
+        err.kind === 'conflict' &&
+        err.messages.concat(err.message).some((m) => m.includes('changed elsewhere'))
+      if (stale) {
         setConflictError({
           message: 'This profile was changed somewhere else. Reload to get the latest version.',
           serverMessage: err.messages[0] ?? err.message,
@@ -219,58 +283,17 @@ function ProfileEditorForm({
       setCurrentRevision(fresh.revision)
       setConflictError(null)
       setServerErrors(null)
-      setClientErrors(null)
-      setSaveStatus(null)
+      setAttempted(false)
+      setSaved(false)
     }
   }
 
   return (
-    <div className={styles.editorLayout}>
-      <form onSubmit={handleSubmit} className={styles.formColumn}>
+    <div className={styles.editorLayout} ref={layoutRef}>
+      <form onSubmit={handleSubmit} className={styles.formColumn} noValidate>
         {isDeleted && (
           <div role="alert" className={styles.alert}>
             This profile is deleted. Restore it from the list to edit.
-          </div>
-        )}
-
-        {saveStatus && (
-          <div role="status" className={styles.status}>
-            {saveStatus}
-          </div>
-        )}
-
-        {clientErrors && clientErrors.length > 0 && (
-          <div role="alert" className={styles.alert}>
-            <ul>
-              {clientErrors.map((err, i) => (
-                <li key={i}>{err}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {serverErrors && serverErrors.length > 0 && (
-          <div role="alert" className={styles.alert}>
-            <ul>
-              {serverErrors.map((err, i) => (
-                <li key={i}>{err}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {conflictError && (
-          <div role="alert" className={styles.alert}>
-            <p>{conflictError.message}</p>
-            {conflictError.serverMessage && <p>{conflictError.serverMessage}</p>}
-            <BigButton
-              type="button"
-              onClick={() => {
-                void handleReloadLatest()
-              }}
-            >
-              Reload latest
-            </BigButton>
           </div>
         )}
 
@@ -286,21 +309,26 @@ function ProfileEditorForm({
               type="text"
               maxLength={TEXT_LIMITS.name}
               placeholder="e.g. Chiang Mai Expo 2026"
-              aria-describedby="help-profile-name"
+              {...fieldProps('field-profile-name', 'help-profile-name')}
               value={settings.name}
               onChange={(e) => setSettings((current) => ({ ...current, name: e.target.value }))}
               className={styles.input}
               disabled={isDeleted}
             />
+            {fieldError('field-profile-name')}
             <p id="help-profile-name" className={styles.helperText}>
               Only admins see this name. It helps you find the profile later.
             </p>
           </div>
         </section>
 
-        {/* Preparation Screen Section */}
+        {/* Start screen and booth texts */}
         <section className={styles.formSection}>
-          <h2 className={styles.sectionHeading}>Preparation screen</h2>
+          <h2 className={styles.sectionHeading}>Start screen</h2>
+          <p className={styles.helperText}>
+            The start screen shows only the background, the logo and the Start button. The title and
+            subtitle are kept with the profile for the later booth screens.
+          </p>
           <div className={styles.field}>
             <label htmlFor="field-title" className={styles.label}>
               Title
@@ -310,11 +338,13 @@ function ProfileEditorForm({
               type="text"
               maxLength={TEXT_LIMITS.title}
               placeholder="e.g. Get ready for your photo!"
+              {...fieldProps('field-title')}
               value={settings.title}
               onChange={(e) => setSettings((current) => ({ ...current, title: e.target.value }))}
               className={styles.input}
               disabled={isDeleted}
             />
+            {fieldError('field-title')}
           </div>
 
           <div className={styles.field}>
@@ -449,7 +479,7 @@ function ProfileEditorForm({
               min={INACTIVITY_LIMITS.min}
               max={INACTIVITY_LIMITS.max}
               placeholder="e.g. 120"
-              aria-describedby="help-inactivity"
+              {...fieldProps('field-inactivity-timeout', 'help-inactivity')}
               // A cleared field is stored as 0 (still refused by validation) but shown empty so the
               // example placeholder is visible.
               value={settings.inactivity_timeout_s === 0 ? '' : settings.inactivity_timeout_s}
@@ -463,6 +493,7 @@ function ProfileEditorForm({
               className={styles.input}
               disabled={isDeleted}
             />
+            {fieldError('field-inactivity-timeout')}
             <p id="help-inactivity" className={styles.helperText}>
               After this many seconds without a touch, the booth goes back to the start screen (30–900).
             </p>
@@ -526,9 +557,83 @@ function ProfileEditorForm({
         </BigButton>
       </form>
 
-      <div className={styles.previewColumn} data-testid="preview-column" tabIndex={0} aria-label="Preview (scrolls on its own)">
+      <div className={styles.previewColumn} data-testid="preview-column">
         <EventPreview settings={settings} templates={templates} frames={frames} />
       </div>
+
+      {showProblems && problems.length > 0 && (
+        <MessageDialog
+          kind="warning"
+          title="Some information is missing or invalid"
+          testId="problems-dialog"
+          restoreFocus={false}
+          onClose={() => {
+            setShowProblems(false)
+            goToField(problems[0]?.fieldId)
+          }}
+          actions={
+            <PillButton
+              tone="primary"
+              onClick={() => {
+                setShowProblems(false)
+                goToField(problems[0]?.fieldId)
+              }}
+            >
+              Go to first problem
+            </PillButton>
+          }
+        >
+          <p>Fix {problems.length === 1 ? 'this' : `these ${problems.length} things`} before saving:</p>
+          <ul>
+            {problems.map((problem) => (
+              <li key={problem.fieldId}>{problem.message}</li>
+            ))}
+          </ul>
+        </MessageDialog>
+      )}
+      {saved && (
+        <MessageDialog
+          kind="success"
+          title="Saved"
+          autoCloseMs={2500}
+          testId="saved-dialog"
+          onClose={() => {
+            setSaved(false)
+            if (location.state) void navigate('.', { replace: true, state: null })
+          }}
+        >
+          <p>Profile saved successfully.</p>
+        </MessageDialog>
+      )}
+      {serverErrors && serverErrors.length > 0 && (
+        <MessageDialog kind="error" title="The profile was not saved" onClose={() => setServerErrors(null)}>
+          <ul>
+            {serverErrors.map((err) => (
+              <li key={err}>{err}</li>
+            ))}
+          </ul>
+        </MessageDialog>
+      )}
+      {conflictError && (
+        <MessageDialog
+          kind="warning"
+          title="Changed somewhere else"
+          onClose={() => setConflictError(null)}
+          actions={
+            <PillButton
+              tone="primary"
+              onClick={() => {
+                void handleReloadLatest()
+              }}
+            >
+              Reload latest
+            </PillButton>
+          }
+        >
+          <p>{conflictError.message}</p>
+          {conflictError.serverMessage && <p>{conflictError.serverMessage}</p>}
+        </MessageDialog>
+      )}
     </div>
   )
 }

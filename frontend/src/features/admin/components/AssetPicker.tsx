@@ -9,6 +9,7 @@ import {
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import { BigButton } from '../../../shared/ui/BigButton'
 import { useAsset, useUploadAsset } from '../api/hooks'
+import { MessageDialog } from './ui/MessageDialog'
 import styles from './AssetPicker.module.css'
 
 interface AssetPickerProps {
@@ -116,12 +117,19 @@ export function AssetPicker({
       {uploadMutation.isPending && <p className={styles.uploading}>Uploading…</p>}
 
       {(clientError !== null || (serverErrors !== null && serverErrors.length > 0)) && (
-        <div role="alert" className={styles.alert}>
+        <MessageDialog
+          kind="error"
+          title={isLogo ? 'The logo was not uploaded' : 'The background was not uploaded'}
+          onClose={() => {
+            setClientError(null)
+            setServerErrors(null)
+          }}
+        >
           {clientError !== null && <p>{clientError}</p>}
           {serverErrors?.map((msg, idx) => (
             <p key={idx}>{msg}</p>
           ))}
-        </div>
+        </MessageDialog>
       )}
 
       {assetId && (

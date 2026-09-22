@@ -8,6 +8,7 @@ import {
   type TemplateSummary,
 } from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
+import { RetryingImage } from '../../../shared/ui/RetryingImage'
 import {
   useDeleteFrame,
   useFrames,
@@ -17,616 +18,600 @@ import {
   useTemplateSpec,
   useUploadFrame,
 } from '../api/hooks'
-import { RetryingImage } from '../../../shared/ui/RetryingImage'
+import { IconButton, PillButton, PillGroup } from '../components/ui/Controls'
+import { MessageDialog } from '../components/ui/MessageDialog'
+import { Modal } from '../components/ui/Modal'
+import { layoutLabel } from '../frameCatalog'
 import styles from './FrameManagerPage.module.css'
 
-interface FrameCardItemProps {
-  frame: Frame
-  onReplaceFile: (id: string, file: File) => Promise<void>
-  onRename: (id: string, name: string) => Promise<void>
-  onDeleteRequest: (frame: Frame) => void
-  onClientError: (msg: string | null) => void
-  onServerErrors: (msgs: string[] | null) => void
-  onClearStatus: () => void
+type FramesState = 'loading' | 'error' | 'ready'
+
+type Message = { kind: 'success' | 'error'; title: string; lines: string[] }
+
+type Dialog =
+  | { type: 'layout-details'; template: TemplateSummary }
+  | { type: 'layout-preview'; template: TemplateSummary }
+  | { type: 'frame-preview'; frame: Frame }
+  | { type: 'frame-details'; frame: Frame }
+  | { type: 'upload' }
+  | { type: 'rename'; frame: Frame }
+  | { type: 'delete'; frame: Frame }
+
+function errorLines(err: unknown, fallback: string): string[] {
+  if (err instanceof AdminApiError) return err.messages.length > 0 ? err.messages : [err.message]
+  if (err instanceof Error) return [err.message]
+  return [fallback]
 }
 
-function FrameCardItem({
-  frame,
-  onReplaceFile,
-  onRename,
-  onDeleteRequest,
-  onClientError,
-  onServerErrors,
-  onClearStatus,
-}: FrameCardItemProps) {
-  const api = useAdminApi()
-  const [isRenaming, setIsRenaming] = useState(false)
-  const [renameValue, setRenameValue] = useState(frame.name)
-  const [isSavingRename, setIsSavingRename] = useState(false)
-  const replaceInputRef = useRef<HTMLInputElement>(null)
+/** Refuses what the server would refuse anyway, before anything is sent. */
+function fileProblem(file: File): string | null {
+  if (file.type !== FRAME_LIMITS.mime) return 'The frame must be a PNG file.'
+  if (file.size > FRAME_LIMITS.maxBytes) return 'The frame must be 10 MB or smaller.'
+  return null
+}
 
-  const handleReplaceFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+function inches(value: number): string {
+  return `${value}`
+}
 
-    onClientError(null)
-    onServerErrors(null)
-    onClearStatus()
+function megabytes(bytes: number): string {
+  return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`
+}
 
-    if (file.type !== 'image/png') {
-      onClientError('The frame must be a PNG file.')
-      e.target.value = ''
-      return
-    }
-    if (file.size > FRAME_LIMITS.maxBytes) {
-      onClientError('The frame must be 10 MB or smaller.')
-      e.target.value = ''
-      return
-    }
+function kilobytes(bytes: number): string {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : megabytes(bytes)
+}
 
-    try {
-      await onReplaceFile(frame.id, file)
-    } finally {
-      e.target.value = ''
-    }
-  }
+/* ---------- layouts ---------- */
 
-  const handleSaveRename = async () => {
-    const trimmed = renameValue.trim()
-    if (!trimmed) {
-      onClientError('Enter a frame name.')
-      return
-    }
-    setIsSavingRename(true)
-    onClientError(null)
-    onServerErrors(null)
-    onClearStatus()
-    try {
-      await onRename(frame.id, trimmed)
-      setIsRenaming(false)
-    } finally {
-      setIsSavingRename(false)
-    }
-  }
-
-  const handleCancelRename = () => {
-    setIsRenaming(false)
-    setRenameValue(frame.name)
-    onClientError(null)
-  }
-
+function LayoutRow({
+  template,
+  onDetails,
+  onPreview,
+}: {
+  template: TemplateSummary
+  onDetails: () => void
+  onPreview: () => void
+}) {
   return (
-    <li data-testid="frame-card" className={styles.frameCard}>
-      <div className={styles.frameHeader}>
-        <h3 className={styles.frameName}>{frame.name}</h3>
-        <span className={frame.builtin ? styles.builtinBadge : styles.uploadedBadge}>
-          {frame.builtin ? 'Built-in' : 'Uploaded'}
-        </span>
-        <span className={styles.dimensions}>
-          {frame.width} × {frame.height} px
-        </span>
-      </div>
-
-      <div className={styles.imagesGrid}>
-        <div className={styles.imageColumn}>
-          <div className={styles.checkerboard}>
-            <img
-              src={api.frameContentUrl(frame.id, frame.sha256)}
-              alt={`${frame.name} frame file`}
-              loading="lazy"
-              className={styles.frameImage}
-            />
-          </div>
-        </div>
-
-        <div className={styles.imageColumn}>
-          <figure className={styles.figure}>
-            <RetryingImage
-              src={api.framePreviewUrl(frame.id, 1, frame.sha256)}
-              alt={`${frame.name} sample output`}
-              className={styles.previewImage}
-            />
-            <figcaption className={styles.caption}>
-              Sample output with placeholder photos
-            </figcaption>
-          </figure>
-        </div>
-      </div>
-
-      <p className={styles.usage} data-testid="frame-usage">
-        {frame.used_by && frame.used_by.length > 0
-          ? `Offered by: ${frame.used_by.join(', ')}`
-          : 'Not offered by any Event Profile yet'}
-      </p>
-
-      {frame.warnings && frame.warnings.length > 0 && (
-        <div className={styles.warningsList}>
-          {frame.warnings.map((warning, idx) => (
-            <p key={idx} className={styles.warningText}>
-              {warning}
-            </p>
-          ))}
-        </div>
-      )}
-
-      <div className={styles.cardActions}>
-        {frame.builtin ? (
-          <p className={styles.builtinNote}>
-            Ready to use. Built-in frames can not be replaced, renamed or deleted.
-          </p>
-        ) : isRenaming ? (
-          <div className={styles.renameRow}>
-            <div className={styles.renameField}>
-              <label htmlFor={`rename-name-${frame.id}`} className={styles.label}>
-                Frame name
-              </label>
-              <input
-                id={`rename-name-${frame.id}`}
-                type="text"
-                maxLength={80}
-                placeholder="e.g. Gold border"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                className={styles.input}
-                disabled={isSavingRename}
-              />
-            </div>
-            <div className={styles.renameButtons}>
-              <button
-                type="button"
-                onClick={() => {
-                  void handleSaveRename()
-                }}
-                disabled={isSavingRename}
-                className={styles.saveButton}
-              >
-                Save name
-              </button>
-              <button
-                type="button"
-                onClick={handleCancelRename}
-                disabled={isSavingRename}
-                className={styles.cancelButton}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className={styles.actionButtons}>
-            <button
-              type="button"
-              onClick={() => replaceInputRef.current?.click()}
-              className={styles.actionButton}
-            >
-              Replace file for {frame.name}
-            </button>
-            <input
-              ref={replaceInputRef}
-              type="file"
-              accept="image/png"
-              aria-label={`Replace file for ${frame.name}`}
-              onChange={(e) => {
-                void handleReplaceFileChange(e)
-              }}
-              className={styles.visuallyHidden}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setRenameValue(frame.name)
-                setIsRenaming(true)
-              }}
-              className={styles.actionButton}
-            >
-              Rename {frame.name}
-            </button>
-            <button
-              type="button"
-              onClick={() => onDeleteRequest(frame)}
-              className={styles.deleteButton}
-            >
-              Delete {frame.name}
-            </button>
-          </div>
-        )}
-      </div>
+    <li className={styles.layoutRow} data-testid="layout-row">
+      <span className={styles.layoutName}>{template.name}</span>
+      <span className={styles.layoutMeta}>
+        {inches(template.width_in)} × {inches(template.height_in)} in
+      </span>
+      <span className={styles.layoutMeta}>
+        {template.width_px} × {template.height_px} px
+      </span>
+      <span className={styles.rowActions}>
+        <IconButton icon="details" label={`Details of ${template.name}`} onClick={onDetails} />
+        <IconButton icon="preview" label={`Preview of ${template.name}`} onClick={onPreview} />
+      </span>
     </li>
   )
 }
 
-type FramesState = 'loading' | 'error' | 'ready'
-
-type LibraryFilter = 'all' | 'builtin' | 'uploaded' | string
-
-interface TemplateFrameSectionProps {
-  template: TemplateSummary
-  frames: Frame[]
-  framesState: FramesState
-  filter: LibraryFilter
-  query: string
+function GuideLink({ template }: { template: TemplateSummary }) {
+  const api = useAdminApi()
+  return (
+    <a href={api.templateGuideUrl(template.key)} download className={styles.linkPill}>
+      Download guide image
+    </a>
+  )
 }
 
-function TemplateFrameSection({
-  template,
-  frames,
-  framesState,
-  filter,
-  query,
-}: TemplateFrameSectionProps) {
-  const api = useAdminApi()
-  const { data: spec, isLoading: isSpecLoading } = useTemplateSpec(template.key)
-  const uploadMutation = useUploadFrame()
-  const replaceMutation = useReplaceFrameFile()
-  const renameMutation = useRenameFrame()
-  const deleteMutation = useDeleteFrame()
+function rect(r: { x: number; y: number; w: number; h: number }): string {
+  return `x ${r.x}, y ${r.y}, ${r.w} × ${r.h} px`
+}
 
-  const [frameName, setFrameName] = useState('')
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [isUploading, setIsUploading] = useState(false)
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null)
-  const [clientError, setClientError] = useState<string | null>(null)
-  const [serverErrors, setServerErrors] = useState<string[] | null>(null)
-  const [frameToDelete, setFrameToDelete] = useState<Frame | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const named = frames.filter((f) =>
-    f.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+function LayoutDetailsDialog({ template, onClose }: { template: TemplateSummary; onClose: () => void }) {
+  const { data: spec, isLoading, isError } = useTemplateSpec(template.key)
+  return (
+    <Modal
+      title={`${template.name}: specification`}
+      onClose={onClose}
+      size="large"
+      testId="layout-details"
+      footer={<GuideLink template={template} />}
+    >
+      {isLoading && <p>Loading the specification…</p>}
+      {isError && <p role="alert">The specification could not be loaded.</p>}
+      {spec && (
+        <>
+          <dl className={styles.specList}>
+            <dt>Physical size</dt>
+            <dd>
+              {inches(spec.width_in)} × {inches(spec.height_in)} in ({spec.orientation})
+            </dd>
+            <dt>Pixels</dt>
+            <dd>
+              {spec.width_px} × {spec.height_px} px
+            </dd>
+            <dt>Resolution</dt>
+            <dd>{spec.dpi} DPI</dd>
+            <dt>File</dt>
+            <dd>
+              {spec.frame_rules.format} with transparency ({spec.frame_rules.mode}),{' '}
+              {spec.frame_rules.color}, {spec.frame_rules.animated ? 'may be animated' : 'not animated'}
+              {spec.frame_rules.exact_size ? ', exactly this pixel size' : ''}
+            </dd>
+            <dt>Photo areas</dt>
+            <dd>At least {Math.round(spec.frame_rules.slot_min_transparency * 100)}% transparent</dd>
+            <dt>Maximum file size</dt>
+            <dd>{megabytes(spec.frame_rules.max_bytes)}</dd>
+            <dt>Safe area</dt>
+            <dd>{rect(spec.safe_area)}</dd>
+            <dt>Branding area</dt>
+            <dd>{spec.branding_area ? rect(spec.branding_area) : 'None'}</dd>
+            <dt>Photos</dt>
+            <dd>
+              {spec.captures_per_session} per session, {spec.photos_per_output} per output,{' '}
+              {spec.outputs_per_session} {spec.outputs_per_session === 1 ? 'output' : 'outputs'}
+            </dd>
+          </dl>
+          <table className={styles.slotTable}>
+            <caption>Photo slot coordinates (px)</caption>
+            <thead>
+              <tr>
+                <th scope="col">Photo</th>
+                <th scope="col">x</th>
+                <th scope="col">y</th>
+                <th scope="col">Width</th>
+                <th scope="col">Height</th>
+                <th scope="col">Aspect</th>
+              </tr>
+            </thead>
+            <tbody>
+              {spec.slots.map((slot) => (
+                <tr key={slot.index}>
+                  <th scope="row">{slot.index}</th>
+                  <td>{slot.x}</td>
+                  <td>{slot.y}</td>
+                  <td>{slot.w}</td>
+                  <td>{slot.h}</td>
+                  <td>{slot.aspect}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {spec.frame_requirements.length > 0 && (
+            <ul className={styles.requirements}>
+              {spec.frame_requirements.map((req) => (
+                <li key={req}>{req}</li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </Modal>
   )
-  const builtinFrames = filter === 'uploaded' ? [] : named.filter((f) => f.builtin)
-  const customFrames = filter === 'builtin' ? [] : named.filter((f) => !f.builtin)
-  const showCustom = filter !== 'builtin'
+}
 
-  const clearAlerts = () => {
-    setClientError(null)
-    setServerErrors(null)
-  }
+function LayoutPreviewDialog({ template, onClose }: { template: TemplateSummary; onClose: () => void }) {
+  const api = useAdminApi()
+  return (
+    <Modal
+      title={`${template.name}: layout guide`}
+      onClose={onClose}
+      size="large"
+      testId="layout-preview"
+      footer={<GuideLink template={template} />}
+    >
+      <div className={styles.largeImageBox}>
+        <img
+          src={api.templateGuideUrl(template.key)}
+          alt={`${template.name} layout guide`}
+          className={styles.largeImage}
+        />
+      </div>
+    </Modal>
+  )
+}
 
-  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    clearAlerts()
-    setUploadStatus(null)
+/* ---------- frames ---------- */
 
-    if (!file) {
-      setSelectedFile(null)
-      return
-    }
-    if (file.type !== 'image/png') {
-      setClientError('The frame must be a PNG file.')
-      setSelectedFile(null)
+interface FrameRowProps {
+  frame: Frame
+  label: string
+  onPreview: () => void
+  onDetails: () => void
+  onRename: () => void
+  onReplace: (file: File) => void
+  onDelete: () => void
+}
+
+function FrameRow({ frame, label, onPreview, onDetails, onRename, onReplace, onDelete }: FrameRowProps) {
+  const api = useAdminApi()
+  const replaceInput = useRef<HTMLInputElement>(null)
+  const usedBy = frame.used_by ?? []
+  return (
+    <li className={styles.frameRow} data-testid="frame-row">
+      <div className={styles.thumbBox}>
+        <RetryingImage
+          compact
+          src={api.framePreviewUrl(frame.id, 1, frame.sha256)}
+          alt={`${frame.name} sample output`}
+          className={styles.thumb}
+        />
+        {/* The thumbnail opens the large preview too; the Preview button is its keyboard route. */}
+        <button
+          type="button"
+          className={styles.thumbHit}
+          tabIndex={-1}
+          aria-hidden="true"
+          onClick={onPreview}
+        />
+      </div>
+      <div className={styles.frameText}>
+        <h3 className={styles.frameName}>{frame.name}</h3>
+        <span className={styles.frameMeta}>
+          {label} · {frame.width} × {frame.height} px
+        </span>
+        <span className={styles.usage} data-testid="frame-usage">
+          {usedBy.length > 0 ? `Offered by: ${usedBy.join(', ')}` : 'Not offered by any Event Profile yet'}
+        </span>
+        {frame.warnings.map((warning) => (
+          <span key={warning} className={styles.warning}>
+            {warning}
+          </span>
+        ))}
+      </div>
+      <span className={frame.builtin ? styles.builtinBadge : styles.uploadedBadge}>
+        {frame.builtin ? 'Built-in' : 'Uploaded'}
+      </span>
+      <span className={styles.rowActions}>
+        <IconButton icon="details" label={`Details of ${frame.name}`} onClick={onDetails} />
+        <IconButton icon="preview" label={`Preview ${frame.name}`} onClick={onPreview} />
+        {frame.builtin ? (
+          <span className={styles.readOnly} title="Built-in frames can not be replaced, renamed or deleted.">
+            Read-only
+          </span>
+        ) : (
+          <>
+            <IconButton icon="rename" label={`Rename ${frame.name}`} onClick={onRename} />
+            <IconButton
+              icon="replace"
+              label={`Replace file for ${frame.name}`}
+              onClick={() => replaceInput.current?.click()}
+            />
+            <input
+              ref={replaceInput}
+              type="file"
+              accept="image/png"
+              aria-label={`New PNG file for ${frame.name}`}
+              className={styles.visuallyHidden}
+              tabIndex={-1}
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) onReplace(file)
+              }}
+            />
+            <IconButton icon="delete" danger label={`Delete ${frame.name}`} onClick={onDelete} />
+          </>
+        )}
+      </span>
+    </li>
+  )
+}
+
+function FramePreviewDialog({ frame, label, onClose }: { frame: Frame; label: string; onClose: () => void }) {
+  const api = useAdminApi()
+  return (
+    <Modal title={frame.name} onClose={onClose} size="large" testId="frame-preview">
+      <div className={styles.largeImageBox}>
+        <RetryingImage
+          src={api.framePreviewUrl(frame.id, 1, frame.sha256)}
+          alt={`${frame.name} sample output, large`}
+          className={styles.largeImage}
+        />
+      </div>
+      <p className={styles.dialogCaption}>
+        {label} · {frame.width} × {frame.height} px · sample output with placeholder photos
+      </p>
+    </Modal>
+  )
+}
+
+function FrameDetailsDialog({ frame, label, onClose }: { frame: Frame; label: string; onClose: () => void }) {
+  const usedBy = frame.used_by ?? []
+  return (
+    <Modal title={`${frame.name}: details`} onClose={onClose} testId="frame-details">
+      <dl className={styles.specList}>
+        <dt>Type</dt>
+        <dd>{frame.builtin ? 'Built-in (read-only)' : 'Uploaded'}</dd>
+        <dt>Layout</dt>
+        <dd>{label}</dd>
+        <dt>Canvas</dt>
+        <dd>
+          {frame.width} × {frame.height} px
+        </dd>
+        <dt>File size</dt>
+        <dd>{kilobytes(frame.bytes)}</dd>
+        <dt>Photo areas</dt>
+        <dd>
+          {frame.slot_transparency
+            .map((share, index) => `Photo ${index + 1}: ${Math.round(share * 100)}% transparent`)
+            .join(', ')}
+        </dd>
+        <dt>Offered by</dt>
+        <dd>{usedBy.length > 0 ? usedBy.join(', ') : 'No Event Profile yet'}</dd>
+      </dl>
+      {frame.warnings.length > 0 && (
+        <ul className={styles.requirements}>
+          {frame.warnings.map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      )}
+      {usedBy.length > 0 && !frame.builtin && (
+        <p className={styles.dialogCaption}>
+          A frame in use can not be deleted. Replacing its file keeps it working in those profiles.
+        </p>
+      )}
+    </Modal>
+  )
+}
+
+function UploadDialog({
+  templates,
+  initialLayout,
+  onClose,
+  onUploaded,
+}: {
+  templates: TemplateSummary[]
+  initialLayout: string
+  onClose: () => void
+  onUploaded: (name: string) => void
+}) {
+  const uploadMutation = useUploadFrame()
+  const [layout, setLayout] = useState(initialLayout)
+  const [name, setName] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [errors, setErrors] = useState<string[]>([])
+  const template = templates.find((t) => t.key === layout) ?? templates[0]
+
+  const onFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0] ?? null
+    setErrors([])
+    const problem = picked ? fileProblem(picked) : null
+    if (problem) {
+      setErrors([problem])
+      setFile(null)
       e.target.value = ''
       return
     }
-    if (file.size > FRAME_LIMITS.maxBytes) {
-      setClientError('The frame must be 10 MB or smaller.')
-      setSelectedFile(null)
-      e.target.value = ''
-      return
-    }
-    setSelectedFile(file)
+    setFile(picked)
   }
 
-  const handleUploadSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (isUploading) return
-
-    clearAlerts()
-    setUploadStatus(null)
-
-    const trimmedName = frameName.trim()
-    if (!trimmedName) {
-      setClientError('Enter a frame name.')
-      return
+    if (uploadMutation.isPending || !template) return
+    const trimmed = name.trim()
+    const problems: string[] = []
+    if (!trimmed) problems.push('Enter a frame name.')
+    if (!file) problems.push('Choose the frame PNG file.')
+    else {
+      const problem = fileProblem(file)
+      if (problem) problems.push(problem)
     }
-    if (!selectedFile) {
-      setClientError('The frame must be a PNG file.')
-      return
-    }
-    if (selectedFile.type !== 'image/png') {
-      setClientError('The frame must be a PNG file.')
-      return
-    }
-    if (selectedFile.size > FRAME_LIMITS.maxBytes) {
-      setClientError('The frame must be 10 MB or smaller.')
-      return
-    }
-
-    setIsUploading(true)
+    setErrors(problems)
+    if (problems.length > 0 || !file) return
     try {
-      await uploadMutation.mutateAsync({
-        templateKey: template.key,
-        name: trimmedName,
-        file: selectedFile,
-      })
-      setFrameName('')
-      setSelectedFile(null)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-      setUploadStatus(`${trimmedName} was added.`)
+      await uploadMutation.mutateAsync({ templateKey: template.key, name: trimmed, file })
+      onUploaded(trimmed)
     } catch (err: unknown) {
-      if (err instanceof AdminApiError) {
-        setServerErrors(err.messages.length > 0 ? err.messages : [err.message])
-      } else if (err instanceof Error) {
-        setServerErrors([err.message])
-      } else {
-        setServerErrors(['Upload failed.'])
-      }
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
-  const handleReplaceFile = async (id: string, file: File) => {
-    clearAlerts()
-    setUploadStatus(null)
-    try {
-      await replaceMutation.mutateAsync({ id, file })
-    } catch (err: unknown) {
-      if (err instanceof AdminApiError) {
-        setServerErrors(err.messages.length > 0 ? err.messages : [err.message])
-      } else if (err instanceof Error) {
-        setServerErrors([err.message])
-      } else {
-        setServerErrors(['Replace failed.'])
-      }
-    }
-  }
-
-  const handleRename = async (id: string, name: string) => {
-    clearAlerts()
-    setUploadStatus(null)
-    try {
-      await renameMutation.mutateAsync({ id, name })
-    } catch (err: unknown) {
-      if (err instanceof AdminApiError) {
-        setServerErrors(err.messages.length > 0 ? err.messages : [err.message])
-      } else if (err instanceof Error) {
-        setServerErrors([err.message])
-      } else {
-        setServerErrors(['Rename failed.'])
-      }
-      throw err
-    }
-  }
-
-  const handleDeleteRequest = (frame: Frame) => {
-    clearAlerts()
-    setUploadStatus(null)
-    setFrameToDelete(frame)
-  }
-
-  const handleConfirmDelete = async () => {
-    if (!frameToDelete) return
-    setIsDeleting(true)
-    clearAlerts()
-    setUploadStatus(null)
-    try {
-      await deleteMutation.mutateAsync(frameToDelete.id)
-      setFrameToDelete(null)
-    } catch (err: unknown) {
-      setFrameToDelete(null)
-      if (err instanceof AdminApiError) {
-        setServerErrors(err.messages.length > 0 ? err.messages : [err.message])
-      } else if (err instanceof Error) {
-        setServerErrors([err.message])
-      } else {
-        setServerErrors(['Delete failed.'])
-      }
-    } finally {
-      setIsDeleting(false)
+      setErrors(errorLines(err, 'Upload failed.'))
     }
   }
 
   return (
-    <section className={styles.templateSection}>
-      <h2 className={styles.sectionHeading}>{template.name}</h2>
-
-      {isSpecLoading ? (
-        <p className={styles.loadingText}>Loading requirements…</p>
-      ) : spec && spec.frame_requirements && spec.frame_requirements.length > 0 ? (
-        <ul className={styles.requirementsList}>
-          {spec.frame_requirements.map((req, idx) => (
-            <li key={idx}>{req}</li>
-          ))}
-        </ul>
-      ) : null}
-
-      <div className={styles.downloadLinks}>
-        <a
-          href={api.templateGuideUrl(template.key)}
-          download
-          className={styles.downloadLink}
-        >
-          Download guide image
-        </a>
-        <a
-          href={api.templateBlankUrl(template.key)}
-          download
-          className={styles.downloadLink}
-        >
-          Download blank canvas
-        </a>
-      </div>
-
-      <form onSubmit={(e) => void handleUploadSubmit(e)} className={styles.uploadForm}>
-        <div className={styles.field}>
-          <label htmlFor={`frame-name-${template.key}`} className={styles.label}>
-            Frame name
-          </label>
+    <Modal title="Add frame" onClose={onClose} testId="upload-dialog" dismissible={!uploadMutation.isPending}>
+      <form className={styles.uploadForm} onSubmit={(e) => void submit(e)} noValidate>
+        <label className={styles.field}>
+          <span className={styles.label}>Layout</span>
+          <select
+            value={layout}
+            onChange={(e) => {
+              setLayout(e.target.value)
+              setErrors([])
+            }}
+            className={styles.input}
+            disabled={uploadMutation.isPending}
+          >
+            {templates.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.name} ({t.width_px} × {t.height_px} px)
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Frame name</span>
           <input
-            id={`frame-name-${template.key}`}
             type="text"
             maxLength={80}
             placeholder="e.g. Gold border"
-            value={frameName}
-            onChange={(e) => {
-              setFrameName(e.target.value)
-              setClientError(null)
-            }}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
             className={styles.input}
-            disabled={isUploading}
+            disabled={uploadMutation.isPending}
           />
-        </div>
-
-        <div className={styles.field}>
-          <label htmlFor={`frame-file-${template.key}`} className={styles.label}>
-            Frame PNG file
-          </label>
+        </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Frame PNG file</span>
           <input
-            id={`frame-file-${template.key}`}
-            ref={fileInputRef}
             type="file"
             accept="image/png"
-            onChange={handleFileInputChange}
+            onChange={onFile}
             className={styles.fileInput}
-            disabled={isUploading}
+            disabled={uploadMutation.isPending}
           />
-        </div>
-
-        <button
-          type="submit"
-          disabled={isUploading}
-          className={styles.uploadButton}
-        >
-          {isUploading ? 'Uploading…' : 'Upload frame'}
-        </button>
-      </form>
-
-      {uploadStatus && (
-        <div role="status" className={styles.status}>
-          {uploadStatus}
-        </div>
-      )}
-
-      {(clientError !== null || (serverErrors !== null && serverErrors.length > 0)) && (
-        <div role="alert" className={styles.alert}>
-          {clientError !== null && <p className={styles.alertMessage}>{clientError}</p>}
-          {serverErrors?.map((msg, idx) => (
-            <p key={idx} className={styles.alertMessage}>
-              {msg}
-            </p>
-          ))}
-        </div>
-      )}
-
-      {framesState === 'ready' && builtinFrames.length > 0 && (
-        <>
-          <h3 className={styles.listHeading}>Built-in frames</h3>
-          <ul className={styles.framesList} aria-label={`Built-in frames for ${template.name}`}>
-            {builtinFrames.map((frame) => (
-              <FrameCardItem
-                key={frame.id}
-                frame={frame}
-                onReplaceFile={handleReplaceFile}
-                onRename={handleRename}
-                onDeleteRequest={handleDeleteRequest}
-                onClientError={setClientError}
-                onServerErrors={setServerErrors}
-                onClearStatus={() => setUploadStatus(null)}
-              />
+        </label>
+        {template && (
+          <p className={styles.guidance} data-testid="upload-guidance">
+            PNG with transparency (RGBA), exactly {template.width_px} × {template.height_px} px, not
+            animated, up to 10 MB. Each photo area must be at least 95% transparent. The layout's
+            Details show the exact photo positions.
+          </p>
+        )}
+        {errors.length > 0 && (
+          <div role="alert" className={styles.formAlert}>
+            {errors.map((msg) => (
+              <p key={msg}>{msg}</p>
             ))}
-          </ul>
-        </>
-      )}
-
-      {framesState === 'ready' && showCustom && (
-        <h3 className={styles.listHeading}>Your frames</h3>
-      )}
-      {!showCustom ? null : framesState === 'loading' ? (
-        <p className={styles.loadingText}>Loading frames…</p>
-      ) : framesState === 'error' ? null : customFrames.length === 0 ? (
-        <p className={styles.emptyText}>
-          {query.trim() ? 'No uploaded frame matches this search.' : 'No frames uploaded for this layout yet.'}
-        </p>
-      ) : (
-        <ul className={styles.framesList} aria-label={`Your frames for ${template.name}`}>
-          {customFrames.map((frame) => (
-            <FrameCardItem
-              key={frame.id}
-              frame={frame}
-              onReplaceFile={handleReplaceFile}
-              onRename={handleRename}
-              onDeleteRequest={handleDeleteRequest}
-              onClientError={(msg) => {
-                clearAlerts()
-                setClientError(msg)
-              }}
-              onServerErrors={(msgs) => {
-                clearAlerts()
-                setServerErrors(msgs)
-              }}
-              onClearStatus={() => setUploadStatus(null)}
-            />
-          ))}
-        </ul>
-      )}
-
-      {frameToDelete && (
-        <div className={styles.dialogOverlay}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={`delete-heading-${frameToDelete.id}`}
-            className={styles.dialog}
-          >
-            <h3
-              id={`delete-heading-${frameToDelete.id}`}
-              className={styles.dialogHeading}
-            >
-              Delete {frameToDelete.name}?
-            </h3>
-            <p className={styles.dialogText}>
-              The file is removed from this booth. Event Profiles that use it must pick another frame first.
-            </p>
-            <div className={styles.dialogButtons}>
-              <button
-                type="button"
-                onClick={() => {
-                  void handleConfirmDelete()
-                }}
-                disabled={isDeleting}
-                className={styles.deleteConfirmButton}
-              >
-                Delete frame
-              </button>
-              <button
-                type="button"
-                onClick={() => setFrameToDelete(null)}
-                disabled={isDeleting}
-                className={styles.cancelButton}
-              >
-                Cancel
-              </button>
-            </div>
           </div>
+        )}
+        <div className={styles.formButtons}>
+          <PillButton type="submit" tone="primary" disabled={uploadMutation.isPending}>
+            {uploadMutation.isPending ? 'Uploading…' : 'Upload frame'}
+          </PillButton>
+          <PillButton onClick={onClose} disabled={uploadMutation.isPending}>
+            Cancel
+          </PillButton>
         </div>
-      )}
-    </section>
+      </form>
+    </Modal>
   )
 }
 
+function RenameDialog({ frame, onClose }: { frame: Frame; onClose: () => void }) {
+  const renameMutation = useRenameFrame()
+  const [value, setValue] = useState(frame.name)
+  const [errors, setErrors] = useState<string[]>([])
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const trimmed = value.trim()
+    if (!trimmed) {
+      setErrors(['Enter a frame name.'])
+      return
+    }
+    try {
+      await renameMutation.mutateAsync({ id: frame.id, name: trimmed })
+      onClose()
+    } catch (err: unknown) {
+      setErrors(errorLines(err, 'Rename failed.'))
+    }
+  }
+  return (
+    <Modal title={`Rename ${frame.name}`} onClose={onClose} size="small" dismissible={!renameMutation.isPending}>
+      <form className={styles.uploadForm} onSubmit={(e) => void submit(e)} noValidate>
+        <label className={styles.field}>
+          <span className={styles.label}>Frame name</span>
+          <input
+            type="text"
+            maxLength={80}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className={styles.input}
+            disabled={renameMutation.isPending}
+            data-autofocus=""
+          />
+        </label>
+        {errors.length > 0 && (
+          <div role="alert" className={styles.formAlert}>
+            {errors.map((msg) => (
+              <p key={msg}>{msg}</p>
+            ))}
+          </div>
+        )}
+        <div className={styles.formButtons}>
+          <PillButton type="submit" tone="primary" disabled={renameMutation.isPending}>
+            Save name
+          </PillButton>
+          <PillButton onClick={onClose} disabled={renameMutation.isPending}>
+            Cancel
+          </PillButton>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+/* ---------- page ---------- */
+
+const FILTER_ALL = 'all'
+
 export function FrameManagerPage() {
   const { data: templates, isLoading: templatesLoading, error: templatesError } = useTemplates()
-  const [filter, setFilter] = useState<LibraryFilter>('all')
-  const [query, setQuery] = useState('')
   const framesQuery = useFrames()
+  const replaceMutation = useReplaceFrameFile()
+  const deleteMutation = useDeleteFrame()
+  const [filter, setFilter] = useState(FILTER_ALL)
+  const [query, setQuery] = useState('')
+  const [dialog, setDialog] = useState<Dialog | null>(null)
+  const [message, setMessage] = useState<Message | null>(null)
   const allFrames = framesQuery.data
-  // A failed or unfinished frame list must never look like "no frames uploaded".
-  const framesState: FramesState = allFrames
-    ? 'ready'
-    : framesQuery.isError
-      ? 'error'
-      : 'loading'
+  // A failed or unfinished frame list must never look like an empty library (P5-005).
+  const framesState: FramesState = allFrames ? 'ready' : framesQuery.isError ? 'error' : 'loading'
+
+  const labelOf = (key: string) => {
+    const template = templates?.find((t) => t.key === key)
+    return template ? layoutLabel(template) : key
+  }
+  const order = (key: string) => templates?.findIndex((t) => t.key === key) ?? 0
+  const needle = query.trim().toLocaleLowerCase()
+  const shown = (allFrames ?? [])
+    .filter((f) => {
+      if (filter === 'builtin' && !f.builtin) return false
+      if (filter === 'uploaded' && f.builtin) return false
+      if (![FILTER_ALL, 'builtin', 'uploaded'].includes(filter) && f.template_key !== filter) return false
+      return f.name.toLocaleLowerCase().includes(needle)
+    })
+    .sort((a, b) => order(a.template_key) - order(b.template_key) || Number(b.builtin) - Number(a.builtin))
+
+  const replace = async (frame: Frame, file: File) => {
+    const problem = fileProblem(file)
+    if (problem) {
+      setMessage({ kind: 'error', title: 'The file was not replaced', lines: [problem] })
+      return
+    }
+    try {
+      await replaceMutation.mutateAsync({ id: frame.id, file })
+      setMessage({ kind: 'success', title: 'File replaced', lines: [`${frame.name} now uses the new file.`] })
+    } catch (err: unknown) {
+      setMessage({ kind: 'error', title: 'The file was not replaced', lines: errorLines(err, 'Replace failed.') })
+    }
+  }
+
+  const confirmDelete = async (frame: Frame) => {
+    try {
+      await deleteMutation.mutateAsync(frame.id)
+      setDialog(null)
+    } catch (err: unknown) {
+      setDialog(null)
+      setMessage({
+        kind: 'error',
+        title: `${frame.name} was not deleted`,
+        lines: errorLines(err, 'Delete failed.'),
+      })
+    }
+  }
+
+  const filters = templates
+    ? [
+        { value: FILTER_ALL, label: 'All' },
+        ...templates.map((t) => ({ value: t.key, label: layoutLabel(t) })),
+        { value: 'builtin', label: 'Built-in' },
+        { value: 'uploaded', label: 'Uploaded' },
+      ]
+    : []
+  const uploadLayout =
+    templates?.some((t) => t.key === filter) ? filter : (templates?.[0]?.key ?? '')
 
   return (
     <div className={styles.container}>
       <header className={styles.headerRow}>
         <h1 className={styles.heading}>Frames</h1>
-        <Link to="/admin" className={styles.backLink}>
-          Event Profiles
-        </Link>
+        <div className={styles.headerActions}>
+          {templates && templates.length > 0 && (
+            <PillButton tone="primary" icon="plus" onClick={() => setDialog({ type: 'upload' })}>
+              Add frame
+            </PillButton>
+          )}
+          <Link to="/admin" className={styles.backLink}>
+            Event Profiles
+          </Link>
+        </div>
       </header>
 
       <p className={styles.introText}>
@@ -634,80 +619,152 @@ export function FrameManagerPage() {
       </p>
 
       {templatesLoading && <p className={styles.loadingText}>Loading…</p>}
-
       {templatesError && (
         <div role="alert" className={styles.alert}>
           Unable to load templates.
         </div>
       )}
 
-      {framesState === 'error' && (
-        <div role="alert" className={styles.alert}>
-          <p className={styles.alertMessage}>The uploaded frames could not be loaded.</p>
-          <button
-            type="button"
-            onClick={() => {
-              void framesQuery.refetch()
-            }}
-            disabled={framesQuery.isFetching}
-            className={styles.actionButton}
-          >
-            {framesQuery.isFetching ? 'Loading…' : 'Try again'}
-          </button>
-        </div>
-      )}
-
       {templates && (
-        <div className={styles.libraryTools}>
-          <label className={styles.searchLabel}>
-            <span>Search by frame name</span>
-            <input
-              type="search"
-              value={query}
-              placeholder="e.g. Gold"
-              onChange={(e) => setQuery(e.target.value)}
-              className={styles.input}
-            />
-          </label>
-          <div className={styles.filters} role="group" aria-label="Show">
-            {[
-              { key: 'all', label: 'All' },
-              ...templates.map((t) => ({ key: t.key, label: `${t.width_in}\u00d7${t.height_in}` })),
-              { key: 'builtin', label: 'Built-in' },
-              { key: 'uploaded', label: 'Uploaded' },
-            ].map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                aria-pressed={filter === item.key}
-                className={styles.filterButton}
-                onClick={() => setFilter(item.key)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {templates && (
-        <div className={styles.sectionsList}>
-          {templates
-            .filter((tpl) => ['all', 'builtin', 'uploaded'].includes(filter) || tpl.key === filter)
-            .map((tpl) => {
-            const templateFrames = allFrames?.filter((f) => f.template_key === tpl.key) ?? []
-            return (
-              <TemplateFrameSection
-                key={tpl.key}
-                template={tpl}
-                frames={templateFrames}
-                framesState={framesState}
-                filter={filter}
-                query={query}
+        <section className={styles.panel} aria-labelledby="layouts-heading">
+          <h2 id="layouts-heading" className={styles.panelHeading}>
+            Layouts
+          </h2>
+          <ul className={styles.layoutList} aria-label="Layouts">
+            {templates.map((template) => (
+              <LayoutRow
+                key={template.key}
+                template={template}
+                onDetails={() => setDialog({ type: 'layout-details', template })}
+                onPreview={() => setDialog({ type: 'layout-preview', template })}
               />
-            )
-          })}
-        </div>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {templates && (
+        <section className={styles.panel} aria-labelledby="library-heading">
+          <h2 id="library-heading" className={styles.panelHeading}>
+            Frame library
+          </h2>
+          <div className={styles.libraryTools}>
+            <label className={styles.searchLabel}>
+              <span>Search by frame name</span>
+              <input
+                type="search"
+                value={query}
+                placeholder="e.g. Gold"
+                onChange={(e) => setQuery(e.target.value)}
+                className={styles.searchInput}
+              />
+            </label>
+            <PillGroup label="Show" options={filters} value={filter} onChange={setFilter} />
+          </div>
+
+          {framesState === 'loading' && <p className={styles.loadingText}>Loading frames…</p>}
+          {framesState === 'error' && (
+            <div role="alert" className={styles.alert}>
+              <p className={styles.alertMessage}>The frames could not be loaded.</p>
+              <PillButton
+                onClick={() => {
+                  void framesQuery.refetch()
+                }}
+                disabled={framesQuery.isFetching}
+              >
+                {framesQuery.isFetching ? 'Loading…' : 'Try again'}
+              </PillButton>
+            </div>
+          )}
+          {framesState === 'ready' &&
+            (shown.length === 0 ? (
+              <p className={styles.emptyText}>
+                {needle
+                  ? 'No frame matches this search.'
+                  : filter === 'uploaded'
+                    ? 'No frames uploaded yet. Use Add frame to upload one.'
+                    : 'No frames here yet.'}
+              </p>
+            ) : (
+              <ul className={styles.frameList} aria-label="Frame library">
+                {shown.map((frame) => (
+                  <FrameRow
+                    key={frame.id}
+                    frame={frame}
+                    label={labelOf(frame.template_key)}
+                    onPreview={() => setDialog({ type: 'frame-preview', frame })}
+                    onDetails={() => setDialog({ type: 'frame-details', frame })}
+                    onRename={() => setDialog({ type: 'rename', frame })}
+                    onReplace={(file) => void replace(frame, file)}
+                    onDelete={() => setDialog({ type: 'delete', frame })}
+                  />
+                ))}
+              </ul>
+            ))}
+        </section>
+      )}
+
+      {dialog?.type === 'layout-details' && (
+        <LayoutDetailsDialog template={dialog.template} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.type === 'layout-preview' && (
+        <LayoutPreviewDialog template={dialog.template} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.type === 'frame-preview' && (
+        <FramePreviewDialog
+          frame={dialog.frame}
+          label={labelOf(dialog.frame.template_key)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.type === 'frame-details' && (
+        <FrameDetailsDialog
+          frame={dialog.frame}
+          label={labelOf(dialog.frame.template_key)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.type === 'upload' && templates && (
+        <UploadDialog
+          templates={templates}
+          initialLayout={uploadLayout}
+          onClose={() => setDialog(null)}
+          onUploaded={(name) => {
+            setDialog(null)
+            setMessage({ kind: 'success', title: 'Frame added', lines: [`${name} was added.`] })
+          }}
+        />
+      )}
+      {dialog?.type === 'rename' && <RenameDialog frame={dialog.frame} onClose={() => setDialog(null)} />}
+      {dialog?.type === 'delete' && (
+        <MessageDialog
+          kind="confirm"
+          title={`Delete ${dialog.frame.name}?`}
+          onClose={() => setDialog(null)}
+          actions={
+            <PillButton
+              tone="danger"
+              disabled={deleteMutation.isPending}
+              onClick={() => void confirmDelete(dialog.frame)}
+            >
+              Delete frame
+            </PillButton>
+          }
+        >
+          <p>The file is removed from this booth. Event Profiles that use it must pick another frame first.</p>
+        </MessageDialog>
+      )}
+      {message && (
+        <MessageDialog
+          kind={message.kind}
+          title={message.title}
+          onClose={() => setMessage(null)}
+          {...(message.kind === 'success' ? { autoCloseMs: 3000 } : {})}
+        >
+          {message.lines.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </MessageDialog>
       )}
     </div>
   )
