@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 from photobooth.container import Container
 from photobooth.modules.frames.builtin import builtin_frame_id
@@ -187,6 +188,11 @@ def _image(fmt: str, size: tuple[int, int], color: tuple[int, int, int]) -> byte
     return buffer.getvalue()
 
 
+def _pixels(data: bytes) -> list[Any]:
+    with Image.open(io.BytesIO(data)) as image:
+        return list(image.convert("RGBA").getdata())
+
+
 def _asset(client: TestClient, headers: dict[str, str], kind: str, data: bytes, mime: str) -> str:
     response = client.post(
         "/api/admin/assets",
@@ -246,12 +252,13 @@ def test_start_screen_gives_only_presentation_data(
         assert private not in text
 
     got_logo = kiosk_client.get(screen["logo_url"])
-    assert got_logo.status_code == 200 and got_logo.content == logo
+    assert got_logo.status_code == 200 and _pixels(got_logo.content) == _pixels(logo)
     assert got_logo.headers["content-type"] == "image/png"
     assert got_logo.headers["x-content-type-options"] == "nosniff"
     assert "sandbox" in got_logo.headers["content-security-policy"]
     got_background = kiosk_client.get(screen["background_url"])
-    assert got_background.status_code == 200 and got_background.content == background
+    assert got_background.status_code == 200
+    assert Image.open(io.BytesIO(got_background.content)).size == (640, 360)
     assert got_background.headers["content-type"] == "image/jpeg"
     # Only the two named images of the active event: no other kind, no asset id.
     assert kiosk_client.get(f"{START}/frame").status_code == 422
@@ -293,3 +300,51 @@ def test_start_images_need_the_paired_device(
     kiosk_client.cookies.clear()
     assert kiosk_client.get(f"{START}/logo").status_code == 401
     assert kiosk_client.get(MENU).status_code == 401
+
+
+def test_start_images_carry_no_private_metadata(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    headers = login(kiosk_client, container)
+    # A phone photo as background: EXIF with GPS, author and a rotated orientation.
+    photo = Image.new("RGB", (400, 200), (120, 30, 30))
+    exif = Image.Exif()
+    exif[0x013B] = "Secret Photographer"  # Artist
+    exif[0x0112] = 6  # Orientation: rotate 90 degrees clockwise to show upright
+    exif[0x8825] = {1: "N", 2: (13.0, 45.0, 1.0)}  # GPS latitude
+    buffer = io.BytesIO()
+    photo.save(buffer, "JPEG", exif=exif, comment=b"Secret comment")
+    background = buffer.getvalue()
+    # A transparent logo with private PNG text chunks.
+    info = PngInfo()
+    info.add_text("Author", "Secret Designer")
+    info.add_itxt("Comment", "Secret note")
+    logo_image = Image.new("RGBA", (120, 60), (0, 0, 0, 0))
+    logo_image.paste((250, 200, 0, 255), (10, 10, 60, 50))
+    buffer = io.BytesIO()
+    logo_image.save(buffer, "PNG", pnginfo=info)
+    logo = buffer.getvalue()
+    assert b"Secret" in background and b"Secret" in logo  # the uploads do carry it
+
+    logo_id = _asset(kiosk_client, headers, "logo", logo, "image/png")
+    background_id = _asset(kiosk_client, headers, "background", background, "image/jpeg")
+    _activate(
+        kiosk_client, headers, [STRIP], logo_asset_id=logo_id, background_asset_id=background_id
+    )
+
+    served_background = kiosk_client.get(f"{START}/background")
+    assert served_background.status_code == 200
+    assert b"Secret" not in served_background.content
+    with Image.open(io.BytesIO(served_background.content)) as image:
+        assert image.format == "JPEG"
+        assert image.size == (200, 400)  # turned upright, as a viewer would show it
+        assert len(image.getexif()) == 0
+        assert "comment" not in image.info
+
+    served_logo = kiosk_client.get(f"{START}/logo")
+    assert served_logo.status_code == 200 and served_logo.headers["content-type"] == "image/png"
+    assert b"Secret" not in served_logo.content
+    with Image.open(io.BytesIO(served_logo.content)) as image:
+        assert image.mode == "RGBA"  # transparency kept
+        assert not getattr(image, "text", {})
+        assert image.getpixel((0, 0))[3] == 0 and image.getpixel((20, 20)) == (250, 200, 0, 255)

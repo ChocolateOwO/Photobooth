@@ -290,6 +290,36 @@ test('the real booth start screen shows the profile look and leads to the frame 
   await expect(page.getByRole('heading', { name: 'Choose your frame' })).toBeVisible()
 })
 
+test('a maximum-length Start text stays whole on a narrow screen', async ({ page }) => {
+  const longText = 'W'.repeat(40) // the longest allowed text, as one unbreakable word
+  await pairAndSignIn(page)
+  await profileRow(page, PROFILE).getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
+  await page.getByLabel('Start button text').fill(longText)
+  await page.getByRole('button', { name: 'Save profile' }).click()
+  await expect(page.getByRole('alertdialog', { name: 'Saved' })).toBeVisible()
+
+  for (const width of [360, 1080]) {
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('/booth')
+    const start = page.getByRole('group', { name: 'Start screen' }).getByRole('button', { name: longText })
+    await expect(start).toBeVisible()
+    const box = await start.boundingBox()
+    expect(box?.x ?? -1).toBeGreaterThanOrEqual(0)
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(width + 1)
+    // The whole label is inside the button (nothing cut off).
+    expect(await start.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
+    expect(await start.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
+  }
+
+  // Back to the short text for the specs that follow.
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('/admin')
+  await profileRow(page, PROFILE).getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
+  await page.getByLabel('Start button text').fill('Tap to begin')
+  await page.getByRole('button', { name: 'Save profile' }).click()
+  await expect(page.getByRole('alertdialog', { name: 'Saved' })).toBeVisible()
+})
+
 test('the booth start screen needs the paired device', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5192' })
   const page = await context.newPage()

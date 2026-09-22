@@ -15,6 +15,11 @@ function png(name = 'logo.png', bytes = 128): File {
   return new File([new Uint8Array(bytes)], name, { type: 'image/png' })
 }
 
+// Full-editor flows re-render the whole form, preview and frame list on every keystroke; on this
+// Windows dev machine under load they run several times slower, so they get a larger budget.
+// Only the time limit differs, never what the assertions require.
+const FULL_FLOW = 90_000
+
 describe('ProfileEditorPage', () => {
   it('creates a profile with every preparation-screen setting and reopens it', async () => {
     const server = signedInServer()
@@ -72,7 +77,7 @@ describe('ProfileEditorPage', () => {
     const done = await screen.findByRole('alertdialog', { name: 'Saved' })
     expect(done).toHaveTextContent('Profile saved successfully.')
     expect(screen.queryByRole('status', { name: /Saved/ })).toBeNull()
-  })
+  }, FULL_FLOW)
 
   it('updates the live preview on every keystroke', async () => {
     renderAdmin('/admin/profiles/new', { server: signedInServer() })
@@ -83,7 +88,7 @@ describe('ProfileEditorPage', () => {
     // An empty text falls back to Start.
     await userEvent.clear(start)
     expect(within(screen.getByTestId('event-preview')).getByRole('button', { name: 'Start' })).toBeInTheDocument()
-  })
+  }, FULL_FLOW)
 
   it('lists every missing field in one pop-up and goes to the first problem', async () => {
     const server = signedInServer()
@@ -120,7 +125,7 @@ describe('ProfileEditorPage', () => {
     await screen.findByRole('alertdialog', { name: 'Some information is missing or invalid' })
     await userEvent.keyboard('{Escape}')
     await waitFor(() => expect(screen.getByLabelText('Title')).toHaveFocus())
-  })
+  }, FULL_FLOW)
 
   it('refuses unsupported or oversized images before uploading', async () => {
     const server = signedInServer()
@@ -137,7 +142,7 @@ describe('ProfileEditorPage', () => {
       await screen.findByRole('alertdialog', { name: 'The background was not uploaded' }),
     ).toHaveTextContent('Background must be 12 MB or smaller.')
     expect(server.assets.size).toBe(0)
-  })
+  }, FULL_FLOW)
 
   it('edits a saved profile with its revision and reports a stale edit', async () => {
     const server = signedInServer()
@@ -169,7 +174,7 @@ describe('ProfileEditorPage', () => {
     await userEvent.click(save)
     expect(await screen.findByRole('alertdialog', { name: 'Saved' })).toBeInTheDocument()
     expect(server.profiles.get(wedding.id)?.revision).toBe(4)
-  })
+  }, FULL_FLOW)
 
   it('keeps edits made while an upload is in flight and both image selections (P4-001)', async () => {
     const server = signedInServer()
@@ -189,7 +194,7 @@ describe('ProfileEditorPage', () => {
     expect(await screen.findByRole('img', { name: 'Background preview' })).toBeInTheDocument()
     expect(screen.getByLabelText('Title')).toHaveValue('Typed during upload')
     expect(screen.getByLabelText('Profile name')).toHaveValue('Slow uploads')
-  })
+  }, FULL_FLOW)
 
   it('does not save while an image upload is still pending (P4-002)', async () => {
     const server = signedInServer()
@@ -213,7 +218,7 @@ describe('ProfileEditorPage', () => {
     expect(await screen.findByRole('alertdialog', { name: 'Saved' })).toBeInTheDocument()
     const logoId = [...server.assets.keys()][0]
     expect(server.profiles.get(wedding.id)?.settings.logo_asset_id).toBe(logoId)
-  })
+  }, FULL_FLOW)
 
   it('shows deleted profiles read-only', async () => {
     const server = signedInServer()
@@ -223,7 +228,7 @@ describe('ProfileEditorPage', () => {
       'This profile is deleted. Restore it from the list to edit.',
     )
     expect(screen.getByRole('button', { name: 'Save profile' })).toBeDisabled()
-  })
+  }, FULL_FLOW)
 
   it('shows server validation messages', async () => {
     const server = signedInServer()
@@ -234,7 +239,7 @@ describe('ProfileEditorPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
     const failed = await screen.findByRole('alertdialog', { name: 'The profile was not saved' })
     expect(failed).toHaveTextContent('another live profile already uses this name')
-  })
+  }, FULL_FLOW)
 
   it('has exactly one configurable preview whose size and orientation can be changed', async () => {
     renderAdmin('/admin/profiles/new', { server: signedInServer() })
@@ -279,7 +284,7 @@ describe('ProfileEditorPage', () => {
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Common screen sizes' }), 'Phone')
     expect(screen.getByTestId('preview-size')).toHaveTextContent('390 × 844 px')
     expect(screen.queryByRole('alert')).toBeNull()
-  })
+  }, FULL_FLOW)
 
   it('shows only the background, one logo and the Start button on the start screen', async () => {
     const server = signedInServer()
@@ -296,5 +301,5 @@ describe('ProfileEditorPage', () => {
     }
     expect(within(preview).queryByRole('textbox')).toBeNull()
     expect(within(preview).queryByText(/frames? to choose from/)).toBeNull()
-  })
+  }, FULL_FLOW)
 })

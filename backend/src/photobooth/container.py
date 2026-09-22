@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import threading
 import time
 
 from photobooth import API_VERSION, __version__
@@ -21,7 +22,7 @@ from photobooth.core.kiosk_pairing import (
 from photobooth.core.uploads import UploadAdmission
 from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
 from photobooth.modules.assets.domain import AssetNotFoundError
-from photobooth.modules.assets.inspector import PillowImageInspector
+from photobooth.modules.assets.inspector import PillowImageInspector, presentation_copy
 from photobooth.modules.assets.repository import SqlAssetRepository
 from photobooth.modules.assets.service import AssetService
 from photobooth.modules.auth.api import AdminAuthGate
@@ -124,10 +125,31 @@ class _BoothImages:
     """Adapter: the active event's logo/background through the assets module (StorageProvider).
 
     Only an asset of the expected kind is used; a missing row or file means "not available".
+    Participants get a metadata-free copy (no EXIF/GPS, comments or PNG text), never the
+    original upload bytes. The last few copies are kept, keyed by content hash.
     """
+
+    _CACHE_SIZE = 4
 
     def __init__(self, assets: AssetService) -> None:
         self._assets = assets
+        self._copies: dict[str, tuple[bytes, str]] = {}
+        self._lock = threading.Lock()
+
+    def _clean(self, sha256: str, data: bytes) -> tuple[bytes, str] | None:
+        with self._lock:
+            cached = self._copies.get(sha256)
+        if cached is not None:
+            return cached
+        try:
+            copy = presentation_copy(data)
+        except (OSError, ValueError, SyntaxError):
+            return None  # unreadable stored file: treated as not available
+        with self._lock:
+            self._copies[sha256] = copy
+            while len(self._copies) > self._CACHE_SIZE:
+                self._copies.pop(next(iter(self._copies)))
+        return copy
 
     def version(self, asset_id: str, kind: StartImageKind) -> str | None:
         if not self._assets.exists(asset_id, kind):
@@ -144,7 +166,10 @@ class _BoothImages:
             asset, data = self._assets.content(asset_id)
         except AssetNotFoundError:
             return None
-        return EventImage(data=data, media_type=asset.mime, version=asset.sha256[:16])
+        clean = self._clean(asset.sha256, data)
+        if clean is None:
+            return None
+        return EventImage(data=clean[0], media_type=clean[1], version=asset.sha256[:16])
 
 
 class _BoothFrames:

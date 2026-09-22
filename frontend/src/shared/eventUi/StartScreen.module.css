@@ -37,10 +37,18 @@
   color: var(--ev-heading);
 }
 
+/* Any allowed Start text (up to 40 characters, even one long word) stays whole on the screen:
+   the button never gets wider than the screen and its label wraps instead. */
 .startButton {
-  min-width: clamp(200px, 46cqw, 640px);
+  box-sizing: border-box;
+  min-width: min(clamp(200px, 46cqw, 640px), 100%);
+  max-width: 100%;
   min-height: clamp(72px, 11cqw, 160px);
-  padding: 0 clamp(24px, 6cqw, 80px);
+  padding: clamp(12px, 2cqw, 24px) clamp(20px, 6cqw, 80px);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+  text-align: center;
   border-radius: 999px;
   font-size: clamp(26px, 5.2cqw, 72px);
   font-weight: 800;

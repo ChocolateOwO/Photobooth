@@ -93,3 +93,23 @@ def test_bomb_within_dimension_limit_is_still_refused() -> None:
     generous = UploadLimits(max_bytes=10_000, max_width=200_000, max_height=200_000)
     with pytest.raises(AssetValidationError):
         PillowImageInspector().inspect(_png_header_only(100_000, 100_000), generous)
+
+
+def test_presentation_copy_keeps_palette_transparency_and_drops_text() -> None:
+    from PIL.PngImagePlugin import PngInfo
+
+    from photobooth.modules.assets.inspector import presentation_copy
+
+    image = Image.new("P", (20, 10), 0)
+    image.putpalette([0, 0, 0, 255, 0, 0] + [0] * 762)
+    image.paste(1, (5, 0, 10, 10))
+    info = PngInfo()
+    info.add_text("Author", "Private Person")
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG", transparency=0, pnginfo=info)
+    data, mime = presentation_copy(buffer.getvalue())
+    assert mime == "image/png" and b"Private" not in data
+    with Image.open(io.BytesIO(data)) as copy:
+        rgba = copy.convert("RGBA")
+        assert rgba.getpixel((0, 0))[3] == 0
+        assert rgba.getpixel((6, 5)) == (255, 0, 0, 255)

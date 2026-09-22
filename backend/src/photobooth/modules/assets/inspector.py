@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import warnings
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from photobooth.modules.assets.domain import (
     ALLOWED_FORMATS,
@@ -79,3 +79,35 @@ class PillowImageInspector:
                 f"The image is too large ({width} x {height} px); maximum is "
                 f"{limits.max_width} x {limits.max_height} px."
             )
+
+
+def presentation_copy(data: bytes) -> tuple[bytes, str]:
+    """A copy of a stored (already validated) PNG/JPEG for participant screens.
+
+    Only the pixels are kept, turned upright from the EXIF orientation: EXIF (GPS, camera, author),
+    XMP, comments and PNG text chunks are dropped. Transparency and the colour profile are kept.
+    Returns the new bytes and their MIME type.
+    """
+    with Image.open(io.BytesIO(data), formats=DECODERS) as source:
+        source_format = source.format
+        icc = source.info.get("icc_profile")
+        transparency = source.info.get("transparency")
+        upright = ImageOps.exif_transpose(source)
+        upright.load()
+    clean = Image.new(upright.mode, upright.size)
+    if upright.mode == "P":
+        palette = upright.getpalette()
+        if palette is not None:
+            clean.putpalette(palette)
+    clean.paste(upright)
+    options: dict[str, object] = {}
+    if isinstance(icc, bytes):
+        options["icc_profile"] = icc
+    out = io.BytesIO()
+    if source_format == "JPEG":
+        clean.save(out, "JPEG", quality=92, **options)
+        return out.getvalue(), "image/jpeg"
+    if transparency is not None and clean.mode in ("P", "L", "RGB"):
+        options["transparency"] = transparency
+    clean.save(out, "PNG", **options)
+    return out.getvalue(), "image/png"
