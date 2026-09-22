@@ -8,7 +8,6 @@ import {
 } from '../../../shared/api/adminClient'
 import {
   contrastProblems,
-  isHexColor,
   problemMessage,
   type ContrastProblem,
 } from '../../../shared/eventTheme/theme'
@@ -42,6 +41,10 @@ interface ThemeEditorProps {
   catalog: ThemeCatalog
   hasBackground: boolean
   extraction: ThemeExtraction
+  /** The Button and Text colours as shown (the chosen ones while their shades are made). */
+  mainColours: { button: string; text: string }
+  /** Regenerate every related colour from new Button/Text colours. */
+  onMainColours: (button: string, text: string) => void
   disabled: boolean
 }
 
@@ -172,68 +175,33 @@ function PresetDetails({
     </Modal>
   )
 }
-function ColourField({
-  tokenKey,
+/** One main colour: a small round colour picker with its name and hex value. */
+function MainColour({
   label,
-  description,
   value,
-  problem,
   onChange,
   disabled,
 }: {
-  tokenKey: string
   label: string
-  description: string
   value: string
-  problem: boolean
   onChange: (value: string) => void
   disabled: boolean
 }) {
-  const [draft, setDraft] = useState(value)
-  const [shown, setShown] = useState(value)
-  if (shown !== value) {
-    // The token changed elsewhere (preset, reset, extraction): show the new value.
-    setShown(value)
-    setDraft(value)
-  }
-  const descId = `token-desc-${tokenKey}`
   return (
-    <div className={styles.colourRow} data-token={tokenKey}>
-      <div className={styles.colourText}>
-        <label htmlFor={`token-${tokenKey}`} className={styles.colourLabel}>
-          {label}
-        </label>
-        <span id={descId} className={styles.colourDescription}>
-          {description}
-        </span>
-        {problem && <span className={styles.colourWarning}>Low contrast</span>}
-      </div>
-      <div className={styles.colourInputs}>
-        <input
-          id={`token-${tokenKey}`}
-          type="color"
-          value={value.toLowerCase()}
-          aria-describedby={descId}
-          onChange={(e) => onChange(e.target.value.toUpperCase())}
-          disabled={disabled}
-          className={styles.colourPicker}
-        />
-        <input
-          type="text"
-          aria-label={`${label} hex value`}
-          value={draft}
-          maxLength={7}
-          spellCheck={false}
-          onChange={(e) => {
-            const next = e.target.value.trim()
-            setDraft(next)
-            if (isHexColor(next)) onChange(next.toUpperCase())
-          }}
-          disabled={disabled}
-          className={styles.hexInput}
-        />
-      </div>
-    </div>
+    <label className={styles.mainColour}>
+      <input
+        type="color"
+        value={value.toLowerCase()}
+        onChange={(e) => onChange(e.target.value.toUpperCase())}
+        disabled={disabled}
+        className={styles.roundPicker}
+        aria-label={label}
+      />
+      <span className={styles.mainLabel}>
+        <span>{label}</span>
+        <span className={styles.swatchHex}>{value}</span>
+      </span>
+    </label>
   )
 }
 
@@ -284,6 +252,8 @@ export function ThemeEditor({
   catalog,
   hasBackground,
   extraction,
+  mainColours,
+  onMainColours,
   disabled,
 }: ThemeEditorProps) {
   const firstPresetRef = useRef<HTMLInputElement>(null)
@@ -305,16 +275,14 @@ export function ThemeEditor({
   const detailsPreset = catalog.presets.find((p) => p.id === detailsFor)
   const labels = Object.fromEntries(catalog.tokens.map((t) => [t.key, t.label.toLowerCase()]))
   const problems: ContrastProblem[] = contrastProblems(theme.tokens, catalog.contrast_rules)
-  const troubled = new Set(problems.flatMap((p) => [p.foreground, p.background]))
   const basePreset = catalog.presets.find((p) => p.id === theme.preset)
-  const groups = [...new Set(catalog.tokens.map((t) => t.group))]
-
-  const setToken = (key: string, value: string) => {
-    onChange({
-      ...theme,
-      tokens: { ...theme.tokens, [key]: value },
-      source: 'custom',
-    })
+  const defaultPreset = catalog.presets.find((p) => p.id === catalog.default_preset)
+  // The recommendation: the preset this theme started from, else the background's colours,
+  // else the default preset.
+  const resetToRecommended = () => {
+    if (basePreset) onChange(presetTheme(basePreset))
+    else if (hasBackground) extraction.reextract()
+    else if (defaultPreset) onChange(presetTheme(defaultPreset))
   }
 
   return (
@@ -412,43 +380,37 @@ export function ThemeEditor({
         )}
       </div>
 
-      <details className={styles.advanced}>
-        <summary className={styles.summary}>Advanced colors</summary>
+      <div className={styles.mainColours} role="group" aria-labelledby="main-colours-heading">
+        <h3 id="main-colours-heading" className={styles.subHeading}>
+          Main colours
+        </h3>
+        <div className={styles.mainRow}>
+          <MainColour
+            label="Button colour"
+            value={mainColours.button}
+            onChange={(button) => onMainColours(button, mainColours.text)}
+            disabled={disabled}
+          />
+          <MainColour
+            label="Text colour"
+            value={mainColours.text}
+            onChange={(text) => onMainColours(mainColours.button, text)}
+            disabled={disabled}
+          />
+          <button
+            type="button"
+            onClick={resetToRecommended}
+            disabled={disabled || extraction.pending}
+            className={styles.actionButton}
+          >
+            Reset to recommended colours
+          </button>
+        </div>
         <p className={styles.helper}>
-          Change any single colour. Each one says what it changes on the guest screens.
+          Hover, pressed and disabled shades, the other button, links, borders and helper text
+          follow these two colours and stay readable.
         </p>
-        <button
-          type="button"
-          onClick={() => basePreset && onChange(presetTheme(basePreset))}
-          disabled={disabled || !basePreset}
-          className={styles.actionButton}
-        >
-          Reset to selected preset
-        </button>
-        {!basePreset && (
-          <p className={styles.helper}>Choose a quick theme first to be able to reset to it.</p>
-        )}
-        <LiveExamples tokens={theme.tokens} />
-        {groups.map((group) => (
-          <fieldset key={group} className={styles.fieldset} disabled={disabled}>
-            <legend className={styles.legend}>{group}</legend>
-            {catalog.tokens
-              .filter((t) => t.group === group)
-              .map((t) => (
-                <ColourField
-                  key={t.key}
-                  tokenKey={t.key}
-                  label={t.label}
-                  description={t.description}
-                  value={theme.tokens[t.key] ?? '#000000'}
-                  problem={troubled.has(t.key)}
-                  onChange={(value) => setToken(t.key, value)}
-                  disabled={disabled}
-                />
-              ))}
-          </fieldset>
-        ))}
-      </details>
+      </div>
 
       {problems.length > 0 ? (
         <div role="alert" className={styles.contrastWarning} id={warningsId} data-testid="contrast-warning">

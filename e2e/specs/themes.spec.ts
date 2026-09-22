@@ -9,13 +9,22 @@ test.describe.configure({ mode: 'serial' })
 
 const PROFILE = 'E2E Themes'
 const COPY = 'E2E Themes (copy)'
-const LINK = '#FFD27A'
+// A Button colour the derivation keeps exactly on the Celebration Gold page (readable white label,
+// visible against the page), so the saved value is predictable.
+const BUTTON = '#2563eb'
 const FAMILIES = ['Minimal Light', 'Midnight', 'Celebration Gold'] as const
 const LAYOUT_NAMES = ['3x4 print', '4x6 print (2x2 grid)', '2x6 photo strip'] as const
-const LABELS = ['3×4', '4×6', '2×6'] as const
 
-function goldSwitch(page: Page, label: string): Locator {
-  return page.getByRole('switch', { name: `Show Celebration Gold (${label}) to participants` })
+function sizePill(page: Page, label: string): Locator {
+  return page.getByRole('group', { name: 'Photo sizes available' }).getByRole('button', { name: new RegExp(`^${label}`) })
+}
+
+async function validFrameCount(page: Page, layouts?: string[]): Promise<number> {
+  const frames = (await (await page.request.get('/api/admin/frames')).json()) as {
+    status: string
+    template_key: string
+  }[]
+  return frames.filter((f) => f.status === 'valid' && (!layouts || layouts.includes(f.template_key))).length
 }
 
 interface Catalog {
@@ -127,15 +136,16 @@ test('a new profile starts with an accessible preset and built-in frames', async
   await page.getByRole('link', { name: 'New profile' }).click()
   await expect(page.getByRole('radio', { name: new RegExp(`^${fallback?.name ?? ''}`) })).toBeChecked()
   await expect(page.getByTestId('contrast-ok')).toBeVisible()
+  // Every size, so every valid frame (built-in and uploaded) is offered.
   await expect(page.getByTestId('available-frames-summary')).toHaveText(
-    '9 frames available to participants',
+    `${await validFrameCount(page)} frames available to participants.`,
   )
   await expectPreviewTokens(page, fallback?.tokens ?? {})
   // The admin shell keeps its own colours.
   await expect(page.getByRole('heading', { name: 'New Event Profile' })).toHaveCSS('color', 'rgb(244, 246, 248)')
 })
 
-test('presets, background colours, undo, advanced colours and saving', async ({ page }) => {
+test('presets, background colours, undo, main colours, sizes and saving', async ({ page }) => {
   await pairAndSignIn(page)
   const themes = await catalog(page)
   const gold = themes.presets.find((p) => p.id === 'celebration_gold')
@@ -180,57 +190,56 @@ test('presets, background colours, undo, advanced colours and saving', async ({ 
   await page.getByRole('button', { name: 'Re-extract colors' }).click()
   await expect(heading).toHaveCSS('color', lightText)
 
-  // Back to a preset, then one hand-made colour with a contrast warning, and a reset.
+  // Back to a preset; the 35-colour editor is gone, only Button and Text colour are edited.
   await page.getByRole('button', { name: 'Choose a preset instead' }).click()
   await page.getByRole('radio', { name: /^Celebration Gold/ }).check()
-  await page.getByText('Advanced colors').click()
-  await page.getByLabel('Headings hex value', { exact: true }).fill(gold?.tokens.background ?? '')
-  await expect(page.getByTestId('contrast-warning')).toContainText('Headings: contrast 1.0:1')
-  await page.getByRole('button', { name: 'Reset to selected preset' }).click()
-  await expect(page.getByTestId('contrast-warning')).toHaveCount(0)
-  await page.getByLabel('Links hex value', { exact: true }).fill(LINK)
+  await expect(page.getByText('Advanced colors')).toHaveCount(0)
+  await expect(page.getByLabel(/hex value$/)).toHaveCount(0)
+  const mainColours = page.getByRole('group', { name: 'Main colours' })
+  await expect(mainColours.getByRole('button', { name: 'Reset to recommended colours' })).toBeVisible()
+  // An unreadable Text colour (the page colour itself) is adjusted, never saved as it is.
+  await page.getByLabel('Text colour', { exact: true }).fill((gold?.tokens.background ?? '').toLowerCase())
+  await expect.poll(() => heading.evaluate((el) => getComputedStyle(el).color)).not.toBe(rgb(gold?.tokens.heading ?? ''))
+  expect(await heading.evaluate((el) => getComputedStyle(el).color)).not.toBe(rgb(gold?.tokens.background ?? ''))
+  await expect(page.getByTestId('contrast-ok')).toBeVisible()
+  await mainColours.getByRole('button', { name: 'Reset to recommended colours' }).click()
+  await expect(heading).toHaveCSS('color', rgb(gold?.tokens.heading ?? ''))
+  // A new Button colour regenerates the related shades (hover, links, focus...).
+  await page.getByLabel('Button colour', { exact: true }).fill(BUTTON)
+  const start = preview(page).getByTestId('start-screen').getByRole('button')
+  await expect(start).toHaveCSS('background-color', rgb(BUTTON.toUpperCase()))
+  await expect(page.getByRole('radio', { name: /^Celebration Gold/ })).not.toBeChecked()
+  await expect(page.getByTestId('contrast-ok')).toBeVisible()
 
-  // Only the Celebration Gold frames stay available to participants, and save.
-  for (const family of ['Minimal Light', 'Midnight']) {
-    for (const label of LABELS) {
-      await page.getByRole('switch', { name: `Show ${family} (${label}) to participants` }).uncheck()
-    }
-  }
-  await expect(page.getByTestId('available-frames-summary')).toHaveText(
-    '3 frames available to participants',
-  )
+  // Only the 3×4 and 2×6 sizes, and save.
+  await sizePill(page, '4×6').click()
+  const offered = await validFrameCount(page, ['print_3x4', 'strip_2x6'])
+  await expect(page.getByTestId('available-frames-summary')).toHaveText(`${offered} frames available to participants.`)
   await page.getByRole('button', { name: 'Frame selection' }).click()
   const cards = preview(page).getByRole('list', { name: 'Frames' }).getByRole('button')
-  await expect(cards).toHaveCount(3)
-  await expect(cards.first()).toHaveAccessibleName(/^Celebration Gold, /)
+  await expect(cards).toHaveCount(offered)
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
 
   await page.reload()
-  await page.getByText('Advanced colors').click()
-  await expect(page.getByLabel('Links hex value', { exact: true })).toHaveValue(LINK)
-  await expect(goldSwitch(page, '2×6')).toBeChecked()
-  await expect(page.getByRole('switch', { name: 'Show Midnight (2×6) to participants' })).not.toBeChecked()
+  await expect(page.getByLabel('Button colour', { exact: true })).toHaveValue(BUTTON)
+  await expect(sizePill(page, '2×6')).toHaveAttribute('aria-pressed', 'true')
+  await expect(sizePill(page, '4×6')).toHaveAttribute('aria-pressed', 'false')
 })
-
-test('duplicating a profile keeps its theme and frames', async ({ page }) => {
+test('duplicating a profile keeps its theme and photo sizes', async ({ page }) => {
   await pairAndSignIn(page)
   await page.getByRole('button', { name: `Duplicate ${PROFILE}`, exact: true }).click()
   await expect(profileRow(page, COPY)).toBeVisible()
   await page.getByRole('link', { name: `Edit ${COPY}`, exact: true }).click()
-  await page.getByText('Advanced colors').click()
-  await expect(page.getByLabel('Links hex value', { exact: true })).toHaveValue(LINK)
-  await expect(goldSwitch(page, '3×4')).toBeChecked()
-  await expect(page.getByTestId('available-frames-summary')).toHaveText(
-    '3 frames available to participants',
-  )
+  await expect(page.getByLabel('Button colour', { exact: true })).toHaveValue(BUTTON)
+  await expect(sizePill(page, '3×4')).toHaveAttribute('aria-pressed', 'true')
+  await expect(sizePill(page, '4×6')).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('the theme editor and previews fit a phone screen', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await pairAndSignIn(page)
   await page.getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
-  await page.getByText('Advanced colors').click()
   // One preview only (no separate phone copy), and nothing wider than the phone.
   await expect(page.getByText('Phone width')).toHaveCount(0)
   await expect(page.getByTestId('preview-viewport')).toHaveCount(1)
@@ -244,9 +253,8 @@ test('the theme editor and previews fit a phone screen', async ({ page }) => {
 test('themes and built-in frames survive a backend restart @after-restart', async ({ page }) => {
   await pairAndSignIn(page)
   await page.getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
-  await page.getByText('Advanced colors').click()
-  await expect(page.getByLabel('Links hex value', { exact: true })).toHaveValue(LINK)
-  await expect(goldSwitch(page, '4×6')).toBeChecked()
+  await expect(page.getByLabel('Button colour', { exact: true })).toHaveValue(BUTTON)
+  await expect(sizePill(page, '4×6')).toHaveAttribute('aria-pressed', 'false')
   await page.getByRole('button', { name: 'Frame selection' }).click()
   await expect
     .poll(

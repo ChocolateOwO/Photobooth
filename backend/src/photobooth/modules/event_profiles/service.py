@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from photobooth.modules.event_profiles.domain import (
     NAME_MAX_LENGTH,
     NO_FRAMES_FOR_ACTIVE,
+    NO_SIZES_FOR_ACTIVE,
     AssetLookup,
     EventProfile,
     EventProfileRepository,
@@ -49,7 +50,15 @@ class EventProfileService:
             theme=settings.theme.normalized(),
         )
         problems = normalized.problems()
-        known_layouts = {t.key for t in self._templates.list_latest()}
+        catalog = [t.key for t in self._templates.list_latest()]
+        unknown = [key for key in normalized.enabled_layouts if key not in catalog]
+        if unknown:
+            problems.append(f"unknown photo sizes: {', '.join(unknown)}")
+        # Stored in the template catalogue order, so the booth shows a stable order.
+        normalized = replace(
+            normalized,
+            enabled_layouts=tuple(key for key in catalog if key in normalized.enabled_layouts),
+        )
         if normalized.logo_asset_id is not None and not self._assets.exists(
             normalized.logo_asset_id, "logo"
         ):
@@ -58,36 +67,17 @@ class EventProfileService:
             normalized.background_asset_id, "background"
         ):
             problems.append("background_asset_id does not refer to an uploaded background")
-        for frame_id in normalized.available_frames:
-            layout = self._frames.frame_template(frame_id)
-            if layout is None:
-                problems.append(f"frame {frame_id} does not exist")
-            elif layout not in known_layouts:
-                problems.append(f"frame {frame_id} uses an unknown layout ({layout})")
         if problems:
             raise ProfileValidationError(problems)
         return normalized
 
-    def names_using_frame(self, frame_id: str) -> list[str]:
-        """Port for the frames module: profiles (also soft-deleted) offering this frame."""
-        return self._repository.names_using_frame(frame_id)
+    def names_by_layout(self) -> dict[str, list[str]]:
+        """Port for the frames module: layout -> names of the profiles offering that size."""
+        return self._repository.names_by_layout()
 
-    def usage_by_frame(self) -> dict[str, list[str]]:
-        """Port for the frames module: frame id -> names of the profiles offering it."""
-        return self._repository.usage_by_frame()
-
-    def default_available_frames(self) -> tuple[str, ...]:
-        """A new profile offers every built-in frame; later uploads are never added by it."""
-        return tuple(self._frames.builtin_frame_ids())
-
-    def available_layouts(self, settings: ProfileSettings) -> list[str]:
-        """Layouts offered to participants: those used by an available frame (in order)."""
-        layouts: list[str] = []
-        for frame_id in settings.available_frames:
-            layout = self._frames.frame_template(frame_id)
-            if layout is not None and layout not in layouts:
-                layouts.append(layout)
-        return layouts
+    def default_layouts(self) -> tuple[str, ...]:
+        """A new profile offers every photo size (so every frame, including later uploads)."""
+        return tuple(t.key for t in self._templates.list_latest())
 
     def list_profiles(self, include_deleted: bool = False) -> list[EventProfile]:
         return self._repository.list_profiles(include_deleted)
@@ -121,8 +111,8 @@ class EventProfileService:
         current = self.get(profile_id)
         if current.deleted:
             raise ProfileConflictError("a deleted profile can not be edited; restore it first")
-        if current.is_active and not settings.available_frames:
-            raise ProfileValidationError([NO_FRAMES_FOR_ACTIVE])
+        if current.is_active and not settings.enabled_layouts:
+            raise ProfileValidationError([NO_SIZES_FOR_ACTIVE])
         return self._repository.update(
             profile_id, self._validate(settings), expected_revision, self._clock()
         )
@@ -146,8 +136,11 @@ class EventProfileService:
 
     def activate(self, profile_id: str) -> EventProfile:
         profile = self.get(profile_id)
-        if not profile.deleted and not profile.settings.available_frames:
-            raise ProfileConflictError(NO_FRAMES_FOR_ACTIVE)
+        if not profile.deleted:
+            if not profile.settings.enabled_layouts:
+                raise ProfileConflictError(NO_SIZES_FOR_ACTIVE)
+            if self._frames.valid_frame_count(profile.settings.enabled_layouts) == 0:
+                raise ProfileConflictError(NO_FRAMES_FOR_ACTIVE)
         return self._repository.activate(profile_id, self._clock())
 
     def soft_delete(self, profile_id: str, expected_revision: int) -> EventProfile:

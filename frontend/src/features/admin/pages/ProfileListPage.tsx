@@ -9,9 +9,11 @@ import {
   useDuplicateProfile,
   useProfiles,
   useRestoreProfile,
+  useTemplates,
 } from '../api/hooks'
 import { PillButton } from '../components/ui/Controls'
 import { MessageDialog } from '../components/ui/MessageDialog'
+import { layoutLabel } from '../frameCatalog'
 import styles from './ProfileListPage.module.css'
 
 function extractErrorMessages(err: unknown): string[] {
@@ -31,6 +33,11 @@ export function ProfileListPage() {
   const [activationStatus, setActivationStatus] = useState<string | null>(null)
 
   const { data: profiles = [], error: profilesError } = useProfiles(showDeleted)
+  const { data: templates = [] } = useTemplates()
+  const sizeLabel = (key: string) => {
+    const template = templates.find((t) => t.key === key)
+    return template ? layoutLabel(template) : key
+  }
   const activateMutation = useActivateProfile()
   const [activationError, setActivationError] = useState<{ id: string; messages: string[] } | null>(
     null,
@@ -141,10 +148,10 @@ export function ProfileListPage() {
                     {isDeleted && <span className={styles.badgeDeleted}>Deleted</span>}
                   </div>
                   <div className={styles.profileTitle}>{profile.settings.title}</div>
-                  <div className={styles.profileTitle}>
-                    {profile.settings.available_frames.length === 1
-                      ? '1 frame for participants'
-                      : `${profile.settings.available_frames.length} frames for participants`}
+                  <div className={styles.profileTitle} data-testid="profile-sizes">
+                    {profile.settings.enabled_layouts.length === 0
+                      ? 'No photo sizes chosen'
+                      : `Photo sizes: ${profile.settings.enabled_layouts.map(sizeLabel).join(', ')}`}
                   </div>
                 </div>
 
@@ -237,7 +244,7 @@ export function ProfileListPage() {
           onClose={() => setActivationError(null)}
           actions={
             <Link to={`/admin/profiles/${activationError.id}`} className={styles.dialogLink}>
-              Choose frames for {refused?.settings.name ?? 'this profile'}
+              Choose photo sizes for {refused?.settings.name ?? 'this profile'}
             </Link>
           }
         >

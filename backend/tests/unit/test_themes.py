@@ -24,10 +24,12 @@ from photobooth.modules.themes.domain import (
     default_theme,
     derive_theme,
     is_dark,
+    main_colours,
     seed_from_palette,
     theme_from_legacy,
     theme_from_palette,
     to_rgb,
+    with_main_colours,
 )
 from photobooth.modules.themes.extractor import PillowPaletteExtractor
 
@@ -210,3 +212,35 @@ def test_unreadable_images_give_a_plain_error() -> None:
 def test_empty_palette_falls_back_safely() -> None:
     _assert_accessible(theme_from_palette([]))
     _assert_accessible(theme_from_palette([PaletteColor((128, 128, 128), 1.0)]))
+
+
+STATUS = ("success", "warning", "error", "info", "danger")
+
+
+@pytest.mark.parametrize("preset", PRESET_LIST, ids=lambda p: p.id)
+def test_main_colours_always_give_an_accessible_related_theme(preset: object) -> None:
+    base = PRESETS[preset.id].tokens  # type: ignore[attr-defined]
+    rng = random.Random(preset.id)  # type: ignore[attr-defined]
+    for _ in range(150):
+        button = f"#{rng.randrange(1 << 24):06X}"
+        text = f"#{rng.randrange(1 << 24):06X}"
+        tokens = with_main_colours(base, button, text)
+        assert set(tokens) == set(TOKEN_KEYS)
+        # Only the page and status colours stay as they were; everything meets the rules.
+        for key in ("background", "surface", "overlay", "input_bg"):
+            assert tokens[key] == base[key]
+        assert [p for p in contrast_problems(tokens) if not p.foreground.startswith(STATUS)] == []
+        # The chosen hue survives (only its lightness/saturation move, for contrast).
+        assert (
+            tokens["primary_bg"] == button
+            or contrast(to_rgb(tokens["primary_bg"]), to_rgb(tokens["primary_text"])) >= 4.5
+        )
+
+
+def test_main_colours_are_read_from_and_round_trip_through_the_tokens() -> None:
+    for preset in PRESET_LIST:
+        button, text = main_colours(preset.tokens)
+        assert (button, text) == (preset.tokens["primary_bg"], preset.tokens["heading"])
+        again = with_main_colours(preset.tokens, button, text)
+        assert main_colours(again) == (button, text)
+        assert contrast_problems(again) == []

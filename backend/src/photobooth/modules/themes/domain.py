@@ -375,6 +375,67 @@ def derive_theme(seed: ThemeSeed) -> dict[str, str]:
     return {key: to_hex(tokens[key]) for key in TOKEN_KEYS}
 
 
+MAIN_COLOUR_TOKENS: tuple[str, ...] = ("primary_bg", "heading")  # Button colour, Text colour
+
+
+def main_colours(tokens: Mapping[str, str]) -> tuple[str, str]:
+    """The two colours an organizer edits (Button, Text), read from a complete token set."""
+    return tokens["primary_bg"], tokens["heading"]
+
+
+def with_main_colours(tokens: Mapping[str, str], button: str, text: str) -> dict[str, str]:
+    """Regenerate every colour that belongs to the Button and Text colours.
+
+    Page colours (background, cards, backdrop, input fields) and the semantic danger/status
+    colours stay as they are; buttons with their hover/pressed/disabled shades, the secondary
+    button, text shades, links, borders, placeholder and focus colours are derived from the two
+    main colours. Every result meets the WCAG AA contrast rules: a chosen colour is changed only
+    as much as that needs (same hue), and button labels are picked for readability.
+    """
+    background = to_rgb(tokens["background"])
+    surface = to_rgb(tokens["surface"])
+    input_bg = to_rgb(tokens["input_bg"])
+    accent = to_rgb(button)
+    heading = fit(
+        to_rgb(text),
+        [(background, TEXT_AA), (surface, TEXT_AA), (input_bg, TEXT_AA)],
+        [(background, HEADING_TARGET)],
+    )
+    body = fit(mix(heading, background, 0.1), [(background, TEXT_AA), (surface, TEXT_AA)])
+    muted = fit(
+        mix(heading, background, 0.36),
+        [(background, TEXT_AA), (surface, TEXT_AA), (input_bg, TEXT_AA)],
+    )
+    primary = _button(accent, background)
+    # The secondary button is a quieter tint of the main colour, so the two stay related.
+    secondary = _button(mix(background, primary.bg, 0.3), background)
+    link = fit(accent, [(background, TEXT_AA), (surface, TEXT_AA)])
+    derived: dict[str, RGB] = {
+        "heading": heading,
+        "body": body,
+        "muted": muted,
+        "placeholder": muted,
+        "input_text": heading,
+        "link": link,
+        "primary_bg": primary.bg,
+        "primary_text": primary.text,
+        "primary_hover": primary.hover,
+        "primary_pressed": primary.pressed,
+        "primary_disabled_bg": primary.disabled_bg,
+        "primary_disabled_text": primary.disabled_text,
+        "secondary_bg": secondary.bg,
+        "secondary_text": secondary.text,
+        "secondary_hover": secondary.hover,
+        "secondary_pressed": secondary.pressed,
+        "secondary_disabled_bg": secondary.disabled_bg,
+        "secondary_disabled_text": secondary.disabled_text,
+        "input_border": fit(mix(heading, input_bg, 0.5), [(input_bg, NON_TEXT_AA)]),
+        "input_focus_border": fit(primary.bg, [(input_bg, NON_TEXT_AA)]),
+        "focus_ring": fit(link, [(background, NON_TEXT_AA), (surface, NON_TEXT_AA)]),
+    }
+    return {key: to_hex(derived[key]) if key in derived else tokens[key] for key in TOKEN_KEYS}
+
+
 @dataclass(frozen=True)
 class ContrastProblem:
     what: str

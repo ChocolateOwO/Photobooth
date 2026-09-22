@@ -333,7 +333,7 @@ function FrameDetailsDialog({ frame, label, onClose }: { frame: Frame; label: st
             .map((share, index) => `Photo ${index + 1}: ${Math.round(share * 100)}% transparent`)
             .join(', ')}
         </dd>
-        <dt>Offered by</dt>
+        <dt>Offered by (its size)</dt>
         <dd>{usedBy.length > 0 ? usedBy.join(', ') : 'No Event Profile yet'}</dd>
       </dl>
       {frame.warnings.length > 0 && (
@@ -345,7 +345,7 @@ function FrameDetailsDialog({ frame, label, onClose }: { frame: Frame; label: st
       )}
       {usedBy.length > 0 && !frame.builtin && (
         <p className={styles.dialogCaption}>
-          A frame in use can not be deleted. Replacing its file keeps it working in those profiles.
+          These profiles offer every frame of this size, so this frame is shown to their participants.
         </p>
       )}
     </Modal>
@@ -751,7 +751,7 @@ export function FrameManagerPage() {
             </PillButton>
           }
         >
-          <p>The file is removed from this booth. Event Profiles that use it must pick another frame first.</p>
+          <p>The file is removed from this booth and participants can no longer choose this frame.</p>
         </MessageDialog>
       )}
       {message && (

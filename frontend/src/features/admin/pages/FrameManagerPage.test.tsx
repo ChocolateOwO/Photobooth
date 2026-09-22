@@ -101,7 +101,7 @@ describe('FrameManagerPage: frame library', () => {
   it('shows each frame as one compact row with one thumbnail and icon actions', async () => {
     const server = signedInServer()
     const gold = server.seedFrame('strip_2x6', 'Gold')
-    server.seedProfile({ name: 'Wedding', available_frames: [gold.id] })
+    server.seedProfile({ name: 'Wedding', enabled_layouts: ['strip_2x6'] })
     renderAdmin('/admin/frames', { server })
     await screen.findByRole('heading', { name: 'Gold' })
     const goldRow = row('Gold')
@@ -138,8 +138,8 @@ describe('FrameManagerPage: frame library', () => {
 
   it('shows frame details with usage, size and warnings', async () => {
     const server = signedInServer()
-    const frame = server.seedFrame('strip_2x6', 'Lab profile', ['The frame uses the colour profile Lab.'])
-    server.seedProfile({ name: 'Wedding', available_frames: [frame.id] })
+    server.seedFrame('strip_2x6', 'Lab profile', ['The frame uses the colour profile Lab.'])
+    server.seedProfile({ name: 'Wedding', enabled_layouts: ['strip_2x6'] })
     renderAdmin('/admin/frames', { server })
     // A warning is visible in the row itself.
     expect(await screen.findByText('The frame uses the colour profile Lab.')).toBeInTheDocument()
@@ -335,7 +335,7 @@ describe('FrameManagerPage: add, replace, rename and delete', () => {
     let confirm = screen.getByRole('alertdialog', { name: 'Delete Gold?' })
     expect(
       within(confirm).getByText(
-        'The file is removed from this booth. Event Profiles that use it must pick another frame first.',
+        'The file is removed from this booth and participants can no longer choose this frame.',
       ),
     ).toBeInTheDocument()
     expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus() // the safe choice

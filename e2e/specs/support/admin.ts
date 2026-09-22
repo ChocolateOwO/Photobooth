@@ -64,5 +64,5 @@ export const PERSISTED = {
   title: 'Welcome to our wedding',
   subtitle: 'Tap start and smile',
   startText: 'Let us go',
-  primary: '#AA2244',
+  primary: '#F2C94C',
 } as const

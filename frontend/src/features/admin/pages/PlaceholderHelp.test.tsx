@@ -98,8 +98,8 @@ describe('placeholder and helper text', () => {
     expect(screen.getByRole('checkbox', { name: 'Mirror the camera preview' })).toHaveAccessibleDescription(
       'When on, the live camera preview works like a mirror.',
     )
-    expect(screen.getByLabelText('Main button')).toHaveAccessibleDescription(
-      'The main action, e.g. Start.',
+    expect(screen.getByRole('spinbutton', { name: 'Countdown before each photo' })).toHaveAccessibleDescription(
+      'Seconds counted down before each photo is taken (1–10).',
     )
     expect(screen.getByLabelText('Logo image')).toHaveAccessibleDescription(
       'PNG or JPEG, up to 5 MB. A transparent PNG works best.',

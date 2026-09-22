@@ -4,7 +4,7 @@ Invariants enforced by the database, not only by the service:
 - at most one active profile (partial unique index on is_active where is_active = 1);
 - live profile names are unique case-insensitively (partial unique index on name_key);
 - a deleted profile is never active (check constraint);
-- the countdown stays fixed at 5 seconds (check constraint);
+- the countdown is a whole number of seconds from 1 to 10 (check constraint);
 - logo/background rows can not be removed while a profile references them (FK RESTRICT).
 """
 
@@ -37,7 +37,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship, session
 
 from photobooth.core.db import Base, UtcDateTime
 from photobooth.modules.event_profiles.domain import (
-    NO_FRAMES_FOR_ACTIVE,
+    NO_SIZES_FOR_ACTIVE,
     DeliveryMode,
     EventProfile,
     EventProfileRepository,
@@ -50,32 +50,33 @@ from photobooth.modules.event_profiles.domain import (
 from photobooth.modules.themes.domain import EventTheme, ThemeSource
 
 
-class EventProfileFrameRow(Base):
-    """A frame participants may choose in this profile, at its display position.
+class EventProfileLayoutRow(Base):
+    """A photo size (layout) participants may use in this profile, at its display position.
 
-    Many frames per layout are allowed; each frame at most once per profile. FK RESTRICT keeps an
-    offered frame undeletable; the unique position keeps the display order unambiguous.
+    Every valid frame of an enabled layout is offered at the booth, so frames are never linked to
+    profiles one by one (uploading, renaming, replacing or deleting a frame needs no profile
+    edit). The unique position keeps the order unambiguous.
     """
 
-    __tablename__ = "event_profile_available_frames"
+    __tablename__ = "event_profile_layouts"
     __table_args__ = (
-        UniqueConstraint("profile_id", "position", name="uq_event_profile_frame_position"),
-        CheckConstraint("position >= 0", name="ck_event_profile_frame_position"),
+        UniqueConstraint("profile_id", "position", name="uq_event_profile_layout_position"),
+        CheckConstraint("position >= 0", name="ck_event_profile_layout_position"),
     )
 
     profile_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("event_profiles.id", ondelete="CASCADE"), primary_key=True
     )
-    frame_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("frame_assets.id", ondelete="RESTRICT"), primary_key=True
-    )
+    template_key: Mapped[str] = mapped_column(String(64), primary_key=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class EventProfileRow(Base):
     __tablename__ = "event_profiles"
     __table_args__ = (
-        CheckConstraint("countdown_seconds = 5", name="ck_event_profiles_countdown_fixed"),
+        CheckConstraint(
+            "countdown_seconds BETWEEN 1 AND 10", name="ck_event_profiles_countdown_range"
+        ),
         CheckConstraint(
             "inactivity_timeout_s BETWEEN 30 AND 900", name="ck_event_profiles_inactivity_range"
         ),
@@ -123,8 +124,8 @@ class EventProfileRow(Base):
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime(), nullable=True)
 
-    frames: Mapped[list[EventProfileFrameRow]] = relationship(
-        order_by=EventProfileFrameRow.position,
+    layouts: Mapped[list[EventProfileLayoutRow]] = relationship(
+        order_by=EventProfileLayoutRow.position,
         cascade="all, delete-orphan",
         passive_deletes=True,
         lazy="selectin",
@@ -157,7 +158,7 @@ class EventProfileRow(Base):
                 logo_asset_id=self.logo_asset_id,
                 background_asset_id=self.background_asset_id,
                 theme=_theme_of(self.theme),
-                available_frames=tuple(row.frame_id for row in self.frames),
+                enabled_layouts=tuple(row.template_key for row in self.layouts),
                 allow_surprise_me=self.allow_surprise_me,
                 countdown_seconds=self.countdown_seconds,
                 mirror=self.mirror,
@@ -199,10 +200,10 @@ def _rowcount(result: Result[Any]) -> int:
     return cast(CursorResult[Any], result).rowcount
 
 
-def _frame_rows(profile_id: str, settings: ProfileSettings) -> list[EventProfileFrameRow]:
+def _layout_rows(profile_id: str, settings: ProfileSettings) -> list[EventProfileLayoutRow]:
     return [
-        EventProfileFrameRow(profile_id=profile_id, frame_id=frame_id, position=index)
-        for index, frame_id in enumerate(settings.available_frames)
+        EventProfileLayoutRow(profile_id=profile_id, template_key=key, position=index)
+        for index, key in enumerate(settings.enabled_layouts)
     ]
 
 
@@ -215,7 +216,7 @@ def _conflict(exc: IntegrityError) -> ProfileConflictError:
     if "name_key" in message:
         return ProfileConflictError("another live profile already uses this name")
     if "FOREIGN KEY" in message:
-        return ProfileConflictError("a referenced asset or frame does not exist")
+        return ProfileConflictError("a referenced asset does not exist")
     return ProfileConflictError("the change conflicts with the stored profiles")
 
 
@@ -252,7 +253,7 @@ class SqlEventProfileRepository(EventProfileRepository):
             deleted_at=None,
         )
         row.apply(profile.settings)
-        row.frames = _frame_rows(profile.id, profile.settings)
+        row.layouts = _layout_rows(profile.id, profile.settings)
         try:
             with self._sessions.begin() as session:
                 session.add(row)
@@ -283,24 +284,24 @@ class SqlEventProfileRepository(EventProfileRepository):
                     self._explain_miss(session, profile_id, expected_revision)
                 row = session.get(EventProfileRow, profile_id, populate_existing=True)
                 assert row is not None
-                if row.is_active and not settings.available_frames:
+                if row.is_active and not settings.enabled_layouts:
                     # Checked under the write lock, so no concurrent activation slips past it.
-                    raise ProfileValidationError([NO_FRAMES_FOR_ACTIVE])
+                    raise ProfileValidationError([NO_SIZES_FOR_ACTIVE])
                 row.apply(settings)
                 # The whole list (membership and order) is replaced in this one transaction.
                 session.execute(
-                    delete(EventProfileFrameRow).where(
-                        EventProfileFrameRow.profile_id == profile_id
+                    delete(EventProfileLayoutRow).where(
+                        EventProfileLayoutRow.profile_id == profile_id
                     )
                 )
-                session.expire(row, ["frames"])
+                session.expire(row, ["layouts"])
                 session.flush()
-                if settings.available_frames:
+                if settings.enabled_layouts:
                     session.execute(
-                        insert(EventProfileFrameRow),
+                        insert(EventProfileLayoutRow),
                         [
-                            {"profile_id": profile_id, "frame_id": frame_id, "position": index}
-                            for index, frame_id in enumerate(settings.available_frames)
+                            {"profile_id": profile_id, "template_key": key, "position": index}
+                            for index, key in enumerate(settings.enabled_layouts)
                         ],
                     )
         except IntegrityError as exc:
@@ -317,9 +318,9 @@ class SqlEventProfileRepository(EventProfileRepository):
                 .values(is_active=False, updated_at=at)
                 .execution_options(synchronize_session=False)
             )
-            has_frames = (
-                select(EventProfileFrameRow.frame_id)
-                .where(EventProfileFrameRow.profile_id == profile_id)
+            has_sizes = (
+                select(EventProfileLayoutRow.template_key)
+                .where(EventProfileLayoutRow.profile_id == profile_id)
                 .exists()
             )
             changed = _rowcount(
@@ -328,7 +329,7 @@ class SqlEventProfileRepository(EventProfileRepository):
                     .where(
                         EventProfileRow.id == profile_id,
                         EventProfileRow.deleted_at.is_(None),
-                        has_frames,
+                        has_sizes,
                     )
                     .values(is_active=True, updated_at=at)
                     .execution_options(synchronize_session=False)
@@ -342,7 +343,7 @@ class SqlEventProfileRepository(EventProfileRepository):
                     raise ProfileConflictError(
                         "a deleted profile can not be activated; restore it first"
                     )
-                raise ProfileConflictError(NO_FRAMES_FOR_ACTIVE)
+                raise ProfileConflictError(NO_SIZES_FOR_ACTIVE)
         return self._require(profile_id)
 
     def soft_delete(self, profile_id: str, expected_revision: int, at: datetime) -> EventProfile:
@@ -393,27 +394,16 @@ class SqlEventProfileRepository(EventProfileRepository):
             raise _conflict(exc) from exc
         return self._require(profile_id)
 
-    def names_using_frame(self, frame_id: str) -> list[str]:
-        with self._sessions() as session:
-            rows = session.scalars(
-                select(EventProfileRow)
-                .join(EventProfileFrameRow, EventProfileFrameRow.profile_id == EventProfileRow.id)
-                .where(EventProfileFrameRow.frame_id == frame_id)
-                .order_by(EventProfileRow.name)
-            )
-            # Deleted profiles still hold their frame: they can be restored.
-            return [_usage_name(row) for row in rows]
-
-    def usage_by_frame(self) -> dict[str, list[str]]:
+    def names_by_layout(self) -> dict[str, list[str]]:
         with self._sessions() as session:
             pairs = session.execute(
-                select(EventProfileFrameRow.frame_id, EventProfileRow)
-                .join(EventProfileRow, EventProfileRow.id == EventProfileFrameRow.profile_id)
+                select(EventProfileLayoutRow.template_key, EventProfileRow)
+                .join(EventProfileRow, EventProfileRow.id == EventProfileLayoutRow.profile_id)
                 .order_by(EventProfileRow.name)
             )
             usage: dict[str, list[str]] = {}
-            for frame_id, row in pairs:
-                usage.setdefault(frame_id, []).append(_usage_name(row))
+            for template_key, row in pairs:
+                usage.setdefault(template_key, []).append(_usage_name(row))
             return usage
 
     def _require(self, profile_id: str) -> EventProfile:

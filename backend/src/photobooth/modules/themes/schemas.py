@@ -8,12 +8,15 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from photobooth.modules.themes.domain import (
     CONTRAST_RULES,
+    TOKEN_KEYS,
     TOKENS,
     EventTheme,
     Preset,
     ThemeSource,
 )
 
+Color = Annotated[str, Field(pattern=r"^#[0-9A-Fa-f]{6}$", examples=["#2F6FD6"])]
+TokenKey = Annotated[str, Field(pattern=r"^[a-z_]{1,40}$")]
 AssetId = Annotated[
     str, Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 ]
@@ -95,3 +98,19 @@ class ExtractedTheme(BaseModel):
             preset=theme.preset,
             palette=list(theme.palette),
         )
+
+
+class MainColoursBody(BaseModel):
+    """The current complete theme and the two colours an organizer chose."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tokens: dict[TokenKey, Color] = Field(min_length=len(TOKEN_KEYS), max_length=len(TOKEN_KEYS))
+    button: Color = Field(description="Button colour (the main action colour)")
+    text: Color = Field(description="Text colour (headings and participant text)")
+
+
+class MainColoursResponse(BaseModel):
+    tokens: dict[str, str] = Field(description="Every token, with the related ones regenerated")
+    button: str = Field(description="The Button colour as used (adjusted only for contrast)")
+    text: str = Field(description="The Text colour as used (adjusted only for contrast)")

@@ -39,7 +39,7 @@ describe('ProfileEditorPage', () => {
     await userEvent.upload(screen.getByLabelText('Logo image'), png())
     expect(await screen.findByRole('img', { name: 'Logo preview' })).toBeInTheDocument()
     expect(await screen.findByText('640 × 480 px')).toBeInTheDocument()
-    expect(screen.getByText('Countdown: 5 seconds before each photo')).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Countdown before each photo' })).toHaveValue('5')
 
     // The start screen shows only the logo and the Start button (never the title or subtitle).
     const preview = screen.getByTestId('event-preview')
@@ -61,8 +61,8 @@ describe('ProfileEditorPage', () => {
       subtitle: 'Tap start when ready',
       start_button_text: 'Go',
       theme: { source: 'preset', preset: 'blush_wedding' },
-      // A new profile offers every built-in frame; participants choose at the booth.
-      available_frames: server.builtinIds(),
+      // A new profile offers every photo size; participants choose the frame at the booth.
+      enabled_layouts: ['strip_2x6', 'print_4x6'],
       allow_surprise_me: false,
       mirror: false,
       inactivity_timeout_s: 300,

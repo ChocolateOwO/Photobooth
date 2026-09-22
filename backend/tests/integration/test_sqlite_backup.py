@@ -54,10 +54,10 @@ def test_backup_contains_uncheckpointed_wal_rows(thai_root: Path) -> None:
     assert backup.is_file()
     assert "ทดสอบ" in record.path
     assert record.integrity == "ok"
-    assert record.alembic_revision == "0005_available_frames"
+    assert record.alembic_revision == "0006_photo_sizes_countdown"
     assert record.instance == "dummy"
     assert backup.name.startswith("dummy-") and backup.name.endswith(
-        "-0005_available_frames.sqlite"
+        "-0006_photo_sizes_countdown.sqlite"
     )
     assert not backup.with_name(backup.name + "-wal").exists()
     with sqlite3.connect(backup) as conn:

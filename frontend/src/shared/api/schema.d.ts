@@ -352,6 +352,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/themes/main-colours": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Theme Main Colours
+         * @description Regenerate the related colours (shades, links, borders, focus, labels) from the Button
+         *     and Text colours. Nothing is saved until the profile is saved.
+         */
+        post: operations["theme_main_colours_api_admin_themes_main_colours_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/booth/frame-choice": {
         parameters: {
             query?: never;
@@ -639,11 +660,6 @@ export interface components {
         /** EventProfileResponse */
         EventProfileResponse: {
             /**
-             * Available Layouts
-             * @description Layouts participants can choose: those used by an available frame
-             */
-            available_layouts: string[];
-            /**
              * Created At
              * Format: date-time
              */
@@ -717,8 +733,13 @@ export interface components {
             /** Allow Surprise Me */
             allow_surprise_me: boolean;
             /**
+             * Countdown Seconds
+             * @description Seconds counted down before each photo
+             */
+            countdown_seconds: number;
+            /**
              * Frames
-             * @description Offered frames in display order
+             * @description Offered frames in a stable order
              */
             frames: components["schemas"]["BoothFrameResponse"][];
             /**
@@ -869,6 +890,48 @@ export interface components {
             username: string;
         };
         /**
+         * MainColoursBody
+         * @description The current complete theme and the two colours an organizer chose.
+         */
+        MainColoursBody: {
+            /**
+             * Button
+             * @description Button colour (the main action colour)
+             * @example #2F6FD6
+             */
+            button: string;
+            /**
+             * Text
+             * @description Text colour (headings and participant text)
+             * @example #2F6FD6
+             */
+            text: string;
+            /** Tokens */
+            tokens: {
+                [key: string]: string;
+            };
+        };
+        /** MainColoursResponse */
+        MainColoursResponse: {
+            /**
+             * Button
+             * @description The Button colour as used (adjusted only for contrast)
+             */
+            button: string;
+            /**
+             * Text
+             * @description The Text colour as used (adjusted only for contrast)
+             */
+            text: string;
+            /**
+             * Tokens
+             * @description Every token, with the related ones regenerated
+             */
+            tokens: {
+                [key: string]: string;
+            };
+        };
+        /**
          * MediaAssetResponse
          * @description Stored asset metadata. The storage key and client file name are never exposed.
          */
@@ -931,21 +994,21 @@ export interface components {
              * @default false
              */
             allow_surprise_me: boolean;
-            /**
-             * Available Frames
-             * @description Frames participants may choose from, in display order (no repeats). Omit when creating a profile to offer every built-in frame.
-             */
-            available_frames?: string[] | null;
             /** Background Asset Id */
             background_asset_id?: string | null;
             /**
              * Countdown Seconds
+             * @description Seconds counted down before each photo (whole number)
              * @default 5
-             * @constant
              */
-            countdown_seconds: 5;
+            countdown_seconds: number;
             /** @default local_link */
             delivery_mode: components["schemas"]["DeliveryMode"];
+            /**
+             * Enabled Layouts
+             * @description Photo sizes (layout keys) participants may use; every valid frame of these sizes is offered. Omit when creating a profile to offer every size.
+             */
+            enabled_layouts?: string[] | null;
             /**
              * Inactivity Timeout S
              * @default 120
@@ -992,18 +1055,18 @@ export interface components {
              * @default false
              */
             allow_surprise_me: boolean;
-            /** Available Frames */
-            available_frames: string[];
             /** Background Asset Id */
             background_asset_id?: string | null;
             /**
              * Countdown Seconds
+             * @description Seconds counted down before each photo (whole number)
              * @default 5
-             * @constant
              */
-            countdown_seconds: 5;
+            countdown_seconds: number;
             /** @default local_link */
             delivery_mode: components["schemas"]["DeliveryMode"];
+            /** Enabled Layouts */
+            enabled_layouts: string[];
             /**
              * Inactivity Timeout S
              * @default 120
@@ -1046,21 +1109,21 @@ export interface components {
              * @default false
              */
             allow_surprise_me: boolean;
-            /**
-             * Available Frames
-             * @description Frames participants may choose from, in display order (no repeats)
-             */
-            available_frames: string[];
             /** Background Asset Id */
             background_asset_id?: string | null;
             /**
              * Countdown Seconds
+             * @description Seconds counted down before each photo (whole number)
              * @default 5
-             * @constant
              */
-            countdown_seconds: 5;
+            countdown_seconds: number;
             /** @default local_link */
             delivery_mode: components["schemas"]["DeliveryMode"];
+            /**
+             * Enabled Layouts
+             * @description Photo sizes (layout keys) participants may use
+             */
+            enabled_layouts: string[];
             /**
              * Inactivity Timeout S
              * @default 120
@@ -2175,6 +2238,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExtractedTheme"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    theme_main_colours_api_admin_themes_main_colours_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MainColoursBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MainColoursResponse"];
                 };
             };
             /** @description Validation Error */

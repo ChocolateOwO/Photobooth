@@ -22,7 +22,6 @@ from photobooth.core.db import Base, UtcDateTime
 from photobooth.modules.assets.repository import MediaAssetRow
 from photobooth.modules.frames.domain import (
     FrameAsset,
-    FrameInUseError,
     FrameNotFoundError,
     FrameReadOnlyError,
     FrameRepository,
@@ -168,17 +167,13 @@ class SqlFrameRepository(FrameRepository):
         return self._require(frame_id)
 
     def delete(self, frame_id: str) -> None:
-        try:
-            with self._sessions.begin() as session:
-                row = session.get(FrameAssetRow, frame_id)
-                if row is None:
-                    raise FrameNotFoundError(frame_id)
-                if row.builtin:
-                    raise FrameReadOnlyError()
-                session.delete(row)
-        except IntegrityError as exc:
-            # Backstop for the service check: an Event Profile still references this frame.
-            raise FrameInUseError(["an Event Profile"]) from exc
+        with self._sessions.begin() as session:
+            row = session.get(FrameAssetRow, frame_id)
+            if row is None:
+                raise FrameNotFoundError(frame_id)
+            if row.builtin:
+                raise FrameReadOnlyError()
+            session.delete(row)
 
     def uses_asset(self, asset_id: str, ignore_frame_id: str | None = None) -> bool:
         query = select(FrameAssetRow.id).where(FrameAssetRow.media_asset_id == asset_id)

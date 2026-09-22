@@ -126,90 +126,17 @@
   background-color: rgba(255, 107, 112, 0.15);
 }
 
-.advanced {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
 
-.advanced[open] {
-  padding-bottom: 4px;
-}
 
-.advanced > * + * {
-  margin-top: 12px;
-}
 
-.summary {
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 18px;
-  color: var(--pb-color-text);
-  min-height: var(--pb-touch-target);
-  display: flex;
-  align-items: center;
-}
 
-.colourRow {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
 
-.colourText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1 1 200px;
-}
 
-.colourLabel {
-  font-weight: 600;
-  color: var(--pb-color-text);
-}
 
-.colourDescription {
-  color: var(--pb-color-muted);
-  font-size: 14px;
-}
 
-.colourWarning {
-  color: var(--pb-color-error);
-  font-size: 14px;
-  font-weight: 700;
-}
 
-.colourInputs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 
-.colourPicker {
-  width: 56px;
-  height: 44px;
-  padding: 2px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: transparent;
-}
 
-.hexInput {
-  width: 110px;
-  min-height: 44px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background-color: var(--pb-color-bg);
-  color: var(--pb-color-text);
-  font: inherit;
-  font-family: ui-monospace, monospace;
-}
 
 .examples {
   padding: 12px;
@@ -420,4 +347,67 @@
   .themeOption {
     transition: none;
   }
+}
+
+/* Main colours: one compact row of two round pickers and the reset action. */
+.mainColours {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mainRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+
+.mainColour {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.roundPicker {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  overflow: hidden;
+}
+
+.roundPicker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.roundPicker::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+.roundPicker::-moz-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+.roundPicker:focus-visible {
+  outline: 3px solid var(--pb-color-dummy);
+  outline-offset: 2px;
+}
+
+.mainLabel {
+  display: inline-flex;
+  flex-direction: column;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--pb-color-text);
 }

@@ -18,32 +18,38 @@ export function planFromTemplate(template: TemplateSummary): GalleryPlan {
   }
 }
 
+function byLibraryOrder(a: Frame, b: Frame): number {
+  // The server's order: built-in frames first, then names (code-point order, like SQLite).
+  if (a.builtin !== b.builtin) return a.builtin ? -1 : 1
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+}
+
 /**
- * The frames a profile offers, in its order, as the participant gallery shows them. Frames that
- * no longer exist or whose layout is unknown are left out (the booth does the same).
+ * The valid frames of these photo sizes, as the booth offers them: sizes in the given order,
+ * then built-in frames first and names A-Z. Frames of unknown layouts are left out.
  */
+export function framesForSizes(layouts: string[], frames: Frame[], templates: TemplateSummary[]): Frame[] {
+  return layouts.flatMap((key) =>
+    templates.some((t) => t.key === key)
+      ? frames.filter((f) => f.template_key === key && f.status === 'valid').sort(byLibraryOrder)
+      : [],
+  )
+}
+
+/** What participants see for these sizes, in the participant gallery's shape. */
 export function galleryFrames(
-  availableIds: string[],
+  layouts: string[],
   frames: Frame[],
   templates: TemplateSummary[],
   previewUrl: (frame: Frame) => string,
 ): GalleryFrame[] {
-  const result: GalleryFrame[] = []
-  for (const id of availableIds) {
-    const frame = frames.find((f) => f.id === id)
-    const template = frame && templates.find((t) => t.key === frame.template_key)
-    if (!frame || !template) continue
-    result.push({ id, name: frame.name, previewUrl: previewUrl(frame), plan: planFromTemplate(template) })
-  }
-  return result
+  return framesForSizes(layouts, frames, templates).map((frame) => {
+    const template = templates.find((t) => t.key === frame.template_key) as TemplateSummary
+    return { id: frame.id, name: frame.name, previewUrl: previewUrl(frame), plan: planFromTemplate(template) }
+  })
 }
 
-/** Layout keys offered by these frames, in first-use order (the server's rule). */
-export function offeredLayouts(availableIds: string[], frames: Frame[]): string[] {
-  const layouts: string[] = []
-  for (const id of availableIds) {
-    const key = frames.find((f) => f.id === id)?.template_key
-    if (key && !layouts.includes(key)) layouts.push(key)
-  }
-  return layouts
+/** Chosen sizes that actually have at least one valid frame (what the booth can offer). */
+export function offeredLayouts(layouts: string[], frames: Frame[], templates: TemplateSummary[]): string[] {
+  return layouts.filter((key) => framesForSizes([key], frames, templates).length > 0)
 }

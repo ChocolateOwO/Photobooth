@@ -131,10 +131,12 @@ def test_selections_become_ordered_available_frames_and_nothing_else_changes(
             conn.execute("SELECT COUNT(*) FROM media_assets").fetchone()[0] == 4 + len(LAYOUTS) * 3
         )
 
+    migrator.upgrade("head")  # the app reads the latest schema (sizes, see 0006)
     engine = create_sqlite_engine(db)
     try:
         profiles = {p.id: p for p in SqlEventProfileRepository(engine).list_profiles(True)}
-        assert profiles["p1"].is_active and profiles["p1"].settings.available_frames
+        assert profiles["p1"].is_active
+        assert profiles["p1"].settings.enabled_layouts == ("print_4x6", "strip_2x6")
         assert profiles["p1"].settings.logo_asset_id == "logo1"
         assert profiles["p1"].settings.theme.preset == "midnight_blue"
         assert profiles["p2"].deleted and profiles["p2"].settings.theme.palette == ("#FFFFFF",)
@@ -145,7 +147,7 @@ def test_selections_become_ordered_available_frames_and_nothing_else_changes(
 def test_downgrade_restores_layouts_and_one_frame_each_then_upgrade_again(thai_root: Path) -> None:
     db = thai_root / "round-trip-0005.sqlite"
     migrator, before = _prepare(db)
-    migrator.upgrade("head")
+    migrator.upgrade("0005_available_frames")  # 0006 keeps sizes, not single frames
     migrator.downgrade("0004_builtin_frames_themes")
     with sqlite3.connect(db) as conn:
         assert conn.execute(f"SELECT {KEPT} FROM event_profiles ORDER BY id").fetchall() == before  # noqa: S608
@@ -167,6 +169,6 @@ def test_downgrade_restores_layouts_and_one_frame_each_then_upgrade_again(thai_r
         assert "allow_surprise_me" not in {
             r[1] for r in conn.execute("PRAGMA table_info(event_profiles)")
         }
-    migrator.upgrade("head")
+    migrator.upgrade("0005_available_frames")
     with sqlite3.connect(db) as conn:
         assert _available(conn)["p1"] == [builtin_frame_id("celebration_gold", "print_4x6"), "f1"]

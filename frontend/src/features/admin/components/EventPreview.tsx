@@ -111,7 +111,7 @@ function PreviewScreen({ settings, templates, frames, mode }: EventPreviewProps 
     )
   }
 
-  const offered = galleryFrames(settings.available_frames, frames ?? [], templates, (frame) =>
+  const offered = galleryFrames(settings.enabled_layouts, frames ?? [], templates, (frame) =>
     api.framePreviewUrl(frame.id, 1, frame.sha256),
   )
   return (
@@ -165,7 +165,7 @@ export function EventPreview({ settings, templates, frames }: EventPreviewProps)
   const swap = () => apply({ width: size.height, height: size.width })
 
   const retakeText = RETAKE_LABELS[settings.retake_mode]
-  const layoutNames = offeredLayouts(settings.available_frames, frames ?? []).map(
+  const layoutNames = offeredLayouts(settings.enabled_layouts, frames ?? [], templates).map(
     (key) => templates.find((t) => t.key === key)?.name ?? key,
   )
   const sizeError = `Enter a whole number from ${PREVIEW_LIMITS.min} to ${PREVIEW_LIMITS.max} px.`
@@ -264,6 +264,7 @@ export function EventPreview({ settings, templates, frames }: EventPreviewProps)
         <span>{settings.mirror ? 'Mirror: on' : 'Mirror: off'}</span>,{' '}
         <span>Timeout: {settings.inactivity_timeout_s} s</span>, <span>{retakeText}</span>
         {layoutNames.length > 0 && <span>. Layouts offered: {layoutNames.join(', ')}</span>}
+        <span>. Countdown: {Number.isInteger(settings.countdown_seconds) ? settings.countdown_seconds : '?'} s</span>
       </p>
     </section>
   )

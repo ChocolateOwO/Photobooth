@@ -73,11 +73,12 @@ class StartScreenResponse(BaseModel):
 
 
 class FrameMenuResponse(BaseModel):
-    frames: list[BoothFrameResponse] = Field(description="Offered frames in display order")
+    frames: list[BoothFrameResponse] = Field(description="Offered frames in a stable order")
     layouts: list[str] = Field(description="Layouts with at least one offered frame")
     allow_surprise_me: bool
     theme: dict[str, str] = Field(description="Event theme tokens for the participant screens")
     start_screen: StartScreenResponse
+    countdown_seconds: int = Field(description="Seconds counted down before each photo")
 
     @classmethod
     def of(cls, menu: FrameMenu) -> FrameMenuResponse:
@@ -87,6 +88,7 @@ class FrameMenuResponse(BaseModel):
             allow_surprise_me=menu.allow_surprise_me,
             theme=dict(menu.theme_tokens),
             start_screen=StartScreenResponse.of(menu.start_screen),
+            countdown_seconds=menu.countdown_seconds,
         )
 
 

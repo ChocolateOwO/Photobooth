@@ -97,7 +97,7 @@ describe('ProfileListPage', () => {
 
   it('refuses to activate a profile without frames and says so in a pop-up', async () => {
     const server = signedInServer()
-    const empty = server.seedProfile({ name: 'No frames yet', available_frames: [] })
+    const empty = server.seedProfile({ name: 'No frames yet', enabled_layouts: [] })
     server.seedProfile({ name: 'Ready' })
     renderAdmin('/admin', { server })
     await userEvent.click(await screen.findByRole('button', { name: 'Activate No frames yet' }))
@@ -107,12 +107,12 @@ describe('ProfileListPage', () => {
     const error = await screen.findByTestId('activation-error')
     expect(error).toHaveAttribute('role', 'alertdialog')
     expect(error).toHaveAccessibleName('No frames yet can not be activated')
-    expect(error).toHaveTextContent('No frames are available to participants.')
-    expect(within(error).getByRole('link', { name: 'Choose frames for No frames yet' })).toHaveAttribute(
+    expect(error).toHaveTextContent('No photo sizes are available to participants.')
+    expect(within(error).getByRole('link', { name: 'Choose photo sizes for No frames yet' })).toHaveAttribute(
       'href',
       `/admin/profiles/${empty.id}`,
     )
-    expect(within(row).getByText('0 frames for participants')).toBeInTheDocument()
+    expect(within(row).getByTestId('profile-sizes')).toHaveTextContent('No photo sizes chosen')
     expect(server.profiles.get(empty.id)?.is_active).toBe(false)
   })
 })

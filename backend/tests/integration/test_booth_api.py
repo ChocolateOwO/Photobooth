@@ -25,7 +25,7 @@ LIGHT46 = builtin_frame_id("minimal_light", "print_4x6")
 def _activate(
     client: TestClient,
     headers: dict[str, str],
-    frames: list[str],
+    layouts: list[str],
     surprise: bool = False,
     **extra: Any,
 ) -> dict[str, Any]:
@@ -34,7 +34,7 @@ def _activate(
         json={
             "name": "Party",
             "title": "Hi",
-            "available_frames": frames,
+            "enabled_layouts": layouts,
             "allow_surprise_me": surprise,
             **extra,
         },
@@ -63,7 +63,8 @@ def test_menu_lists_only_offered_frames_in_order_with_their_plan(
 ) -> None:
     headers = login(kiosk_client, container)
     _s, mine = upload(kiosk_client, headers, key="strip_2x6", name="Our strip")
-    profile = _activate(kiosk_client, headers, [GOLD34, mine["id"], LIGHT46, STRIP], surprise=True)
+    _s, other = upload(kiosk_client, headers, key="print_4x6", name="Not offered")
+    profile = _activate(kiosk_client, headers, ["strip_2x6", "print_3x4"], surprise=True)
 
     # Participants do not need an admin session: a paired kiosk browser is enough.
     kiosk_client.cookies.delete("pb_admin_dummy", path="/api/admin")
@@ -71,14 +72,20 @@ def test_menu_lists_only_offered_frames_in_order_with_their_plan(
     assert menu.status_code == 200, menu.text
     assert menu.headers["cache-control"] == "no-store"
     data = menu.json()
-    assert [f["id"] for f in data["frames"]] == [GOLD34, mine["id"], LIGHT46, STRIP]
-    assert [f["name"] for f in data["frames"]] == [
-        "Celebration Gold",
-        "Our strip",
-        "Minimal Light",
-        "Midnight",
+    # Every valid frame of the chosen sizes (also uploads), sizes in catalogue order, built-in
+    # frames first; nothing of a size the event does not offer.
+    assert [f["id"] for f in data["frames"]] == [
+        GOLD34,
+        builtin_frame_id("midnight", "print_3x4"),
+        builtin_frame_id("minimal_light", "print_3x4"),
+        builtin_frame_id("celebration_gold", "strip_2x6"),
+        STRIP,
+        builtin_frame_id("minimal_light", "strip_2x6"),
+        mine["id"],
     ]
-    assert data["layouts"] == ["print_3x4", "strip_2x6", "print_4x6"]
+    assert other["id"] not in [f["id"] for f in data["frames"]]
+    assert data["layouts"] == ["print_3x4", "strip_2x6"]
+    assert data["countdown_seconds"] == 5
     assert data["allow_surprise_me"] is True
     assert data["theme"] == profile["settings"]["theme"]["tokens"]
     assert data["start_screen"] == {
@@ -100,7 +107,7 @@ def test_menu_lists_only_offered_frames_in_order_with_their_plan(
     }
     assert (plans["print_3x4"]["layout_label"], plans["print_3x4"]["captures"]) == ("3×4", 2)
     assert plans["print_3x4"]["output_label"] is None
-    assert (plans["print_4x6"]["captures"], plans["print_4x6"]["outputs"]) == (4, 1)
+    assert "print_4x6" not in plans
 
     # Nothing about files, storage or where a frame came from reaches participants.
     for frame in data["frames"]:
@@ -113,7 +120,7 @@ def test_menu_lists_only_offered_frames_in_order_with_their_plan(
 
 def test_previews_only_for_offered_frames(kiosk_client: TestClient, container: Container) -> None:
     headers = login(kiosk_client, container)
-    _activate(kiosk_client, headers, [GOLD34])
+    _activate(kiosk_client, headers, ["print_3x4"])
     offered = kiosk_client.get(f"{MENU}/{GOLD34}/preview.jpg")
     assert offered.status_code == 200 and offered.content.startswith(b"\xff\xd8")
     assert offered.headers["content-type"] == "image/jpeg"
@@ -126,16 +133,16 @@ def test_previews_only_for_offered_frames(kiosk_client: TestClient, container: C
 
 def test_surprise_me_needs_two_frames(kiosk_client: TestClient, container: Container) -> None:
     headers = login(kiosk_client, container)
-    _activate(kiosk_client, headers, [STRIP], surprise=True)
-    single = kiosk_client.get(MENU).json()
-    assert len(single["frames"]) == 1 and single["allow_surprise_me"] is False
+    _activate(kiosk_client, headers, ["strip_2x6"], surprise=True)
+    several = kiosk_client.get(MENU).json()
+    assert len(several["frames"]) == 3 and several["allow_surprise_me"] is True
 
 
 def test_choosing_returns_the_plan_and_refuses_other_frames(
     kiosk_client: TestClient, container: Container
 ) -> None:
     headers = login(kiosk_client, container)
-    _activate(kiosk_client, headers, [STRIP, LIGHT46])
+    _activate(kiosk_client, headers, ["strip_2x6", "print_4x6"])
     device = _device_only(headers)
     chosen = kiosk_client.post(CHOICE, json={"frame_id": LIGHT46}, headers=device)
     assert chosen.status_code == 200, chosen.text
@@ -158,7 +165,7 @@ def test_booth_routes_need_the_paired_device(
     kiosk_client: TestClient, container: Container
 ) -> None:
     headers = login(kiosk_client, container)
-    _activate(kiosk_client, headers, [STRIP])
+    _activate(kiosk_client, headers, ["strip_2x6"])
     key = headers["X-Photobooth-Device-Key"]
     no_key = {"Origin": ORIGIN}
     assert kiosk_client.post(CHOICE, json={"frame_id": STRIP}, headers=no_key).status_code == 403
@@ -215,7 +222,7 @@ def test_start_screen_gives_only_presentation_data(
     _activate(
         kiosk_client,
         headers,
-        [STRIP],
+        ["strip_2x6"],
         name="Private profile name",
         title="Secret title text",
         subtitle="Secret subtitle text",
@@ -232,7 +239,14 @@ def test_start_screen_gives_only_presentation_data(
     assert screen["start_button_text"] == "Let's go"
     assert screen["logo_url"].startswith(f"{START}/logo?v=")
     assert screen["background_url"].startswith(f"{START}/background?v=")
-    assert set(menu.json()) == {"frames", "layouts", "allow_surprise_me", "theme", "start_screen"}
+    assert set(menu.json()) == {
+        "frames",
+        "layouts",
+        "allow_surprise_me",
+        "theme",
+        "start_screen",
+        "countdown_seconds",
+    }
     # No asset ids, storage, profile internals or admin-only texts reach participants.
     text = menu.text
     for private in (
@@ -273,7 +287,7 @@ def test_start_screen_without_images_or_with_a_lost_file_falls_back(
     background_id = _asset(
         kiosk_client, headers, "background", _image("JPEG", (320, 200), (9, 9, 9)), "image/jpeg"
     )
-    _activate(kiosk_client, headers, [STRIP], background_asset_id=background_id)
+    _activate(kiosk_client, headers, ["strip_2x6"], background_asset_id=background_id)
     screen = kiosk_client.get(MENU).json()["start_screen"]
     assert screen["logo_url"] is None and screen["start_button_text"] == "Start"
     assert kiosk_client.get(f"{START}/logo").status_code == 404
@@ -295,7 +309,7 @@ def test_start_images_need_the_paired_device(
     logo_id = _asset(
         kiosk_client, headers, "logo", _image("PNG", (100, 50), (1, 2, 3)), "image/png"
     )
-    _activate(kiosk_client, headers, [STRIP], logo_asset_id=logo_id)
+    _activate(kiosk_client, headers, ["strip_2x6"], logo_asset_id=logo_id)
     assert kiosk_client.get(f"{START}/logo").status_code == 200
     kiosk_client.cookies.clear()
     assert kiosk_client.get(f"{START}/logo").status_code == 401
@@ -329,7 +343,11 @@ def test_start_images_carry_no_private_metadata(
     logo_id = _asset(kiosk_client, headers, "logo", logo, "image/png")
     background_id = _asset(kiosk_client, headers, "background", background, "image/jpeg")
     _activate(
-        kiosk_client, headers, [STRIP], logo_asset_id=logo_id, background_asset_id=background_id
+        kiosk_client,
+        headers,
+        ["strip_2x6"],
+        logo_asset_id=logo_id,
+        background_asset_id=background_id,
     )
 
     served_background = kiosk_client.get(f"{START}/background")

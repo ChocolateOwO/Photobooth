@@ -41,7 +41,7 @@ ProfileId = Annotated[
 def _run(service: EventProfileService, action: Callable[[], EventProfile]) -> EventProfileResponse:
     try:
         profile = action()
-        return EventProfileResponse.of(profile, service.available_layouts(profile.settings))
+        return EventProfileResponse.of(profile)
     except ProfileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ProfileValidationError as exc:
@@ -59,15 +59,12 @@ def _run(service: EventProfileService, action: Callable[[], EventProfile]) -> Ev
 def list_profiles(
     service: Service, include_deleted: Annotated[bool, Query()] = False
 ) -> list[EventProfileResponse]:
-    return [
-        EventProfileResponse.of(p, service.available_layouts(p.settings))
-        for p in service.list_profiles(include_deleted)
-    ]
+    return [EventProfileResponse.of(p) for p in service.list_profiles(include_deleted)]
 
 
 @router.post("", response_model=EventProfileResponse, status_code=status.HTTP_201_CREATED)
 def create_profile(body: ProfileSettingsBody, service: Service) -> EventProfileResponse:
-    return _run(service, lambda: service.create(body.to_domain(service.default_available_frames())))
+    return _run(service, lambda: service.create(body.to_domain(service.default_layouts())))
 
 
 @router.get("/{profile_id}", response_model=EventProfileResponse)

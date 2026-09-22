@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router'
 
 import {
   AdminApiError,
+  COUNTDOWN_LIMITS,
   INACTIVITY_LIMITS,
   newProfileSettings,
   presetTheme,
@@ -13,6 +14,7 @@ import {
   type TemplateSummary,
   type ThemeCatalog,
 } from '../../../shared/api/adminClient'
+import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import { BigButton } from '../../../shared/ui/BigButton'
 import {
   useCreateProfile,
@@ -24,10 +26,11 @@ import {
   useUpdateProfile,
 } from '../api/hooks'
 import { AssetPicker } from '../components/AssetPicker'
-import { AvailableFramesEditor } from '../components/AvailableFramesEditor'
+import { CountdownControl } from '../components/CountdownControl'
 import { EventPreview } from '../components/EventPreview'
+import { PhotoSizesSelector } from '../components/PhotoSizesSelector'
 import { ThemeEditor } from '../components/ThemeEditor'
-import { PillButton } from '../components/ui/Controls'
+import { PillButton, Switch } from '../components/ui/Controls'
 import { MessageDialog } from '../components/ui/MessageDialog'
 import styles from './ProfileEditorPage.module.css'
 
@@ -53,6 +56,17 @@ function validateSettings(settings: ProfileSettings): FieldProblem[] {
     problems.push({
       fieldId: 'field-inactivity-timeout',
       message: `Inactivity timeout must be between ${INACTIVITY_LIMITS.min} and ${INACTIVITY_LIMITS.max} seconds.`,
+    })
+  }
+  const countdown = settings.countdown_seconds
+  if (
+    !Number.isInteger(countdown) ||
+    countdown < COUNTDOWN_LIMITS.min ||
+    countdown > COUNTDOWN_LIMITS.max
+  ) {
+    problems.push({
+      fieldId: 'field-countdown',
+      message: `Countdown must be a whole number from ${COUNTDOWN_LIMITS.min} to ${COUNTDOWN_LIMITS.max} seconds.`,
     })
   }
   return problems
@@ -115,20 +129,50 @@ function ProfileEditorForm({
     themeRef.current = settings.theme // read by the extraction handler (an event, after render)
   }, [settings.theme])
 
-  // A new profile whose frame list arrives late still starts with every built-in frame.
-  const [defaultsApplied, setDefaultsApplied] = useState(!isNew || frames !== undefined)
-  if (!defaultsApplied && frames) {
-    setDefaultsApplied(true)
-    setSettings((current) =>
-      current.available_frames.length > 0
-        ? current
-        : { ...current, available_frames: frames.filter((f) => f.builtin).map((f) => f.id) },
-    )
-  }
-
   const invalidateExtraction = () => {
     extractionSeq.current += 1
     setPendingExtraction(null)
+  }
+
+  // Main colours: the server regenerates every related colour from Button and Text. Each change
+  // is numbered; only the newest answer is applied, and any other theme change cancels it.
+  const api = useAdminApi()
+  const mainSeq = useRef(0)
+  const mainTimer = useRef<number | undefined>(undefined)
+  const [mainDraft, setMainDraft] = useState<{ button: string; text: string } | null>(null)
+  const [mainError, setMainError] = useState<string | null>(null)
+  // Saving before the related colours arrive would store the previous colours.
+  const colourPending = mainDraft !== null
+  const cancelMainColours = () => {
+    mainSeq.current += 1
+    window.clearTimeout(mainTimer.current)
+    setMainDraft(null)
+  }
+  useEffect(() => () => window.clearTimeout(mainTimer.current), [])
+  const changeMainColours = (button: string, text: string) => {
+    invalidateExtraction() // the admin's own colours win over a pending extraction
+    mainSeq.current += 1
+    const seq = mainSeq.current
+    setMainDraft({ button, text })
+    setMainError(null)
+    window.clearTimeout(mainTimer.current)
+    mainTimer.current = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const derived = await api.mainColours({ ...themeRef.current.tokens }, button, text)
+          if (mainSeq.current !== seq) return // a newer choice came first
+          setSettings((current) => ({
+            ...current,
+            theme: { ...current.theme, tokens: derived.tokens, source: 'custom' },
+          }))
+          setMainDraft(null)
+        } catch {
+          if (mainSeq.current !== seq) return
+          setMainDraft(null)
+          setMainError('The colours could not be applied. Try again.')
+        }
+      })()
+    }, 120)
   }
 
   /** Apply a theme made from the background's colours; the previous theme can be restored. */
@@ -220,7 +264,7 @@ function ProfileEditorForm({
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (uploadPending || isSaving) {
+    if (uploadPending || colourPending || isSaving) {
       return
     }
     setSaved(false)
@@ -236,12 +280,7 @@ function ProfileEditorForm({
     setIsSaving(true)
     try {
       if (isNew) {
-        // Frame list never loaded: leave it out, so the server offers every built-in frame
-        // instead of saving an empty list by accident (P5R2-001).
-        const { available_frames: draftFrames, ...rest } = settings
-        const created = await createMutation.mutateAsync(
-          defaultsApplied ? { ...rest, available_frames: draftFrames } : rest,
-        )
+        const created = await createMutation.mutateAsync(settings)
         void navigate(`/admin/profiles/${created.id}`, { state: { saved: true } })
       } else if (profileId) {
         const updated = await updateMutation.mutateAsync({
@@ -383,8 +422,16 @@ function ProfileEditorForm({
           theme={settings.theme}
           onChange={(theme) => {
             invalidateExtraction() // the admin's own choice wins over a pending extraction
+            cancelMainColours()
             setSettings((current) => ({ ...current, theme }))
           }}
+          mainColours={
+            mainDraft ?? {
+              button: settings.theme.tokens.primary_bg ?? '#000000',
+              text: settings.theme.tokens.heading ?? '#FFFFFF',
+            }
+          }
+          onMainColours={changeMainColours}
           catalog={catalog}
           hasBackground={Boolean(settings.background_asset_id)}
           extraction={{
@@ -394,7 +441,7 @@ function ProfileEditorForm({
             undo: undoExtraction,
             canUndo: themeHistory.length > 0,
             pending: pendingExtraction !== null,
-            error: extractError,
+            error: extractError ?? mainError,
           }}
           disabled={isDeleted}
         />
@@ -430,27 +477,17 @@ function ProfileEditorForm({
           )}
         </section>
 
-        <AvailableFramesEditor
+        <PhotoSizesSelector
+          templates={templates}
           frames={frames}
+          value={settings.enabled_layouts}
+          onChange={(layouts) => setSettings((current) => ({ ...current, enabled_layouts: layouts }))}
+          disabled={isDeleted}
           loadFailed={framesQuery.isError}
           onRetry={() => {
             void framesQuery.refetch()
           }}
-          templates={templates}
-          available={settings.available_frames}
-          onChange={(ids) => setSettings((current) => ({ ...current, available_frames: ids }))}
-          allowSurprise={settings.allow_surprise_me}
-          onSurpriseChange={(allow) =>
-            setSettings((current) => ({ ...current, allow_surprise_me: allow }))
-          }
-          unloadedNote={
-            isNew
-              ? 'Saving offers every built-in frame; you can change the list once the frames load.'
-              : 'Saving keeps the current list.'
-          }
-          disabled={isDeleted}
         />
-
         {/* Booth Behaviour Section */}
         <section className={styles.formSection}>
           <h2 className={styles.sectionHeading}>Booth behaviour</h2>
@@ -499,7 +536,34 @@ function ProfileEditorForm({
             </p>
           </div>
 
-          <p className={styles.readOnlyText}>Countdown: 5 seconds before each photo</p>
+          <div className={styles.field}>
+            <label htmlFor="field-countdown" className={styles.label}>
+              Countdown before each photo
+            </label>
+            <CountdownControl
+              id="field-countdown"
+              value={settings.countdown_seconds}
+              onChange={(seconds) => setSettings((current) => ({ ...current, countdown_seconds: seconds }))}
+              disabled={isDeleted}
+              fieldProps={fieldProps('field-countdown', 'help-countdown')}
+            />
+            {fieldError('field-countdown')}
+            <p id="help-countdown" className={styles.helperText}>
+              Seconds counted down before each photo is taken (1–10).
+            </p>
+          </div>
+
+          <Switch
+            checked={settings.allow_surprise_me}
+            disabled={isDeleted}
+            onChange={(allow) => setSettings((current) => ({ ...current, allow_surprise_me: allow }))}
+            describedBy="help-surprise"
+          >
+            Allow “Surprise me” random frame
+          </Switch>
+          <p id="help-surprise" className={styles.helperText}>
+            Shown to participants only when at least two frames are available; it picks one of them.
+          </p>
 
           <fieldset
             className={styles.fieldset}
@@ -550,7 +614,7 @@ function ProfileEditorForm({
 
         <BigButton
           type="submit"
-          disabled={isDeleted || isSaving || uploadPending}
+          disabled={isDeleted || isSaving || uploadPending || colourPending}
           className={styles.saveButton}
         >
           Save profile
@@ -645,14 +709,7 @@ export function ProfileEditorPage() {
   const { data: templates, isLoading: isTemplatesLoading } = useTemplates()
   const catalogQuery = useThemeCatalog()
   const catalog = catalogQuery.data
-  // Only a new profile needs the list here (its default frames); the form loads it itself.
-  const framesQuery = useFrames(undefined, { enabled: isNew })
-  // A new profile starts with built-in default frames, so it waits for the frame list (or its
-  // failure, then it simply starts without frames).
-  const framesSettled = framesQuery.data !== undefined || framesQuery.isError
-  // Once the form is shown it stays mounted, even while the list is fetched again (P5R-003).
-  const [formReady, setFormReady] = useState(false)
-  if (!formReady && framesSettled) setFormReady(true)
+
   const {
     data: profile,
     isLoading: isProfileLoading,
@@ -663,8 +720,7 @@ export function ProfileEditorPage() {
   if (
     isTemplatesLoading ||
     catalogQuery.isLoading ||
-    (!isNew && isProfileLoading) ||
-    (isNew && !framesSettled && !formReady)
+    (!isNew && isProfileLoading)
   ) {
     return (
       <div className={styles.container}>
@@ -738,15 +794,15 @@ export function ProfileEditorPage() {
   const loaded = isNew ? undefined : profile
   const defaultPreset =
     catalog.presets.find((p) => p.id === catalog.default_preset) ?? catalog.presets[0]
-  // A new profile offers every built-in frame (uploads are switched on by the admin).
-  const builtinIds = (framesQuery.data ?? []).filter((f) => f.builtin).map((f) => f.id)
+  // A new profile offers every photo size, so every frame (also later uploads) is offered.
+  const allSizes = templates.map((t) => t.key)
   const initialSettings =
     loaded?.settings ??
     newProfileSettings(
       defaultPreset
         ? presetTheme(defaultPreset)
         : { tokens: {}, source: 'custom', preset: null, palette: [] },
-      builtinIds,
+      allSizes,
     )
   const initialRevision = loaded?.revision ?? 1
   const isDeleted = loaded !== undefined && loaded.deleted_at !== null

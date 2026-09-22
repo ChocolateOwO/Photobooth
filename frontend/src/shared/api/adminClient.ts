@@ -13,6 +13,7 @@ export type ThemePreset = Schemas['PresetInfo']
 export type ThemeTokenInfo = Schemas['TokenInfo']
 export type ContrastRule = Schemas['ContrastRuleInfo']
 export type ExtractedTheme = Schemas['ExtractedTheme']
+export type MainColours = Schemas['MainColoursResponse']
 export type EventProfile = Schemas['EventProfileResponse']
 export type MediaAsset = Schemas['MediaAssetResponse']
 export type AssetKind = Schemas['AssetKind']
@@ -34,6 +35,7 @@ export const ASSET_LIMITS: Record<'logo' | 'background', { maxBytes: number; max
 export type UploadableAssetKind = keyof typeof ASSET_LIMITS
 export const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg'] as const
 export const INACTIVITY_LIMITS = { min: 30, max: 900 } as const
+export const COUNTDOWN_LIMITS = { min: 1, max: 10, default: 5 } as const
 /** Frame rules from the approved templates (the server checks them again). */
 export const FRAME_LIMITS = { maxBytes: 10 * 1024 * 1024, mime: 'image/png' } as const
 export const TEXT_LIMITS = { name: 80, title: 120, subtitle: 240, startButtonText: 40 } as const
@@ -266,6 +268,9 @@ export function createAdminApiClient(
       send<ExtractedTheme>('POST', '/api/admin/themes/extract', {
         json: { background_asset_id: backgroundAssetId },
       }),
+    /** Every colour regenerated from the Button and Text colours (contrast kept; nothing saved). */
+    mainColours: (tokens: Record<string, string>, button: string, text: string) =>
+      send<MainColours>('POST', '/api/admin/themes/main-colours', { json: { tokens, button, text } }),
 
     listProfiles: (includeDeleted = false) =>
       send<EventProfile[]>('GET', `/api/admin/profiles${includeDeleted ? '?include_deleted=true' : ''}`),
@@ -338,10 +343,10 @@ export function createAdminApiClient(
 export type AdminApiClient = ReturnType<typeof createAdminApiClient>
 
 /**
- * A new profile: the default preset theme and every built-in frame (in library order). Uploads made
- * later are never added by themselves. 	heme comes from GET /api/admin/themes.
+ * A new profile: the default preset theme and every photo size, so every frame (including later
+ * uploads) is offered. 	heme comes from GET /api/admin/themes.
  */
-export function newProfileSettings(theme: EventTheme, builtinFrameIds: string[]): ProfileSettings {
+export function newProfileSettings(theme: EventTheme, layouts: string[]): ProfileSettings {
   return {
     name: '',
     title: '',
@@ -350,16 +355,15 @@ export function newProfileSettings(theme: EventTheme, builtinFrameIds: string[])
     logo_asset_id: null,
     background_asset_id: null,
     theme,
-    available_frames: [...builtinFrameIds],
+    enabled_layouts: [...layouts],
     allow_surprise_me: false,
-    countdown_seconds: 5,
+    countdown_seconds: COUNTDOWN_LIMITS.default,
     mirror: true,
     inactivity_timeout_s: 120,
     retake_mode: 'per_photo',
     delivery_mode: 'local_link',
   }
 }
-
 /** The theme of a preset, marked as chosen from that preset. */
 export function presetTheme(preset: ThemePreset): EventTheme {
   return { tokens: { ...preset.tokens }, source: 'preset', preset: preset.id, palette: [] }

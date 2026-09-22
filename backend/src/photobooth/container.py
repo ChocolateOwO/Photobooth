@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 import threading
 import time
+from collections.abc import Sequence
 
 from photobooth import API_VERSION, __version__
 from photobooth.core.admin_gate import AdminAuthenticator, AdminCookieSettings
@@ -70,16 +71,13 @@ from photobooth.modules.themes.service import ThemeService
 
 
 class _FrameUsage:
-    """Adapter so the frames module can ask which profiles still select a frame."""
+    """Adapter so the frames module can show which profiles offer each photo size."""
 
     def __init__(self, profiles: SqlEventProfileRepository) -> None:
         self._profiles = profiles
 
-    def names_using_frame(self, frame_id: str) -> list[str]:
-        return self._profiles.names_using_frame(frame_id)
-
-    def usage_by_frame(self) -> dict[str, list[str]]:
-        return self._profiles.usage_by_frame()
+    def names_by_layout(self) -> dict[str, list[str]]:
+        return self._profiles.names_by_layout()
 
 
 class _BackgroundImages:
@@ -112,12 +110,13 @@ class _BoothEvent:
             return None
         settings = active.settings
         return EventOffer(
-            frame_ids=settings.available_frames,
+            layouts=settings.enabled_layouts,
             allow_surprise_me=settings.allow_surprise_me,
             theme_tokens=dict(settings.theme.tokens),
             start_button_text=settings.start_button_text,
             logo_asset_id=settings.logo_asset_id,
             background_asset_id=settings.background_asset_id,
+            countdown_seconds=settings.countdown_seconds,
         )
 
 
@@ -173,23 +172,23 @@ class _BoothImages:
 
 
 class _BoothFrames:
-    """Adapter: name, layout and version of a frame (nothing about files or its origin)."""
+    """Adapter: name, layout and version of each valid frame of the given photo sizes (nothing
+    about files or whether a frame is built-in or uploaded)."""
 
     def __init__(self, frames: FrameService) -> None:
         self._frames = frames
 
-    def describe(self, frame_id: str) -> OfferedFrame | None:
-        try:
-            frame = self._frames.get(frame_id)
-        except FrameError:
-            return None
-        return OfferedFrame(
-            frame_id=frame.id,
-            name=frame.name,
-            template_key=frame.template_key,
-            template_version=frame.template_version,
-            sha256=frame.sha256,
-        )
+    def offered(self, layouts: Sequence[str]) -> list[OfferedFrame]:
+        return [
+            OfferedFrame(
+                frame_id=frame.id,
+                name=frame.name,
+                template_key=frame.template_key,
+                template_version=frame.template_version,
+                sha256=frame.sha256,
+            )
+            for frame in self._frames.offered_frames(layouts)
+        ]
 
 
 class _BoothLayouts:

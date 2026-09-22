@@ -79,13 +79,10 @@ class BoothService:
         return image
 
     def menu(self) -> FrameMenu:
-        """Every offered frame that still exists and has a known layout, in the admin's order."""
+        """Every valid frame of the event's photo sizes whose layout is known, in stable order."""
         offer = self._offer()
         frames: list[BoothFrame] = []
-        for frame_id in offer.frame_ids:
-            frame = self._frames.describe(frame_id)
-            if frame is None:
-                continue
+        for frame in self._frames.offered(offer.layouts):
             facts = self._layouts.facts(frame.template_key, frame.template_version)
             if facts is None:
                 continue
@@ -104,6 +101,7 @@ class BoothService:
             allow_surprise_me=offer.allow_surprise_me and len(frames) >= 2,
             theme_tokens=offer.theme_tokens,
             start_screen=self._start_screen(offer),
+            countdown_seconds=offer.countdown_seconds,
         )
 
     def _offered(self, frame_id: str) -> BoothFrame:

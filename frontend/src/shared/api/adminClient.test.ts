@@ -60,13 +60,13 @@ describe('createAdminApiClient', () => {
     expect(headersOf(callOf(fetcher, 0))[DEVICE_KEY_HEADER]).toBe('k'.repeat(43))
     expect(headersOf(callOf(fetcher, 0))[ADMIN_CSRF_HEADER]).toBeUndefined()
 
-    await api.createProfile(newProfileSettings(defaultTheme(), ['f-mid']))
+    await api.createProfile(newProfileSettings(defaultTheme(), ['strip_2x6']))
     const createHeaders = headersOf(callOf(fetcher, 1))
     expect(createHeaders[ADMIN_CSRF_HEADER]).toBe(SESSION.csrf_token)
     expect(createHeaders[DEVICE_KEY_HEADER]).toBe('k'.repeat(43))
     expect(JSON.parse(String(callOf(fetcher, 1)[1]?.body))).toMatchObject({
       countdown_seconds: 5,
-      available_frames: ['f-mid'],
+      enabled_layouts: ['strip_2x6'],
       allow_surprise_me: false,
       theme: { source: 'preset', preset: 'midnight_blue' },
     })

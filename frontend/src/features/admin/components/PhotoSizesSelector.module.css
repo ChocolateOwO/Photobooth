@@ -1,0 +1,73 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--pb-space);
+  background-color: var(--pb-color-surface);
+  border-radius: var(--pb-radius);
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 22px;
+  color: var(--pb-color-text);
+}
+
+.manage {
+  color: var(--pb-color-text);
+  font-size: 15px;
+  font-weight: 700;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 2px;
+}
+
+.count {
+  margin-left: -6px; /* the pill's gap is replaced by the separator's own space */
+  white-space: pre;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.helper {
+  margin: 0;
+  color: var(--pb-color-muted);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.summary {
+  color: var(--pb-color-text);
+  font-weight: 700;
+}
+
+.alert {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--pb-color-error);
+  color: var(--pb-color-error);
+  background-color: rgba(255, 107, 112, 0.12);
+  font-size: 15px;
+}
+
+.alertText {
+  margin: 0 0 8px;
+}

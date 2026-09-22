@@ -15,7 +15,6 @@ from photobooth.core.admin_gate import require_admin
 from photobooth.core.uploads import UploadAdmission, multipart_openapi, read_upload
 from photobooth.core.web import provide, require_device
 from photobooth.modules.frames.domain import (
-    FrameInUseError,
     FrameNotFoundError,
     FrameReadOnlyError,
     FrameValidationError,
@@ -201,5 +200,3 @@ def delete_frame(frame_id: FrameId, service: Service) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except FrameReadOnlyError as exc:
         raise _read_only(exc) from exc
-    except FrameInUseError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

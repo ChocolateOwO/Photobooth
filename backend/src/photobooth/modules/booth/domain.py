@@ -90,6 +90,7 @@ class FrameMenu:
     allow_surprise_me: bool  # already false when fewer than two frames are offered
     theme_tokens: Mapping[str, str]
     start_screen: StartScreen
+    countdown_seconds: int
 
     @property
     def layouts(self) -> list[str]:
@@ -104,12 +105,13 @@ class FrameMenu:
 class EventOffer:
     """The active profile's participant-facing choices (from the event_profiles module)."""
 
-    frame_ids: Sequence[str]
+    layouts: Sequence[str]  # photo sizes: every valid frame of these is offered
     allow_surprise_me: bool
     theme_tokens: Mapping[str, str]
     start_button_text: str = DEFAULT_START_TEXT
     logo_asset_id: str | None = None
     background_asset_id: str | None = None
+    countdown_seconds: int = 5
 
 
 @dataclass(frozen=True)
@@ -153,7 +155,9 @@ class ActiveEvent(Protocol):
 
 
 class FrameDirectory(Protocol):
-    def describe(self, frame_id: str) -> OfferedFrame | None: ...
+    def offered(self, layouts: Sequence[str]) -> list[OfferedFrame]:
+        """Every valid frame of these layouts, in a stable order (layouts first)."""
+        ...
 
 
 class LayoutDirectory(Protocol):

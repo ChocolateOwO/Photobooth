@@ -92,51 +92,6 @@ describe('event theme: preset details', () => {
   })
 })
 
-describe('event theme: advanced colours', () => {
-  it('edits any token, warns about low contrast and resets to the preset', async () => {
-    const server = signedInServer()
-    renderAdmin('/admin/profiles/new', { server })
-    await fillRequired()
-    const heading = await screen.findByLabelText('Headings hex value')
-    expect(screen.getByLabelText('Headings')).toHaveAccessibleDescription(
-      'Titles such as the welcome heading.',
-    )
-    const background = presetById('midnight_blue').tokens.background ?? ''
-    await userEvent.clear(heading)
-    await userEvent.type(heading, background)
-    expect(previewVar('heading')).toBe(background)
-    const warning = await screen.findByTestId('contrast-warning')
-    expect(warning).toHaveTextContent('Contrast warning')
-    expect(warning).toHaveTextContent('Headings: contrast 1.0:1 is below 4.5:1')
-    expect(screen.getAllByText('Low contrast').length).toBeGreaterThan(0)
-    expect(screen.getByRole('radio', { name: /^Midnight Blue/ })).not.toBeChecked()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Reset to selected preset' }))
-    expect(previewVar('heading')).toBe(presetById('midnight_blue').tokens.heading)
-    expect(screen.queryByTestId('contrast-warning')).toBeNull()
-    expect(screen.getByRole('radio', { name: /^Midnight Blue/ })).toBeChecked()
-
-    // A hand-made colour is saved as it is (after the warning), marked custom.
-    await userEvent.clear(screen.getByLabelText('Links hex value'))
-    await userEvent.type(screen.getByLabelText('Links hex value'), '#FFAA00')
-    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
-    await waitFor(() => expect(server.profiles.size).toBe(1))
-    const saved = [...server.profiles.values()][0]?.settings.theme
-    expect(saved?.tokens.link).toBe('#FFAA00')
-    expect(saved?.source).toBe('custom')
-    expect(saved?.preset).toBe('midnight_blue')
-  })
-
-  it('keeps an invalid hex draft out of the theme', async () => {
-    renderAdmin('/admin/profiles/new', { server: signedInServer() })
-    const link = await screen.findByLabelText('Links hex value')
-    const before = previewVar('link')
-    await userEvent.clear(link)
-    await userEvent.type(link, '#12')
-    expect(previewVar('link')).toBe(before)
-  })
-})
-
 describe('event theme: colours from the background', () => {
   it('extracts, shows the swatches, undoes, re-extracts and hands over to presets', async () => {
     const server = signedInServer()

@@ -30,6 +30,7 @@ function menu(start: FrameMenu['start_screen']): FrameMenu {
     allow_surprise_me: false,
     theme: THEME,
     start_screen: start,
+    countdown_seconds: 5,
   }
 }
 

@@ -37,18 +37,6 @@ class FrameNotFoundError(FrameError):
         super().__init__(f"frame not found: {frame_id}")
 
 
-class FrameInUseError(FrameError):
-    """The frame is still selected by an Event Profile, so it can not be deleted."""
-
-    def __init__(self, profile_names: Sequence[str]) -> None:
-        names = ", ".join(profile_names)
-        super().__init__(
-            "this frame is still used by: "
-            f"{names}. Select another frame there (or replace this file) first"
-        )
-        self.profile_names = list(profile_names)
-
-
 class FrameReadOnlyError(FrameError):
     """Built-in frames ship with the app and can not be replaced, renamed or deleted."""
 
@@ -129,7 +117,7 @@ class FrameRepository(ABC):
 
     @abstractmethod
     def delete(self, frame_id: str) -> None:
-        """Raise FrameInUseError when an Event Profile still selects this frame."""
+        """Remove an uploaded frame (built-in frames are read-only)."""
 
     @abstractmethod
     def uses_asset(self, asset_id: str, ignore_frame_id: str | None = None) -> bool:

@@ -1,0 +1,74 @@
+/* Compact: the number, "seconds", and a vertical pair of arrows (each a 44 x 30 px target,
+   together a 60 px tall touch column). */
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 4px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: var(--pb-color-bg);
+  width: fit-content;
+}
+
+.number {
+  width: 2.4em;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pb-color-text);
+  font: inherit;
+  font-size: 26px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.number:focus-visible {
+  outline: 3px solid var(--pb-color-dummy);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.number[data-invalid] {
+  color: var(--pb-color-error);
+}
+
+.unit {
+  color: var(--pb-color-muted);
+  font-size: 16px;
+}
+
+.arrows {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--pb-color-text);
+  cursor: pointer;
+}
+
+.arrow:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.arrow:focus-visible {
+  outline: 3px solid var(--pb-color-dummy);
+  outline-offset: 1px;
+}

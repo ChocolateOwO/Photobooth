@@ -39,6 +39,7 @@ function menu(frames: FrameMenu['frames'], surprise = false): FrameMenu {
     allow_surprise_me: surprise,
     theme: { background: '#101418', heading: '#FFFFFF', primary_bg: '#2255CC', primary_text: '#FFFFFF' },
     start_screen: { start_button_text: 'Start', logo_url: null, background_url: null },
+    countdown_seconds: 5,
   }
 }
 

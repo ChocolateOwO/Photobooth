@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from photobooth.modules.event_profiles.domain import (
+    COUNTDOWN_MAX_S,
+    COUNTDOWN_MIN_S,
+    COUNTDOWN_SECONDS,
     INACTIVITY_MAX_S,
     INACTIVITY_MIN_S,
-    MAX_AVAILABLE_FRAMES,
+    MAX_LAYOUTS,
     DeliveryMode,
     EventProfile,
     ProfileSettings,
@@ -82,25 +85,31 @@ class ProfileSettingsBody(BaseModel):
     theme: EventThemeBody | None = Field(
         default=None, description="Omit to use the default preset theme"
     )
-    available_frames: list[AssetId] | None = Field(
+    enabled_layouts: list[LayoutKey] | None = Field(
         default=None,
-        max_length=MAX_AVAILABLE_FRAMES,
+        max_length=MAX_LAYOUTS,
         description=(
-            "Frames participants may choose from, in display order (no repeats). Omit when "
-            "creating a profile to offer every built-in frame."
+            "Photo sizes (layout keys) participants may use; every valid frame of these sizes is "
+            "offered. Omit when creating a profile to offer every size."
         ),
     )
     allow_surprise_me: bool = Field(
         default=False, description="Offer a random 'Surprise me' choice (needs two frames)"
     )
-    countdown_seconds: Literal[5] = 5
+    countdown_seconds: int = Field(
+        default=COUNTDOWN_SECONDS,
+        ge=COUNTDOWN_MIN_S,
+        le=COUNTDOWN_MAX_S,
+        strict=True,
+        description="Seconds counted down before each photo (whole number)",
+    )
     mirror: bool = True
     inactivity_timeout_s: int = Field(default=120, ge=INACTIVITY_MIN_S, le=INACTIVITY_MAX_S)
     retake_mode: RetakeMode = RetakeMode.PER_PHOTO
     delivery_mode: DeliveryMode = DeliveryMode.LOCAL_LINK
 
-    def to_domain(self, default_frames: tuple[str, ...] = ()) -> ProfileSettings:
-        frames = default_frames if self.available_frames is None else tuple(self.available_frames)
+    def to_domain(self, default_layouts: tuple[str, ...] = ()) -> ProfileSettings:
+        layouts = default_layouts if self.enabled_layouts is None else tuple(self.enabled_layouts)
         return ProfileSettings(
             name=self.name,
             title=self.title,
@@ -109,7 +118,7 @@ class ProfileSettingsBody(BaseModel):
             logo_asset_id=self.logo_asset_id,
             background_asset_id=self.background_asset_id,
             theme=default_theme() if self.theme is None else self.theme.to_domain(),
-            available_frames=frames,
+            enabled_layouts=layouts,
             allow_surprise_me=self.allow_surprise_me,
             countdown_seconds=self.countdown_seconds,
             mirror=self.mirror,
@@ -128,8 +137,9 @@ class ProfileSettingsBody(BaseModel):
             logo_asset_id=settings.logo_asset_id,
             background_asset_id=settings.background_asset_id,
             theme=EventThemeBody.of(settings.theme),
-            available_frames=list(settings.available_frames),
+            enabled_layouts=list(settings.enabled_layouts),
             allow_surprise_me=settings.allow_surprise_me,
+            countdown_seconds=settings.countdown_seconds,
             mirror=settings.mirror,
             inactivity_timeout_s=settings.inactivity_timeout_s,
             retake_mode=settings.retake_mode,
@@ -141,14 +151,14 @@ class ProfileSettingsResponse(ProfileSettingsBody):
     """Stored settings; the theme is always present."""
 
     theme: EventThemeBody  # narrowed: never omitted in responses
-    available_frames: list[AssetId]  # narrowed: always the stored list
+    enabled_layouts: list[LayoutKey]  # narrowed: always the stored list
 
 
 class ProfileUpdateBody(ProfileSettingsBody):
     revision: int = Field(ge=1, description="Revision the edit was based on (optimistic lock)")
-    available_frames: list[AssetId] = Field(  # required: an edit always sends the full list
-        max_length=MAX_AVAILABLE_FRAMES,
-        description="Frames participants may choose from, in display order (no repeats)",
+    enabled_layouts: list[LayoutKey] = Field(  # required: an edit always sends the full list
+        max_length=MAX_LAYOUTS,
+        description="Photo sizes (layout keys) participants may use",
     )
 
 
@@ -166,15 +176,11 @@ class EventProfileResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime | None
-    available_layouts: list[LayoutKey] = Field(
-        description="Layouts participants can choose: those used by an available frame"
-    )
 
     @classmethod
-    def of(cls, profile: EventProfile, layouts: list[str]) -> EventProfileResponse:
+    def of(cls, profile: EventProfile) -> EventProfileResponse:
         return cls(
             id=profile.id,
-            available_layouts=layouts,
             settings=ProfileSettingsResponse.of(profile.settings),
             is_active=profile.is_active,
             revision=profile.revision,

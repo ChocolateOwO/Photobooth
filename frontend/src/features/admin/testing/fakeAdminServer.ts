@@ -12,8 +12,10 @@ import { DEVICE_KEY_HEADER } from '../../../shared/api/deviceKey'
 import { THEME_CATALOG } from './themeCatalog.fixture'
 
 export const DEVICE_KEY = 'k'.repeat(43)
+export const NO_SIZES =
+  'No photo sizes are available to participants. Choose at least one photo size before this profile can be the active event.'
 export const NO_FRAMES =
-  'No frames are available to participants. Enable at least one frame before this profile can be the active event.'
+  'No frames exist for the chosen photo sizes. Choose another photo size or add a frame before this profile can be the active event.'
 
 export const BUILTIN_FAMILIES = [
   ['minimal_light', 'Minimal Light'],
@@ -86,6 +88,9 @@ export class FakeAdminServer {
   extractGates: Promise<void>[] = []
   /** Per-background results; others get extractResult. */
   extractResults = new Map<string, ExtractedTheme>()
+  /** Main-colour derivations requested, in order; each waits for the next gate, if any. */
+  mainColourRequests: { button: string; text: string }[] = []
+  mainColourGates: Promise<void>[] = []
   /** How many times the frame list was requested. */
   frameListRequests = 0
   /** When set, extraction fails with this plain reason (422). */
@@ -170,7 +175,7 @@ export class FakeAdminServer {
         logo_asset_id: null,
         background_asset_id: null,
         theme: defaultTheme(),
-        available_frames: this.builtinIds(),
+        enabled_layouts: this.templates.map((t) => t.key),
         allow_surprise_me: false,
         countdown_seconds: 5,
         mirror: true,
@@ -184,19 +189,24 @@ export class FakeAdminServer {
       created_at: now,
       updated_at: now,
       deleted_at: null,
-      available_layouts: [],
       ...extra,
     }
-    const stored = this.withLayouts(profile)
+    const stored = { ...profile, settings: { ...profile.settings, enabled_layouts: this.ordered(profile.settings.enabled_layouts) } }
     this.profiles.set(stored.id, stored)
     return stored
   }
 
-  /** Profiles offering a frame (the Frames page shows them). */
+  /** Profiles offering this frame's photo size (the Frames page shows them). */
   usedBy(frameId: string): string[] {
+    const key = this.frames.get(frameId)?.template_key
     return [...this.profiles.values()]
-      .filter((p) => p.settings.available_frames.includes(frameId))
+      .filter((p) => key !== undefined && p.settings.enabled_layouts.includes(key))
       .map((p) => (p.deleted_at === null ? p.settings.name : `${p.settings.name} (deleted)`))
+  }
+
+  /** The server stores sizes in the template catalogue order. */
+  private ordered(layouts: string[]): string[] {
+    return this.templates.map((t) => t.key).filter((key) => layouts.includes(key))
   }
 
   /** Every built-in frame id, in library order (a new profile's default). */
@@ -204,22 +214,15 @@ export class FakeAdminServer {
     return [...this.frames.values()].filter((f) => f.builtin).map((f) => f.id)
   }
 
-  /** The server's rule: a layout is offered when an available frame uses it. */
-  private withLayouts(profile: EventProfile): EventProfile {
-    const layouts: string[] = []
-    for (const id of profile.settings.available_frames) {
-      const key = this.frames.get(id)?.template_key
-      if (key && !layouts.includes(key)) layouts.push(key)
-    }
-    return { ...profile, available_layouts: layouts }
+  private badSizes(layouts: string[]): string | undefined {
+    if (new Set(layouts).size !== layouts.length) return 'a photo size can be chosen only once'
+    const unknown = layouts.filter((key) => !this.templates.some((t) => t.key === key))
+    return unknown.length ? `unknown photo sizes: ${unknown.join(', ')}` : undefined
   }
 
-  private unknownFrame(ids: string[]): string | undefined {
-    if (new Set(ids).size !== ids.length) return 'a frame can be made available only once'
-    const missing = ids.find((id) => !this.frames.has(id))
-    return missing ? `frame ${missing} does not exist` : undefined
+  private validFrames(layouts: string[]): number {
+    return [...this.frames.values()].filter((f) => layouts.includes(f.template_key) && f.status === 'valid').length
   }
-
   /** Simulates another admin tab saving the same profile. */
   bumpRevision(id: string, patch: Partial<ProfileSettings>) {
     const current = this.profiles.get(id)
@@ -355,6 +358,25 @@ export class FakeAdminServer {
       }
       return json(this.seedFrame(templateKey, name), 201)
     }
+    if (path === '/api/admin/themes/main-colours' && method === 'POST') {
+      const body = JSON.parse(String(init?.body)) as { tokens: Record<string, string>; button: string; text: string }
+      this.mainColourRequests.push({ button: body.button, text: body.text })
+      const gate = this.mainColourGates.shift()
+      if (gate) await gate
+      // A stand-in for the server's derivation: the two colours and some of their related shades.
+      const tokens = {
+        ...body.tokens,
+        primary_bg: body.button,
+        primary_hover: body.button,
+        primary_pressed: body.button,
+        link: body.button,
+        focus_ring: body.button,
+        heading: body.text,
+        body: body.text,
+        input_text: body.text,
+      }
+      return json({ tokens, button: body.button, text: body.text })
+    }
     if (path === '/api/admin/themes/extract' && method === 'POST') {
       const body = JSON.parse(String(init?.body)) as { background_asset_id: string }
       this.extractedFrom.push(body.background_asset_id)
@@ -379,8 +401,8 @@ export class FakeAdminServer {
         )
       }
       if (!action && method === 'DELETE') {
-        const reason =
-          this.framesInUse.get(frame.id) ?? (this.usedBy(frame.id).join(', ') || undefined)
+        // Profiles offer sizes, so a frame is never blocked by them; tests may still force a refusal.
+        const reason = this.framesInUse.get(frame.id)
         if (reason) {
           return json({ detail: `this frame is still used by: ${reason}` }, 409)
         }
@@ -417,9 +439,10 @@ export class FakeAdminServer {
         return json(includeDeleted ? all : all.filter((p) => p.deleted_at === null))
       }
       const settings = JSON.parse(String(init?.body)) as ProfileSettings
-      settings.available_frames = settings.available_frames ?? this.builtinIds()
-      const badFrame = this.unknownFrame(settings.available_frames)
-      if (badFrame) return json({ detail: badFrame }, 422)
+      settings.enabled_layouts = settings.enabled_layouts ?? this.templates.map((t) => t.key)
+      settings.countdown_seconds = settings.countdown_seconds ?? 5
+      const badSize = this.badSizes(settings.enabled_layouts)
+      if (badSize) return json({ detail: badSize }, 422)
       const clash = [...this.profiles.values()].some(
         (p) => p.deleted_at === null && p.settings.name.toLowerCase() === settings.name.toLowerCase(),
       )
@@ -434,10 +457,10 @@ export class FakeAdminServer {
     if (!action && method === 'GET') return json(profile)
     if (!action && method === 'PUT') {
       const body = JSON.parse(String(init?.body)) as ProfileSettings & { revision: number }
-      const badFrame = this.unknownFrame(body.available_frames)
-      if (badFrame) return json({ detail: badFrame }, 422)
-      if (profile.is_active && body.available_frames.length === 0) {
-        return json({ detail: NO_FRAMES }, 422)
+      const badSize = this.badSizes(body.enabled_layouts)
+      if (badSize) return json({ detail: badSize }, 422)
+      if (profile.is_active && body.enabled_layouts.length === 0) {
+        return json({ detail: NO_SIZES }, 422)
       }
       if (body.revision !== profile.revision) {
         return json(
@@ -449,7 +472,8 @@ export class FakeAdminServer {
       }
       const settings: ProfileSettings = { ...body }
       delete (settings as Partial<typeof body>).revision
-      const updated = this.withLayouts({ ...profile, settings, revision: profile.revision + 1 })
+      settings.enabled_layouts = this.ordered(settings.enabled_layouts)
+      const updated = { ...profile, settings, revision: profile.revision + 1 }
       this.profiles.set(profile.id, updated)
       return json(updated)
     }
@@ -462,7 +486,8 @@ export class FakeAdminServer {
       return json(deleted)
     }
     if (action === 'activate') {
-      if (profile.settings.available_frames.length === 0) return json({ detail: NO_FRAMES }, 409)
+      if (profile.settings.enabled_layouts.length === 0) return json({ detail: NO_SIZES }, 409)
+      if (this.validFrames(profile.settings.enabled_layouts) === 0) return json({ detail: NO_FRAMES }, 409)
       for (const p of this.profiles.values()) this.profiles.set(p.id, { ...p, is_active: p.id === profile.id })
       return json(this.profiles.get(profile.id))
     }

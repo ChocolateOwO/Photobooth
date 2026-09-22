@@ -112,11 +112,11 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
 
   // The background proposed its own colours; then one colour is changed by hand.
   await expect(page.getByText('Colors extracted from background')).toBeVisible()
-  await page.getByText('Advanced colors').click()
-  await page.getByLabel('Main button hex value', { exact: true }).fill(PERSISTED.primary)
+  // Main colours: only Button and Text are edited; the related shades are regenerated.
+  await page.getByLabel('Button colour', { exact: true }).fill(PERSISTED.primary.toLowerCase())
   await expect(preview.getByRole('button', { name: PERSISTED.startText })).toHaveCSS(
     'background-color',
-    'rgb(170, 34, 68)',
+    'rgb(242, 201, 76)',
   )
 
   const save = page.getByRole('button', { name: 'Save profile' })
@@ -129,7 +129,7 @@ test('create a profile with uploads, live preview and saved settings', async ({ 
 
   await page.reload()
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
-  await expect(page.getByLabel('Main button hex value', { exact: true })).toHaveValue(PERSISTED.primary)
+  await expect(page.getByLabel('Button colour', { exact: true })).toHaveValue(PERSISTED.primary.toLowerCase())
   await expect(page.getByRole('radio', { name: 'Retake all photos' })).toBeChecked()
   await expect(page.getByRole('img', { name: 'Logo preview' })).toBeVisible()
 })
@@ -215,7 +215,7 @@ test('saved profiles reopen and stay editable after a backend restart @after-res
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue(PERSISTED.title)
   await expect(page.getByLabel('Subtitle')).toHaveValue(PERSISTED.subtitle)
   await expect(page.getByLabel('Start button text')).toHaveValue(PERSISTED.startText)
-  await expect(page.getByLabel('Main button hex value', { exact: true })).toHaveValue(PERSISTED.primary)
+  await expect(page.getByLabel('Button colour', { exact: true })).toHaveValue(PERSISTED.primary.toLowerCase())
   await expect(page.getByLabel('Inactivity timeout (seconds)')).toHaveValue('240')
   await expect(page.getByRole('checkbox', { name: 'Mirror the camera preview' })).not.toBeChecked()
   await expect(page.getByRole('radio', { name: 'Retake all photos' })).toBeChecked()

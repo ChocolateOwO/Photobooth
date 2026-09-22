@@ -200,47 +200,62 @@ test('invalid frames are refused with a plain reason inside the upload dialog', 
   await expect(frameRow(page, 'Opaque')).toHaveCount(0)
 })
 
-function frameSwitch(page: Page, layout: (typeof LAYOUTS)[number], name: string = layout.frame) {
-  return page.getByRole('switch', { name: `Show ${name} (${layout.label}) to participants` })
+async function boothFrameNames(page: Page): Promise<string[]> {
+  const menu = (await (await page.request.get('/api/booth/frames')).json()) as { frames: { name: string }[] }
+  return menu.frames.map((frame) => frame.name)
 }
 
-test('a profile offers every built-in frame and the admin switches uploads on', async ({ page }) => {
+function sizePill(page: Page, label: string) {
+  return page.getByRole('group', { name: 'Photo sizes available' }).getByRole('button', { name: new RegExp(`^${label}`) })
+}
+
+test('uploads reach every profile offering their size, without editing the profile', async ({ page }) => {
   await pairAndSignIn(page)
+  // The active profile (admin.spec's copy) offers every size: every upload is already offered,
+  // although no profile was edited after the uploads.
+  const offered = await boothFrameNames(page)
+  for (const layout of LAYOUTS) expect(offered).toContain(layout.frame)
+
+  // A new upload of an offered size appears at the booth at once.
+  await page.goto('/admin/frames')
+  await uploadFrame(page, STRIP, `frame_${STRIP.key}_v2.png`, 'Late strip')
+  await closeMessage(page, 'Frame added')
+  expect(await boothFrameNames(page)).toContain('Late strip')
+
+  // A new profile offers every size, so every frame; the counts include the uploads.
+  await page.goto('/admin')
   await page.getByRole('link', { name: 'New profile' }).click()
   await page.getByLabel('Profile name').fill(PROFILE)
   await page.getByLabel('Title', { exact: true }).fill('Frames please')
-  // New profile: all nine built-in frames on, the uploads off.
-  await expect(page.getByTestId('available-frames-summary')).toHaveText('9 frames available to participants')
-  for (const layout of LAYOUTS) {
-    await expect(frameSwitch(page, layout)).not.toBeChecked()
-    await frameSwitch(page, layout).check()
-  }
-  await expect(page.getByTestId('available-frames-summary')).toHaveText('12 frames available to participants')
+  await expect(page.getByTestId('available-frames-summary')).toHaveText('13 frames available to participants.')
+  await expect(sizePill(page, '2×6')).toHaveAccessibleName('2×6, 5 frames')
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
-
   await page.reload()
-  for (const layout of LAYOUTS) {
-    await expect(frameSwitch(page, layout)).toBeChecked()
-  }
-})
+  for (const layout of LAYOUTS) await expect(sizePill(page, layout.label)).toHaveAttribute('aria-pressed', 'true')
 
-test('a frame in use can not be deleted, but its file can be replaced', async ({ page }) => {
+  // Deleting the upload removes it from the booth, again without touching a profile.
+  await page.goto('/admin/frames')
+  await frameRow(page, 'Late strip').getByRole('button', { name: 'Delete Late strip' }).click()
+  await page.getByRole('alertdialog', { name: 'Delete Late strip?' }).getByRole('button', { name: 'Delete frame' }).click()
+  await expect(frameRow(page, 'Late strip')).toHaveCount(0)
+  expect(await boothFrameNames(page)).not.toContain('Late strip')
+})
+test('an offered frame can be replaced and renamed, and the booth follows', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/admin/frames')
   const layout = STRIP
   const row = frameRow(page, layout.frame)
 
+  // Its size is offered by the profiles, so it shows who offers it; deleting asks first.
+  await expect(row.getByTestId('frame-usage')).toContainText(PROFILE)
   await row.getByRole('button', { name: `Delete ${layout.frame}` }).click()
   const confirm = page.getByRole('alertdialog', { name: `Delete ${layout.frame}?` })
   await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused()
-  await confirm.getByRole('button', { name: 'Delete frame' }).click()
-  const refused = page.getByRole('alertdialog', { name: `${layout.frame} was not deleted` })
-  await expect(refused).toContainText(PROFILE)
-  await refused.getByRole('button', { name: 'Close' }).click()
+  await page.keyboard.press('Escape')
   await expect(row).toHaveCount(1)
 
-  // Replacing the file keeps the profile selection working, and the page shows the new file
+  // Replacing the file keeps it offered, and the page shows the new file
   // (a new versioned URL whose bytes are the replacement), never the cached old image.
   const thumb = row.getByRole('img', { name: `${layout.frame} sample output` })
   const oldSrc = (await thumb.getAttribute('src')) ?? ''
@@ -264,6 +279,9 @@ test('a frame in use can not be deleted, but its file can be replaced', async ({
   await rename.getByLabel('Frame name').fill(RENAMED_STRIP)
   await rename.getByRole('button', { name: 'Save name' }).click()
   await expect(frameRow(page, RENAMED_STRIP)).toHaveCount(1)
+  const names = await boothFrameNames(page)
+  expect(names).toContain(RENAMED_STRIP)
+  expect(names).not.toContain(layout.frame)
 })
 
 test('an unused frame can be deleted', async ({ page }) => {
@@ -361,9 +379,8 @@ test('frames and selections survive a backend restart @after-restart', async ({ 
 
   await page.goto('/admin')
   await profileRow(page, PROFILE).getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
-  await expect(frameSwitch(page, LAYOUTS[0])).toBeChecked()
-  await expect(frameSwitch(page, LAYOUTS[1])).toBeChecked()
-  await expect(frameSwitch(page, STRIP, RENAMED_STRIP)).toBeChecked()
+  for (const layout of LAYOUTS) await expect(sizePill(page, layout.label)).toHaveAttribute('aria-pressed', 'true')
+  expect(await boothFrameNames(page)).toContain(RENAMED_STRIP)
   await page.getByLabel('Title', { exact: true }).fill('Frames after restart')
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page.getByRole('alertdialog', { name: 'Saved' })).toContainText('Profile saved successfully.')

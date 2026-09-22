@@ -20,7 +20,7 @@ def test_version_contract(kiosk_client: TestClient) -> None:
     assert body["app_version"] == "0.1.0"
     assert body["api_version"] == 1
     assert body["instance"] == "dummy"
-    assert body["schema_revision"] == "0005_available_frames"
+    assert body["schema_revision"] == "0006_photo_sizes_countdown"
 
 
 def test_health_reports_database_error(container: Container) -> None:
@@ -70,6 +70,7 @@ def test_openapi_lists_only_expected_public_paths(kiosk_client: TestClient) -> N
         "/api/admin/frames/{frame_id}/name",
         "/api/admin/themes",
         "/api/admin/themes/extract",
+        "/api/admin/themes/main-colours",
         "/api/booth/frames",
         "/api/booth/frames/{frame_id}/preview.jpg",
         "/api/booth/frame-choice",

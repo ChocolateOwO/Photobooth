@@ -15,14 +15,13 @@ from photobooth.core.config import AppSettings
 from photobooth.core.migrations import Migrator
 from photobooth.main import KioskAppOptions, create_kiosk_app
 from photobooth.modules.event_profiles.domain import ProfileConflictError, ProfileSettings
-from photobooth.modules.frames.builtin import builtin_frame_id
 from photobooth.modules.themes.domain import DEFAULT_PRESET, PRESETS
 from tests.integration.admin_support import jpeg, login, png
 
 BASE = "/api/admin/profiles"
-STRIP = builtin_frame_id("midnight", "strip_2x6")
-PRINT46 = builtin_frame_id("midnight", "print_4x6")
-PRINT34 = builtin_frame_id("midnight", "print_3x4")
+STRIP = "strip_2x6"
+PRINT46 = "print_4x6"
+PRINT34 = "print_3x4"
 
 
 def body(name: str = "Wedding", **overrides: Any) -> dict[str, Any]:
@@ -31,7 +30,7 @@ def body(name: str = "Wedding", **overrides: Any) -> dict[str, Any]:
         "title": "Welcome to the booth",
         "subtitle": "Tap start when you are ready",
         "start_button_text": "Start",
-        "available_frames": [STRIP, PRINT46],
+        "enabled_layouts": [STRIP, PRINT46],
         "countdown_seconds": 5,
         "mirror": True,
         "inactivity_timeout_s": 90,
@@ -74,23 +73,23 @@ def test_create_get_list_update(kiosk_client: TestClient, admin: dict[str, str])
     # No theme sent: the default preset, complete.
     assert settings["theme"]["preset"] == DEFAULT_PRESET
     assert settings["theme"]["tokens"] == PRESETS[DEFAULT_PRESET].tokens
-    assert settings["available_frames"] == [STRIP, PRINT46]  # order kept
-    assert created["available_layouts"] == ["strip_2x6", "print_4x6"]
+    # Stored in the template catalogue order (stable participant order).
+    assert settings["enabled_layouts"] == [PRINT46, STRIP]
+    assert "available_layouts" not in created and "available_frames" not in settings
     assert settings["logo_asset_id"] == logo and settings["background_asset_id"] == background
     assert settings["mirror"] is False and settings["countdown_seconds"] == 5
 
     assert kiosk_client.get(f"{BASE}/{created['id']}").json() == created
     assert [p["id"] for p in kiosk_client.get(BASE).json()] == [created["id"]]
 
-    changed = body(title="New title", available_frames=[PRINT34], retake_mode="all")
+    changed = body(title="New title", enabled_layouts=[PRINT34], retake_mode="all")
     updated = kiosk_client.put(
         f"{BASE}/{created['id']}", json={**changed, "revision": 1}, headers=admin
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["revision"] == 2
     assert updated.json()["settings"]["title"] == "New title"
-    assert updated.json()["settings"]["available_frames"] == [PRINT34]
-    assert updated.json()["available_layouts"] == ["print_3x4"]
+    assert updated.json()["settings"]["enabled_layouts"] == [PRINT34]
     assert updated.json()["settings"]["logo_asset_id"] is None
 
 
@@ -109,11 +108,18 @@ def test_stale_revision_is_rejected(kiosk_client: TestClient, admin: dict[str, s
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"countdown_seconds": 3},
-        {"available_frames": [STRIP, STRIP]},
-        {"available_frames": ["../strip"]},
-        {"available_frames": ["00000000-0000-4000-8000-000000000000"]},
-        {"enabled_layouts": ["strip_2x6"]},  # replaced by available_frames (unknown field)
+        {"countdown_seconds": 0},
+        {"countdown_seconds": 11},
+        {"countdown_seconds": -1},
+        {"countdown_seconds": 5.5},
+        {"countdown_seconds": 5.0},
+        {"countdown_seconds": "5"},
+        {"countdown_seconds": True},
+        {"countdown_seconds": None},
+        {"enabled_layouts": [STRIP, STRIP]},
+        {"enabled_layouts": ["../strip"]},
+        {"enabled_layouts": ["poster_a4"]},
+        {"available_frames": []},  # replaced by enabled_layouts (unknown field)
         {"frame_selections": {}},
         {"inactivity_timeout_s": 5},
         {"inactivity_timeout_s": 5000},
@@ -230,8 +236,8 @@ def test_concurrent_activation_leaves_exactly_one_active(
 
 def test_database_refuses_a_second_active_row(container: Container) -> None:
     service = container.profile_service
-    a = service.create(ProfileSettings(name="A", title="t", available_frames=(STRIP,)))
-    b = service.create(ProfileSettings(name="B", title="t", available_frames=(STRIP,)))
+    a = service.create(ProfileSettings(name="A", title="t", enabled_layouts=(STRIP,)))
+    b = service.create(ProfileSettings(name="B", title="t", enabled_layouts=(STRIP,)))
     service.activate(a.id)
     with pytest.raises(IntegrityError), container.engine.begin() as conn:
         conn.execute(text("UPDATE event_profiles SET is_active = 1 WHERE id = :id"), {"id": b.id})
@@ -312,7 +318,7 @@ def test_profiles_and_assets_persist_across_restart(settings: AppSettings) -> No
         with TestClient(app, base_url="http://127.0.0.1:18111") as client:
             headers = login(client, first)
             logo = _asset(client, headers, "logo", png())
-            profile = _create(client, headers, logo_asset_id=logo)
+            profile = _create(client, headers, logo_asset_id=logo, countdown_seconds=8)
             client.post(f"{BASE}/{profile['id']}/activate", headers=headers)
             deleted = _create(client, headers, name="Deleted")
             client.delete(f"{BASE}/{deleted['id']}?revision=1", headers=headers)
@@ -327,6 +333,9 @@ def test_profiles_and_assets_persist_across_restart(settings: AppSettings) -> No
             reloaded = client.get(f"{BASE}/{profile['id']}").json()
             assert reloaded["is_active"] is True
             assert reloaded["settings"] == profile["settings"]
+            assert reloaded["settings"]["countdown_seconds"] == 8
+            menu = client.get("/api/booth/frames").json()
+            assert menu["countdown_seconds"] == 8  # the booth gets it for the capture step
             assert reloaded["created_at"] == profile["created_at"]
             assert client.get(f"{BASE}/{deleted['id']}").json()["deleted_at"] is not None
             content = client.get(f"/api/admin/assets/{logo}/content")
@@ -355,3 +364,47 @@ def test_duplicate_keeps_the_copy_suffix_for_maximum_length_names(
     assert names[0].endswith(" (copy)") and names[1].endswith(" (copy 2)")
     assert names[2].endswith(" (copy 3)")
     assert all(len(n) <= 80 for n in names) and len(set(names)) == 3
+
+
+@pytest.mark.parametrize("seconds", range(1, 11))
+def test_every_whole_countdown_from_1_to_10_is_kept(
+    kiosk_client: TestClient, admin: dict[str, str], seconds: int
+) -> None:
+    created = _create(kiosk_client, admin, countdown_seconds=seconds)
+    assert created["settings"]["countdown_seconds"] == seconds
+    stored = kiosk_client.get(f"{BASE}/{created['id']}").json()
+    assert stored["settings"]["countdown_seconds"] == seconds
+
+
+def test_countdown_defaults_to_5_and_survives_edit_duplicate_and_stale_edit(
+    kiosk_client: TestClient, admin: dict[str, str]
+) -> None:
+    fresh = {k: v for k, v in body().items() if k != "countdown_seconds"}
+    created = kiosk_client.post(BASE, json=fresh, headers=admin).json()
+    assert created["settings"]["countdown_seconds"] == 5
+    url = f"{BASE}/{created['id']}"
+    edited = kiosk_client.put(url, json={**body(countdown_seconds=3), "revision": 1}, headers=admin)
+    assert edited.status_code == 200 and edited.json()["settings"]["countdown_seconds"] == 3
+    stale = kiosk_client.put(url, json={**body(countdown_seconds=9), "revision": 1}, headers=admin)
+    assert stale.status_code == 409
+    assert kiosk_client.get(url).json()["settings"]["countdown_seconds"] == 3
+    copy = kiosk_client.post(f"{url}/duplicate", json={}, headers=admin).json()
+    assert copy["settings"]["countdown_seconds"] == 3
+
+
+def test_database_refuses_a_countdown_outside_1_to_10(
+    kiosk_client: TestClient, admin: dict[str, str], container: Container
+) -> None:
+    created = _create(kiosk_client, admin)
+    for good in (1, 10):
+        with container.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE event_profiles SET countdown_seconds = :s WHERE id = :id"),
+                {"s": good, "id": created["id"]},
+            )
+    for bad in (0, 11):
+        with pytest.raises(IntegrityError), container.engine.begin() as conn:
+            conn.execute(
+                text("UPDATE event_profiles SET countdown_seconds = :s WHERE id = :id"),
+                {"s": bad, "id": created["id"]},
+            )

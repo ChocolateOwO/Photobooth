@@ -94,15 +94,6 @@
       },
       "EventProfileResponse": {
         "properties": {
-          "available_layouts": {
-            "description": "Layouts participants can choose: those used by an available frame",
-            "items": {
-              "pattern": "^[a-z0-9_]{1,64}$",
-              "type": "string"
-            },
-            "title": "Available Layouts",
-            "type": "array"
-          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -148,8 +139,7 @@
           "revision",
           "created_at",
           "updated_at",
-          "deleted_at",
-          "available_layouts"
+          "deleted_at"
         ],
         "title": "EventProfileResponse",
         "type": "object"
@@ -291,8 +281,13 @@
             "title": "Allow Surprise Me",
             "type": "boolean"
           },
+          "countdown_seconds": {
+            "description": "Seconds counted down before each photo",
+            "title": "Countdown Seconds",
+            "type": "integer"
+          },
           "frames": {
-            "description": "Offered frames in display order",
+            "description": "Offered frames in a stable order",
             "items": {
               "$ref": "#/components/schemas/BoothFrameResponse"
             },
@@ -324,7 +319,8 @@
           "layouts",
           "allow_surprise_me",
           "theme",
-          "start_screen"
+          "start_screen",
+          "countdown_seconds"
         ],
         "title": "FrameMenuResponse",
         "type": "object"
@@ -627,6 +623,81 @@
         "title": "LoginRequest",
         "type": "object"
       },
+      "MainColoursBody": {
+        "additionalProperties": false,
+        "description": "The current complete theme and the two colours an organizer chose.",
+        "properties": {
+          "button": {
+            "description": "Button colour (the main action colour)",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Button",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text colour (headings and participant text)",
+            "examples": [
+              "#2F6FD6"
+            ],
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Text",
+            "type": "string"
+          },
+          "tokens": {
+            "maxProperties": 35,
+            "minProperties": 35,
+            "patternProperties": {
+              "^[a-z_]{1,40}$": {
+                "examples": [
+                  "#2F6FD6"
+                ],
+                "pattern": "^#[0-9A-Fa-f]{6}$",
+                "type": "string"
+              }
+            },
+            "title": "Tokens",
+            "type": "object"
+          }
+        },
+        "required": [
+          "tokens",
+          "button",
+          "text"
+        ],
+        "title": "MainColoursBody",
+        "type": "object"
+      },
+      "MainColoursResponse": {
+        "properties": {
+          "button": {
+            "description": "The Button colour as used (adjusted only for contrast)",
+            "title": "Button",
+            "type": "string"
+          },
+          "text": {
+            "description": "The Text colour as used (adjusted only for contrast)",
+            "title": "Text",
+            "type": "string"
+          },
+          "tokens": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Every token, with the related ones regenerated",
+            "title": "Tokens",
+            "type": "object"
+          }
+        },
+        "required": [
+          "tokens",
+          "button",
+          "text"
+        ],
+        "title": "MainColoursResponse",
+        "type": "object"
+      },
       "MediaAssetResponse": {
         "description": "Stored asset metadata. The storage key and client file name are never exposed.",
         "properties": {
@@ -749,23 +820,6 @@
             "title": "Allow Surprise Me",
             "type": "boolean"
           },
-          "available_frames": {
-            "anyOf": [
-              {
-                "items": {
-                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-                  "type": "string"
-                },
-                "maxItems": 200,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Frames participants may choose from, in display order (no repeats). Omit when creating a profile to offer every built-in frame.",
-            "title": "Available Frames"
-          },
           "background_asset_id": {
             "anyOf": [
               {
@@ -779,14 +833,33 @@
             "title": "Background Asset Id"
           },
           "countdown_seconds": {
-            "const": 5,
             "default": 5,
+            "description": "Seconds counted down before each photo (whole number)",
+            "maximum": 10.0,
+            "minimum": 1.0,
             "title": "Countdown Seconds",
             "type": "integer"
           },
           "delivery_mode": {
             "$ref": "#/components/schemas/DeliveryMode",
             "default": "local_link"
+          },
+          "enabled_layouts": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[a-z0-9_]{1,64}$",
+                  "type": "string"
+                },
+                "maxItems": 16,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Photo sizes (layout keys) participants may use; every valid frame of these sizes is offered. Omit when creating a profile to offer every size.",
+            "title": "Enabled Layouts"
           },
           "inactivity_timeout_s": {
             "default": 120,
@@ -872,14 +945,6 @@
             "title": "Allow Surprise Me",
             "type": "boolean"
           },
-          "available_frames": {
-            "items": {
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-              "type": "string"
-            },
-            "title": "Available Frames",
-            "type": "array"
-          },
           "background_asset_id": {
             "anyOf": [
               {
@@ -893,14 +958,24 @@
             "title": "Background Asset Id"
           },
           "countdown_seconds": {
-            "const": 5,
             "default": 5,
+            "description": "Seconds counted down before each photo (whole number)",
+            "maximum": 10.0,
+            "minimum": 1.0,
             "title": "Countdown Seconds",
             "type": "integer"
           },
           "delivery_mode": {
             "$ref": "#/components/schemas/DeliveryMode",
             "default": "local_link"
+          },
+          "enabled_layouts": {
+            "items": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "type": "string"
+            },
+            "title": "Enabled Layouts",
+            "type": "array"
           },
           "inactivity_timeout_s": {
             "default": 120,
@@ -965,7 +1040,7 @@
           "name",
           "title",
           "theme",
-          "available_frames"
+          "enabled_layouts"
         ],
         "title": "ProfileSettingsResponse",
         "type": "object"
@@ -978,16 +1053,6 @@
             "description": "Offer a random 'Surprise me' choice (needs two frames)",
             "title": "Allow Surprise Me",
             "type": "boolean"
-          },
-          "available_frames": {
-            "description": "Frames participants may choose from, in display order (no repeats)",
-            "items": {
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-              "type": "string"
-            },
-            "maxItems": 200,
-            "title": "Available Frames",
-            "type": "array"
           },
           "background_asset_id": {
             "anyOf": [
@@ -1002,14 +1067,26 @@
             "title": "Background Asset Id"
           },
           "countdown_seconds": {
-            "const": 5,
             "default": 5,
+            "description": "Seconds counted down before each photo (whole number)",
+            "maximum": 10.0,
+            "minimum": 1.0,
             "title": "Countdown Seconds",
             "type": "integer"
           },
           "delivery_mode": {
             "$ref": "#/components/schemas/DeliveryMode",
             "default": "local_link"
+          },
+          "enabled_layouts": {
+            "description": "Photo sizes (layout keys) participants may use",
+            "items": {
+              "pattern": "^[a-z0-9_]{1,64}$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "title": "Enabled Layouts",
+            "type": "array"
           },
           "inactivity_timeout_s": {
             "default": 120,
@@ -1087,7 +1164,7 @@
         "required": [
           "name",
           "title",
-          "available_frames",
+          "enabled_layouts",
           "revision"
         ],
         "title": "ProfileUpdateBody",
@@ -2848,6 +2925,48 @@
           }
         },
         "summary": "Extract Theme",
+        "tags": [
+          "admin-themes"
+        ]
+      }
+    },
+    "/api/admin/themes/main-colours": {
+      "post": {
+        "description": "Regenerate the related colours (shades, links, borders, focus, labels) from the Button\nand Text colours. Nothing is saved until the profile is saved.",
+        "operationId": "theme_main_colours_api_admin_themes_main_colours_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MainColoursBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MainColoursResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Theme Main Colours",
         "tags": [
           "admin-themes"
         ]

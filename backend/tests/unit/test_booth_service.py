@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pytest
 
 from photobooth.modules.booth.domain import (
@@ -29,12 +31,18 @@ class Event:
 
 
 class Frames:
+    """Valid frames per layout, in library order (the frames module's job)."""
+
     def __init__(self, known: dict[str, str]) -> None:
         self.known = known  # id -> template key
 
-    def describe(self, frame_id: str) -> OfferedFrame | None:
-        key = self.known.get(frame_id)
-        return None if key is None else OfferedFrame(frame_id, frame_id.upper(), key, 1, "ab" * 32)
+    def offered(self, layouts: Sequence[str]) -> list[OfferedFrame]:
+        return [
+            OfferedFrame(frame_id, frame_id.upper(), key, 1, "ab" * 32)
+            for layout in layouts
+            for frame_id, key in self.known.items()
+            if key == layout
+        ]
 
 
 class Layouts:
@@ -69,19 +77,22 @@ class Images:
 
 
 def service(
-    frame_ids: list[str], surprise: bool = True, offer: EventOffer | None = None
+    layouts: list[str],
+    surprise: bool = True,
+    offer: EventOffer | None = None,
+    known: dict[str, str] | None = None,
 ) -> tuple[BoothService, Previews]:
     previews = Previews()
-    offer = offer or EventOffer(frame_ids, surprise, {"background": "#000000"})
-    frames = Frames({"a": "strip_2x6", "b": "strip_2x6", "odd": "retired_layout"})
+    offer = offer or EventOffer(layouts, surprise, {"background": "#000000"})
+    frames = Frames(known or {"a": "strip_2x6", "b": "strip_2x6", "odd": "retired_layout"})
     images = Images({"logo1": ("logo", b"LOGO"), "bg1": ("background", b"BG")})
     return BoothService(Event(offer), frames, Layouts(), previews, images), previews
 
 
-def test_keeps_order_and_skips_missing_or_unknown_layout_frames() -> None:
-    booth, _ = service(["b", "gone", "odd", "a"])
+def test_offers_every_frame_of_the_sizes_and_skips_unknown_layouts() -> None:
+    booth, _ = service(["strip_2x6", "retired_layout", "print_4x6"])
     menu = booth.menu()
-    assert [f.frame_id for f in menu.frames] == ["b", "a"]
+    assert [f.frame_id for f in menu.frames] == ["a", "b"]
     assert menu.layouts == ["strip_2x6"]
     assert menu.allow_surprise_me is True
     assert menu.frames[0].plan.output_label == "2 strips"
@@ -89,18 +100,26 @@ def test_keeps_order_and_skips_missing_or_unknown_layout_frames() -> None:
 
 
 def test_surprise_needs_two_valid_frames() -> None:
-    booth, _ = service(["a", "gone"])
+    booth, _ = service(["strip_2x6"], known={"a": "strip_2x6", "odd": "retired_layout"})
     assert booth.menu().allow_surprise_me is False
 
 
+def test_a_size_that_is_not_chosen_offers_nothing_and_countdown_reaches_the_booth() -> None:
+    offer = EventOffer(["print_4x6"], True, {}, countdown_seconds=8)
+    booth, _ = service([], offer=offer)
+    menu = booth.menu()
+    assert menu.frames == () and menu.layouts == [] and menu.allow_surprise_me is False
+    assert menu.countdown_seconds == 8
+
+
 def test_only_offered_frames_can_be_chosen_or_previewed() -> None:
-    booth, previews = service(["a"])
+    booth, previews = service(["strip_2x6"], known={"a": "strip_2x6", "c": "print_4x6"})
     assert booth.choose("a").captures == 6
     assert booth.preview("a") == b"jpeg"
     with pytest.raises(FrameNotOfferedError):
-        booth.choose("b")
+        booth.choose("c")  # a size the event does not offer
     with pytest.raises(FrameNotOfferedError):
-        booth.preview("b")
+        booth.preview("c")
     assert previews.rendered == ["a"]
 
 
@@ -119,7 +138,7 @@ def test_layout_labels() -> None:
 
 
 def test_start_screen_has_the_start_text_and_image_versions_only() -> None:
-    offer = EventOffer(["a"], False, {}, "  Let's go ", "logo1", "bg1")
+    offer = EventOffer(["strip_2x6"], False, {}, "  Let's go ", "logo1", "bg1")
     booth, _ = service([], offer=offer)
     screen = booth.menu().start_screen
     assert (screen.start_text, screen.logo_version, screen.background_version) == (
@@ -134,7 +153,7 @@ def test_start_screen_has_the_start_text_and_image_versions_only() -> None:
 def test_start_screen_falls_back_without_images_or_text() -> None:
     # No logo, a background that no longer exists, a logo id that is really a background.
     for logo, background in ((None, "gone"), ("bg1", None)):
-        offer = EventOffer(["a"], False, {}, "   ", logo, background)
+        offer = EventOffer(["strip_2x6"], False, {}, "   ", logo, background)
         booth, _ = service([], offer=offer)
         screen = booth.menu().start_screen
         assert screen.start_text == "Start"

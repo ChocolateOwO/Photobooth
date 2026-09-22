@@ -11,7 +11,7 @@ from alembic.migration import MigrationContext
 
 from photobooth.core.db import Base, create_sqlite_engine
 from photobooth.core.migrations import Migrator
-from photobooth.modules.event_profiles.repository import EventProfileFrameRow
+from photobooth.modules.event_profiles.repository import EventProfileLayoutRow
 from photobooth.modules.frames.repository import FrameAssetRow
 
 PHASE5_TABLES = {"frame_assets", "event_profile_frames"}
@@ -27,7 +27,7 @@ def _tables(db: Path) -> set[str]:
 def test_orm_metadata_matches_migrated_schema(thai_root: Path) -> None:
     db = thai_root / "parity.sqlite"
     Migrator(db).upgrade("head")
-    assert FrameAssetRow.__table__ is not None and EventProfileFrameRow.__table__ is not None
+    assert FrameAssetRow.__table__ is not None and EventProfileLayoutRow.__table__ is not None
     engine = create_sqlite_engine(db)
     try:
         with engine.connect() as conn:

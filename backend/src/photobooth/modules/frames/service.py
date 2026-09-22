@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -11,7 +11,6 @@ from photobooth.modules.frames.builtin import BuiltinFrame, builtin_frames
 from photobooth.modules.frames.domain import (
     AssetStore,
     FrameAsset,
-    FrameInUseError,
     FrameNotFoundError,
     FrameReadOnlyError,
     FrameRepository,
@@ -28,11 +27,9 @@ class TemplateLookup(Protocol):
 
 
 class FrameUsage(Protocol):
-    """Which Event Profiles offer a frame (implemented by the event_profiles module)."""
+    """Which Event Profiles offer each photo size (implemented by the event_profiles module)."""
 
-    def names_using_frame(self, frame_id: str) -> list[str]: ...
-
-    def usage_by_frame(self) -> dict[str, list[str]]: ...
+    def names_by_layout(self) -> dict[str, list[str]]: ...
 
 
 class _AssetUsage:
@@ -132,10 +129,8 @@ class FrameService:
         return self._repository.rename(frame_id, check_frame_name(name), self._clock())
 
     def delete(self, frame_id: str) -> None:
+        """Remove an uploaded frame; it simply stops being offered (profiles choose sizes)."""
         frame = self._custom(frame_id)
-        used_by = self._usage.names_using_frame(frame_id)
-        if used_by:
-            raise FrameInUseError(used_by)
         self._repository.delete(frame_id)
         self._discard(frame.media_asset_id)
 
@@ -167,14 +162,28 @@ class FrameService:
         self._assets.discard_if_unused(asset_id, self._asset_usage)
 
     def usage(self) -> dict[str, list[str]]:
-        """frame id -> Event Profiles offering it (shown on the Frames page)."""
-        return self._usage.usage_by_frame()
+        """frame id -> Event Profiles offering its photo size (shown on the Frames page)."""
+        by_layout = self._usage.names_by_layout()
+        return {
+            frame.id: by_layout.get(frame.template_key, [])
+            for frame in self._repository.list_frames()
+        }
 
-    def builtin_frame_ids(self) -> list[str]:
-        """Port for the event_profiles module: every built-in frame in library order."""
-        return [frame.id for frame in self._repository.list_frames() if frame.builtin]
+    def offered_frames(self, layouts: Sequence[str]) -> list[FrameAsset]:
+        """Every valid frame of these layouts whose template still exists, in a stable order:
+        the layouts in the given order, then built-in frames first and names A-Z."""
+        offered: list[FrameAsset] = []
+        for layout in layouts:
+            for frame in self._repository.list_frames(layout):
+                if frame.status is not FrameStatus.VALID:
+                    continue
+                try:
+                    self._templates.get(frame.template_key, frame.template_version)
+                except TemplateNotFoundError:
+                    continue
+                offered.append(frame)
+        return offered
 
-    def frame_template(self, frame_id: str) -> str | None:
-        """Port for the event_profiles module: the layout a frame belongs to, or None."""
-        frame = self._repository.get(frame_id)
-        return None if frame is None else frame.template_key
+    def valid_frame_count(self, layouts: Sequence[str]) -> int:
+        """Port for the event_profiles module: how many frames the booth would offer."""
+        return len(self.offered_frames(layouts))

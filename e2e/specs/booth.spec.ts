@@ -9,85 +9,85 @@ test.describe.configure({ mode: 'serial' })
 
 const PROFILE = 'E2E Booth'
 const EMPTY = 'E2E No frames'
+// Every frame of the chosen sizes (3×4 and 2×6), in the booth's stable order: sizes in catalogue
+// order, then built-in frames first and names A-Z. (No frames are uploaded before this spec.)
 const OFFERED = [
   { name: 'Celebration Gold', label: '3×4', summary: '3×4 • 2 photos' },
+  { name: 'Midnight', label: '3×4', summary: '3×4 • 2 photos' },
+  { name: 'Minimal Light', label: '3×4', summary: '3×4 • 2 photos' },
+  { name: 'Celebration Gold', label: '2×6', summary: '2×6 • 6 photos • 2 strips' },
   { name: 'Midnight', label: '2×6', summary: '2×6 • 6 photos • 2 strips' },
-  { name: 'Minimal Light', label: '4×6', summary: '4×6 • 4 photos' },
+  { name: 'Minimal Light', label: '2×6', summary: '2×6 • 6 photos • 2 strips' },
 ] as const
 
-function frameSwitch(page: Page, name: string, label: string) {
-  return page.getByRole('switch', { name: `Show ${name} (${label}) to participants` })
+function sizePill(page: Page, label: string) {
+  return page.getByRole('group', { name: 'Photo sizes available' }).getByRole('button', { name: new RegExp(`^${label}`) })
 }
 
-async function shownOrder(page: Page): Promise<string[]> {
-  return page
-    .getByRole('list', { name: 'Frames shown to participants' })
-    .getByTestId('available-frame-row')
-    .allInnerTexts()
-}
-
-test('the organizer offers three frames in a chosen order, with Surprise me', async ({ page }) => {
+test('the organizer chooses photo sizes, the countdown and Surprise me', async ({ page }) => {
   await pairAndSignIn(page)
   await page.getByRole('link', { name: 'New profile' }).click()
   await page.getByLabel('Profile name').fill(PROFILE)
   await page.getByLabel('Title', { exact: true }).fill('Pick a frame')
+  // A new profile offers every size; the Event Profile has no per-frame controls at all.
   for (const label of ['3×4', '4×6', '2×6']) {
-    await page.getByRole('button', { name: `Disable all ${label}` }).click()
+    await expect(sizePill(page, label)).toHaveAttribute('aria-pressed', 'true')
+    await expect(sizePill(page, label)).toHaveAccessibleName(`${label}, 3 frames`)
   }
-  await expect(page.getByTestId('available-frames-summary')).toHaveText(
-    '0 frames available to participants',
-  )
-  await expect(page.getByRole('alert').filter({ hasText: 'No frames are available' })).toBeVisible()
-  // Switched on in a different order, then put in order with the Move buttons.
-  await frameSwitch(page, 'Minimal Light', '4×6').check()
-  await frameSwitch(page, 'Midnight', '2×6').check()
-  await frameSwitch(page, 'Celebration Gold', '3×4').check()
-  await page.getByRole('button', { name: 'Move Celebration Gold up' }).click()
-  await page.getByRole('button', { name: 'Move Celebration Gold up' }).click()
-  await page.getByRole('button', { name: 'Move Minimal Light down' }).click()
-  const order = await shownOrder(page)
-  expect(order.map((row) => OFFERED.findIndex((o) => row.includes(o.name)))).toEqual([0, 1, 2])
+  await expect(page.getByLabel('Search frames')).toHaveCount(0)
+  await expect(page.getByRole('switch', { name: /to participants$/ })).toHaveCount(0)
+  await sizePill(page, '4×6').click()
+  await expect(sizePill(page, '4×6')).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.getByTestId('available-frames-summary')).toHaveText('6 frames available to participants.')
+
+  const countdown = page.getByRole('spinbutton', { name: 'Countdown before each photo' })
+  await expect(countdown).toHaveValue('5')
+  await page.getByRole('button', { name: 'Increase countdown' }).click()
+  await countdown.focus()
+  await page.keyboard.press('ArrowUp')
+  await expect(countdown).toHaveValue('7')
   await page.getByRole('switch', { name: 'Allow “Surprise me” random frame' }).check()
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
 
   await page.goto('/admin')
+  await expect(profileRow(page, PROFILE).getByTestId('profile-sizes')).toHaveText('Photo sizes: 3×4, 2×6')
   await profileRow(page, PROFILE).getByRole('button', { name: `Activate ${PROFILE}` }).click()
   await expect(page.getByRole('status')).toHaveText(`${PROFILE} is now the active profile.`)
+  const menu = (await (await page.request.get('/api/booth/frames')).json()) as { countdown_seconds: number }
+  expect(menu.countdown_seconds).toBe(7) // ready for the capture step
 })
 
-test('a profile without frames can not be activated and says so in a centred pop-up', async ({ page }) => {
+test('a profile without photo sizes can not be activated and says so in a centred pop-up', async ({ page }) => {
   await pairAndSignIn(page)
   await page.getByRole('link', { name: 'New profile' }).click()
   await page.getByLabel('Profile name').fill(EMPTY)
   await page.getByLabel('Title', { exact: true }).fill('Nothing yet')
-  for (const label of ['3×4', '4×6', '2×6']) {
-    await page.getByRole('button', { name: `Disable all ${label}` }).click()
-  }
+  for (const label of ['3×4', '4×6', '2×6']) await sizePill(page, label).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'No photo size is chosen' })).toBeVisible()
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
   await page.goto('/admin')
   const row = profileRow(page, EMPTY)
   await row.getByRole('button', { name: `Activate ${EMPTY}` }).click()
   const refused = page.getByRole('alertdialog', { name: `${EMPTY} can not be activated` })
-  await expect(refused).toContainText('No frames are available to participants')
-  await expect(refused.getByRole('link', { name: `Choose frames for ${EMPTY}` })).toBeVisible()
+  await expect(refused).toContainText('No photo sizes are available to participants')
+  await expect(refused.getByRole('link', { name: `Choose photo sizes for ${EMPTY}` })).toBeVisible()
   await refused.getByRole('button', { name: 'Close' }).click()
   await expect(refused).toHaveCount(0)
   await expect(row.getByRole('button', { name: `Activate ${EMPTY}` })).toBeFocused()
   await expect(profileRow(page, PROFILE).getByText('Active', { exact: true })).toBeVisible()
 })
-
 test('participants choose a frame: preview first, then confirm and start', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/booth/frames')
   await expect(page.getByRole('heading', { name: 'Choose your frame' })).toBeVisible()
   const tabs = page.getByRole('tab')
-  await expect(tabs).toHaveText(['All', '3×4', '2×6', '4×6'])
+  await expect(tabs).toHaveText(['All', '3×4', '2×6'])
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
   const list = page.getByRole('list', { name: 'Frames' })
   const cards = list.getByRole('button')
-  await expect(cards).toHaveCount(4) // Surprise me + the three offered frames
+  await expect(cards).toHaveCount(1 + OFFERED.length) // Surprise me + every frame of both sizes
   for (const [index, offered] of OFFERED.entries()) {
     await expect(cards.nth(index + 1)).toHaveAccessibleName(`${offered.name}, ${offered.summary}`)
   }
@@ -107,18 +107,19 @@ test('participants choose a frame: preview first, then confirm and start', async
 
   // Filter tab
   await page.getByRole('tab', { name: '2×6' }).click()
-  await expect(list.getByRole('button', { name: /^Midnight/ })).toBeVisible()
-  await expect(list.getByRole('button', { name: /^Celebration Gold/ })).toHaveCount(0)
+  const stripNames = await list.getByRole('button').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''))
+  expect(stripNames.filter((n) => n.includes('•')).every((n) => n.includes('2×6'))).toBe(true)
   await page.getByRole('tab', { name: 'All' }).click()
 
   // Tapping only opens the preview.
-  await cards.nth(2).click()
+  const midnightStrip = list.getByRole('button', { name: 'Midnight, 2×6 • 6 photos • 2 strips' })
+  await midnightStrip.click()
   const dialog = page.getByRole('dialog', { name: 'Midnight' })
   await expect(dialog.getByText('2×6 • 6 photos • 2 strips')).toBeVisible()
   await expect(page.getByRole('status')).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Back' }).click()
   await expect(dialog).toHaveCount(0)
-  await cards.nth(2).click()
+  await midnightStrip.click()
   await dialog.getByRole('button', { name: 'Use this frame' }).click()
   await expect(page.getByRole('status')).toContainText('Selected: Midnight')
   const plan = await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))
@@ -337,7 +338,7 @@ test('the booth start screen works after a backend restart @after-restart', asyn
   await page.goto('/booth')
   const screen = await expectOnlyStartScreen(page)
   const start = screen.getByRole('button', { name: PERSISTED.startText })
-  await expect(start).toHaveCSS('background-color', 'rgb(170, 34, 68)')
+  await expect(start).toHaveCSS('background-color', 'rgb(242, 201, 76)')
   const logo = screen.getByRole('img', { name: 'Event logo' })
   await expect.poll(() => logo.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(256)
   await expect
