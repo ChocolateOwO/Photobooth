@@ -76,7 +76,7 @@ describe('Photo sizes available (the profile chooses sizes, never single frames)
     expect([...server.profiles.values()][0]?.settings.enabled_layouts).toEqual(['strip_2x6', 'print_4x6'])
   })
 
-  it('the preview gallery shows every valid frame of the chosen sizes, uploads included', async () => {
+  it('the preview carousel shows every valid frame of the chosen sizes, uploads included', async () => {
     const server = signedInServer()
     server.seedFrame('strip_2x6', 'Alpha strip')
     server.seedFrame('strip_2x6', 'Broken', [], { status: 'invalid' })
@@ -84,15 +84,18 @@ describe('Photo sizes available (the profile chooses sizes, never single frames)
     renderAdmin(`/admin/profiles/${profile.id}`, { server })
     await screen.findByLabelText('Profile name')
     await userEvent.click(screen.getByRole('button', { name: 'Frame selection' }))
-    const gallery = within(screen.getByTestId('event-preview')).getByTestId('frame-gallery')
-    const cards = within(within(gallery).getByRole('list', { name: 'Frames' })).getAllByRole('button')
-    expect(cards.map((c) => c.getAttribute('aria-label')?.split(',')[0])).toEqual([
+    // The admin preview draws the same one-frame-at-a-time carousel as the real booth.
+    const carousel = within(screen.getByTestId('event-preview')).getByTestId('frame-carousel')
+    const slides = within(carousel).getAllByTestId('frame-slide')
+    expect(slides.map((s) => s.getAttribute('aria-label')?.split(',')[0])).toEqual([
       'Celebration Gold',
       'Midnight',
       'Minimal Light',
       'Alpha strip',
     ])
-    expect(gallery.textContent).not.toContain('Built-in')
+    expect(within(carousel).queryByRole('list', { name: 'Frames' })).toBeNull() // no grid
+    expect(within(slides[0] as HTMLElement).getByText('1 of 4')).toBeInTheDocument()
+    expect(carousel.textContent).not.toContain('Built-in')
   })
 
   it('moves "Surprise me" to the booth settings as a switch and saves it', async () => {

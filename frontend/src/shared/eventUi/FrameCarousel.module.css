@@ -1,0 +1,327 @@
+/* Participant frame carousel: event theme tokens only (--ev-*), large touch targets, one frame
+   at a time in a vertical scroll-snap track. */
+
+.carousel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 16px;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 4px;
+  min-width: 0;
+}
+
+.tab,
+.surprise {
+  min-height: 56px;
+  min-width: 88px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  border: 2px solid var(--ev-input-border);
+  background-color: var(--ev-surface);
+  color: var(--ev-body);
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.tab[aria-selected='true'] {
+  background-color: var(--ev-primary-bg);
+  border-color: var(--ev-primary-bg);
+  color: var(--ev-primary-text);
+}
+
+.surprise {
+  border-style: dashed;
+  color: var(--ev-body);
+}
+
+.tab:focus-visible,
+.surprise:focus-visible,
+.arrow:focus-visible,
+.dot:focus-visible,
+.track:focus-visible {
+  outline: 4px solid var(--ev-focus-ring);
+  outline-offset: 3px;
+}
+
+/* The stage fills whatever is left of the screen; the frame image is the main thing in it. */
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  scroll-snap-type: y mandatory;
+  /* A gesture inside the carousel never scrolls the page behind it. */
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  /* The carousel decides which frame is in view, never the browser's scroll anchoring. */
+  overflow-anchor: none;
+}
+
+.track::-webkit-scrollbar {
+  display: none;
+}
+
+.slide {
+  height: 100%;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 4px 0;
+}
+
+.imageBox {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Never cropped, never stretched: the whole frame, in its own proportions. */
+.image {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.imagePlaceholder {
+  display: block;
+  width: 60%;
+  height: 60%;
+  border-radius: 8px;
+  background-color: var(--ev-surface);
+}
+
+.meta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  max-width: 100%;
+}
+
+.meta button {
+  min-height: 64px;
+  min-width: 220px;
+  font-size: 1.05em;
+}
+
+.name {
+  margin: 0;
+  color: var(--ev-heading);
+  font-weight: 700;
+  font-size: 1.3em;
+}
+
+.summary {
+  margin: 0;
+  color: var(--ev-muted);
+}
+
+.position {
+  margin: 0;
+  color: var(--ev-body);
+  font-weight: 600;
+}
+
+.arrows {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 2;
+}
+
+.arrow {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid var(--ev-input-border);
+  background-color: var(--ev-surface);
+  color: var(--ev-heading);
+  font-size: 1.2em;
+  cursor: pointer;
+}
+
+.arrow:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.dots {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 80%;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.dot {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--ev-input-border);
+  background-color: var(--ev-surface);
+  cursor: pointer;
+}
+
+.dot[aria-current='true'] {
+  background-color: var(--ev-primary-bg);
+  border-color: var(--ev-primary-bg);
+}
+
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background-color: var(--ev-surface);
+  color: var(--ev-body);
+  font-size: 0.9em;
+  pointer-events: none;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px;
+  color: var(--ev-body);
+}
+
+/* Announced, not shown: the visible position indicator sits in the slide. */
+.announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.selectionBar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 18px;
+  background-color: var(--ev-surface);
+  color: var(--ev-body);
+}
+
+.selectionText {
+  color: var(--ev-body);
+}
+
+.selectionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.selectionActions button {
+  min-height: 64px;
+}
+
+/* Narrow screens (the real booth screen or the logical preview size), not the admin window. */
+@container (max-width: 480px) {
+  .carousel {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .tab,
+  .surprise {
+    min-height: 48px;
+    min-width: 72px;
+    padding: 6px 14px;
+  }
+
+  .arrow {
+    width: 52px;
+    height: 52px;
+  }
+
+  .meta button {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track {
+    scroll-behavior: auto;
+  }
+}

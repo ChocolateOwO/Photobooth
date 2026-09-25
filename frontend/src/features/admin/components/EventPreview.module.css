@@ -138,9 +138,16 @@
 }
 
 .galleryScreen {
-  overflow-y: auto;
-  scrollbar-width: none;
+  /* The preview screen is the carousel viewport: it never scrolls as a whole. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-sizing: border-box;
+}
+
+.galleryScreen > [data-testid='frame-carousel'] {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .emptyGallery {

@@ -66,6 +66,21 @@ function renderPage(fetcher: (path: string, init?: RequestInit) => Promise<Respo
 
 afterEach(() => sessionStorage.clear())
 
+/** The frame the carousel has settled on: the only one that can be chosen. */
+function currentSlide(): HTMLElement {
+  const slides = screen.getAllByTestId('frame-slide').filter((s) => s.hasAttribute('data-current'))
+  expect(slides).toHaveLength(1)
+  return slides[0] as HTMLElement
+}
+
+async function useCurrentFrame() {
+  await userEvent.click(within(currentSlide()).getByRole('button', { name: 'Use this frame' }))
+}
+
+async function nextFrame() {
+  await userEvent.click(screen.getByRole('button', { name: 'Next frame' }))
+}
+
 describe('FrameSelectPage (booth)', () => {
   it('shows the event frames in its theme, confirms a choice and keeps the plan', async () => {
     const posted: unknown[] = []
@@ -80,15 +95,16 @@ describe('FrameSelectPage (booth)', () => {
     renderPage(fetcher)
     const screenEl = await screen.findByRole('group', { name: 'Frame selection' })
     expect(screenEl.style.getPropertyValue('--ev-primary-bg')).toBe('#2255CC')
-    const list = screen.getByRole('list', { name: 'Frames' })
-    expect(within(list).getAllByRole('button').map((b) => b.textContent)).toEqual([
-      expect.stringContaining('Gold'),
-      expect.stringContaining('Night'),
+    // One frame at a time, in the order the booth offers them; no grid of cards.
+    expect(screen.queryByRole('list', { name: 'Frames' })).toBeNull()
+    expect(screen.getAllByTestId('frame-slide').map((s) => s.getAttribute('aria-label'))).toEqual([
+      'Gold, 1 of 2',
+      'Night, 2 of 2',
     ])
 
-    await userEvent.click(within(list).getByRole('button', { name: /Night/ }))
-    expect(posted).toEqual([]) // tapping only previews
-    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
+    await nextFrame()
+    expect(posted).toEqual([]) // moving never chooses
+    await useCurrentFrame()
     expect(posted).toEqual([{ frame_id: 'fs' }])
     expect(JSON.parse(sessionStorage.getItem(SESSION_FRAME_KEY) ?? '{}')).toMatchObject({
       frame_id: 'fs',
@@ -111,8 +127,8 @@ describe('FrameSelectPage (booth)', () => {
     renderPage(async (path) =>
       path === '/api/booth/frames' ? json(MENU) : json({ detail: 'not offered' }, 404),
     )
-    await userEvent.click(await screen.findByRole('button', { name: /Gold/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
+    await screen.findByTestId('frame-carousel')
+    await useCurrentFrame()
     expect(await screen.findByText('That frame could not be chosen. Please pick again.')).toBeInTheDocument()
     expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
   })
@@ -131,15 +147,14 @@ describe('FrameSelectPage (booth)', () => {
       return json(PLAN_46)
     })
     renderPage(fetcher)
-    const list = await screen.findByRole('list', { name: 'Frames' })
+    await screen.findByTestId('frame-carousel')
     // Gold is confirmed right away.
-    await userEvent.click(within(list).getByRole('button', { name: /^Gold/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
-    expect(await screen.findByRole('status')).toHaveTextContent('Selected: Gold')
-    // Night is confirmed but the answer is slow; the participant goes Back and starts with Gold.
-    await userEvent.click(within(list).getByRole('button', { name: /^Night/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await useCurrentFrame()
+    expect(await screen.findByText(/^Selected:/)).toHaveTextContent('Selected: Gold')
+    // Night is confirmed but the answer is slow; the participant scrolls back and starts with Gold.
+    await nextFrame()
+    await useCurrentFrame()
+    await userEvent.click(screen.getByRole('button', { name: 'Previous frame' }))
     await userEvent.click(screen.getByRole('button', { name: 'Start with this frame' }))
     expect(screen.getByText(/Ready: Gold/)).toBeInTheDocument()
     await act(async () => {
@@ -163,18 +178,24 @@ describe('FrameSelectPage (booth)', () => {
       }
       return json(PLAN_46)
     })
-    const list = await screen.findByRole('list', { name: 'Frames' })
-    await userEvent.click(within(list).getByRole('button', { name: /^Gold/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
-    await userEvent.click(within(list).getByRole('button', { name: /^Night/ }))
-    await userEvent.click(screen.getByRole('button', { name: 'Use this frame' }))
-    await userEvent.keyboard('{Escape}')
+    await screen.findByTestId('frame-carousel')
+    await useCurrentFrame()
+    await nextFrame()
+    await useCurrentFrame()
+    await userEvent.click(screen.getByRole('button', { name: 'Previous frame' }))
     await userEvent.click(screen.getByRole('button', { name: 'Choose a different frame' }))
     await act(async () => {
       release?.()
       await Promise.resolve()
     })
-    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.queryByText(/^Selected:/)).toBeNull()
     expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
+  })
+
+  it('coming back to the screen opens the carousel on the frame chosen before', async () => {
+    sessionStorage.setItem(SESSION_FRAME_KEY, JSON.stringify(PLAN_STRIP))
+    renderPage(async (path) => (path === '/api/booth/frames' ? json(MENU) : json(PLAN_STRIP)))
+    await screen.findByTestId('frame-carousel')
+    expect(currentSlide()).toHaveAttribute('aria-label', 'Night, 2 of 2')
   })
 })

@@ -1,6 +1,16 @@
 .screen {
-  min-height: 100vh;
+  /* A definite height: the carousel fills whatever is left below the filters. */
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
+  overflow: hidden;
+}
+
+.screen > [data-testid='frame-carousel'] {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .ready {

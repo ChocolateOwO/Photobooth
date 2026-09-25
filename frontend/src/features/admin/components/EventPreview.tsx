@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode }
 import type { Frame, ProfileSettings, RetakeMode, TemplateSummary } from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
 import { EventMessage, EventScreen } from '../../../shared/eventUi/EventUi'
-import { FrameGallery } from '../../../shared/eventUi/FrameGallery'
+import { FrameCarousel } from '../../../shared/eventUi/FrameCarousel'
 import { StartScreen } from '../../../shared/eventUi/StartScreen'
 import { galleryFrames, offeredLayouts } from '../frameCatalog'
 import { IconButton, PillGroup } from './ui/Controls'
@@ -126,7 +126,7 @@ function PreviewScreen({ settings, templates, frames, mode }: EventPreviewProps 
           <EventMessage kind="info">No frames are available to participants yet.</EventMessage>
         </div>
       ) : (
-        <FrameGallery
+        <FrameCarousel
           compact
           frames={offered}
           allowSurprise={settings.allow_surprise_me}

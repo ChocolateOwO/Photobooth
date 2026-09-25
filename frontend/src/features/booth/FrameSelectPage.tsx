@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FramePlan } from '../../shared/api/client'
 import { useApiClient } from '../../shared/api/ApiClientContext'
 import { EventButton, EventMessage, EventScreen, EventText } from '../../shared/eventUi/EventUi'
-import { FrameGallery } from '../../shared/eventUi/FrameGallery'
+import { FrameCarousel } from '../../shared/eventUi/FrameCarousel'
 import { planSummary, type GalleryFrame } from '../../shared/eventUi/framePlan'
 import { BoothLoadState } from './BoothLoadState'
 import { useBoothMenu } from './boothMenu'
@@ -11,6 +11,15 @@ import styles from './FrameSelectPage.module.css'
 
 /** Where the confirmed frame waits for the capture step of the session (a later phase). */
 export const SESSION_FRAME_KEY = 'pb.booth.chosenFrame'
+
+function remembered(): FramePlan | null {
+  try {
+    const stored = sessionStorage.getItem(SESSION_FRAME_KEY)
+    return stored ? (JSON.parse(stored) as FramePlan) : null
+  } catch {
+    return null
+  }
+}
 
 function remember(plan: FramePlan | null): void {
   try {
@@ -26,6 +35,8 @@ export function FrameSelectPage() {
   const api = useApiClient()
   const menu = useBoothMenu()
   const [plan, setPlan] = useState<FramePlan | null>(null)
+  // Coming back to this screen (or choosing again) opens the carousel on the last chosen frame.
+  const [lastChosen, setLastChosen] = useState<string | null>(() => remembered()?.frame_id ?? null)
   const [started, setStarted] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -76,10 +87,11 @@ export function FrameSelectPage() {
           </EventButton>
         </div>
       ) : (
-        <FrameGallery
+        <FrameCarousel
           frames={frames}
           allowSurprise={menu.data.allow_surprise_me}
           selectedId={plan?.frame_id ?? null}
+          startAtId={plan?.frame_id ?? lastChosen}
           busy={busy}
           onConfirm={async (frame) => {
             confirmation.current += 1
@@ -90,6 +102,7 @@ export function FrameSelectPage() {
               const confirmed = await api.chooseFrame(frame.id)
               if (confirmation.current !== mine) return // superseded meanwhile
               setPlan(confirmed)
+              setLastChosen(confirmed.frame_id)
               remember(confirmed)
             } catch {
               if (confirmation.current !== mine) return

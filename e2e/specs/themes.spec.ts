@@ -216,8 +216,10 @@ test('presets, background colours, undo, main colours, sizes and saving', async 
   const offered = await validFrameCount(page, ['print_3x4', 'strip_2x6'])
   await expect(page.getByTestId('available-frames-summary')).toHaveText(`${offered} frames available to participants.`)
   await page.getByRole('button', { name: 'Frame selection' }).click()
-  const cards = preview(page).getByRole('list', { name: 'Frames' }).getByRole('button')
-  await expect(cards).toHaveCount(offered)
+  // The preview draws the same one-frame-at-a-time carousel the booth shows.
+  const slides = preview(page).getByTestId('frame-slide')
+  await expect(slides).toHaveCount(offered)
+  await expect(slides.first()).toHaveAttribute('aria-label', new RegExp(`, 1 of ${offered}$`))
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page).toHaveURL(/\/admin\/profiles\/[0-9a-f-]{36}$/)
 
@@ -260,7 +262,7 @@ test('themes and built-in frames survive a backend restart @after-restart', asyn
     .poll(
       () =>
         preview(page)
-          .getByRole('list', { name: 'Frames' })
+          .getByTestId('frame-carousel')
           .locator('img')
           .first()
           .evaluate((img: HTMLImageElement) => img.naturalWidth),

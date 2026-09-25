@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
@@ -34,10 +34,10 @@ function rules(css: string): Map<string, string> {
 const RULES = rules(CSS)
 
 describe('event UI stylesheet', () => {
-  it('has no hard-coded colours at all (nor does the participant frame gallery)', () => {
+  it('has no hard-coded colours at all (nor does the participant frame carousel)', () => {
     expect(CSS.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
-    const gallery = read('./FrameGallery.module.css').replace(/\/\*[\s\S]*?\*\//g, '')
-    expect(gallery.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
+    const carousel = read('./FrameCarousel.module.css').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(carousel.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
     const start = read('./StartScreen.module.css').replace(/\/\*[\s\S]*?\*\//g, '')
     expect(start.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
     expect(start).toContain('var(--ev-heading)')
@@ -50,6 +50,29 @@ describe('event UI stylesheet', () => {
     expect(booth).toContain("import { StartScreen } from '../../shared/eventUi/StartScreen'")
     // No second copy of the start screen anywhere else.
     expect(booth).not.toMatch(/Email|subtitle|title/)
+  })
+
+  it('the admin preview and the real booth draw the same frame carousel', () => {
+    expect(read('../../features/admin/components/EventPreview.tsx')).toContain(
+      "import { FrameCarousel } from '../../../shared/eventUi/FrameCarousel'",
+    )
+    expect(read('../../features/booth/FrameSelectPage.tsx')).toContain(
+      "import { FrameCarousel } from '../../shared/eventUi/FrameCarousel'",
+    )
+    // The old grid of cards is gone, with no copy left anywhere. (The path is built from a
+    // variable: a literal would be turned into an asset URL when this file is bundled.)
+    const grid = './FrameGallery.tsx'
+    expect(existsSync(fileURLToPath(new URL(grid, import.meta.url)))).toBe(false)
+  })
+
+  it('the carousel shows one whole frame at a time and respects reduced motion', () => {
+    const carousel = read('./FrameCarousel.module.css')
+    expect(carousel).toContain('scroll-snap-type: y mandatory')
+    expect(carousel).toContain('scroll-snap-align: center')
+    expect(carousel).toContain('scroll-snap-stop: always')
+    expect(carousel).toContain('object-fit: contain') // never cropped or stretched
+    expect(carousel).toContain('overscroll-behavior: contain') // the page never drifts
+    expect(carousel).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*scroll-behavior: auto/)
   })
 
   it.each([

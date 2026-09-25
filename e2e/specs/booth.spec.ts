@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { fixturesDir, pairAndSignIn, PERSISTED, profileRow } from './support/admin'
 
@@ -78,74 +78,219 @@ test('a profile without photo sizes can not be activated and says so in a centre
   await expect(row.getByRole('button', { name: `Activate ${EMPTY}` })).toBeFocused()
   await expect(profileRow(page, PROFILE).getByText('Active', { exact: true })).toBeVisible()
 })
-test('participants choose a frame: preview first, then confirm and start', async ({ page }) => {
+/** Everything about the frame in view: what it is, and whether it is the only whole slide. */
+async function inView(page: Page): Promise<{ label: string; whole: string[] }> {
+  return page.evaluate(() => {
+    const track = document.querySelector('[data-testid="frame-carousel"] ul')
+    if (!track) return { label: '', whole: [] } // not painted yet: the caller polls
+    const box = track.getBoundingClientRect()
+    const whole = Array.from(track.children)
+      .filter((slide) => {
+        const rect = slide.getBoundingClientRect()
+        return rect.top >= box.top - 2 && rect.bottom <= box.bottom + 2
+      })
+      .map((slide) => slide.getAttribute('aria-label') ?? '')
+    const current = track.querySelector('[data-current]')?.getAttribute('aria-label') ?? ''
+    return { label: current, whole }
+  })
+}
+
+async function settledOn(page: Page, label: string) {
+  // One gesture settles on exactly one frame, and that frame is the one the carousel is on.
+  await expect.poll(async () => (await inView(page)).label, { timeout: 5_000 }).toBe(label)
+  await expect.poll(async () => (await inView(page)).whole).toEqual([label])
+}
+
+/**
+ * A real finger swipe: Chromium synthesizes the touch gesture, so the browser scrolls and snaps
+ * exactly as it does on the booth screen. `up` is the participant's finger moving up, which
+ * brings the next frame in.
+ */
+async function swipe(page: Page, direction: 'up' | 'down') {
+  const cdp = await page.context().newCDPSession(page)
+  // The whole gesture stays inside the track, whatever the screen size.
+  const box = await page.getByTestId('frame-carousel').locator('ul').boundingBox()
+  const at = { x: (box?.x ?? 0) + (box?.width ?? 0) / 2, y: (box?.y ?? 0) + (box?.height ?? 0) / 2 }
+  // Past the middle of the frame, so the gesture carries on to the next one.
+  const reach = (box?.height ?? 0) * 0.3
+  const distance = direction === 'up' ? -2 * reach : 2 * reach
+  const start = Math.round(at.y - distance / 2)
+  const point = (y: number) => [{ x: Math.round(at.x), y, radiusX: 12, radiusY: 12, force: 1 }]
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(start) })
+  for (let step = 1; step <= 10; step++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: point(Math.round(start + (distance * step) / 10)),
+    })
+    await page.waitForTimeout(16)
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await cdp.detach()
+}
+
+function slideLabel(index: number): string {
+  const offered = OFFERED[index]
+  return `${offered?.name ?? ''}, ${index + 1} of ${OFFERED.length}`
+}
+
+test('participants move through full-size frames one at a time, then confirm and start', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/booth/frames')
   await expect(page.getByRole('heading', { name: 'Choose your frame' })).toBeVisible()
   const tabs = page.getByRole('tab')
   await expect(tabs).toHaveText(['All', '3×4', '2×6'])
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
-  const list = page.getByRole('list', { name: 'Frames' })
-  const cards = list.getByRole('button')
-  await expect(cards).toHaveCount(1 + OFFERED.length) // Surprise me + every frame of both sizes
-  for (const [index, offered] of OFFERED.entries()) {
-    await expect(cards.nth(index + 1)).toHaveAccessibleName(`${offered.name}, ${offered.summary}`)
-  }
-  // Rendered samples with photos load from the booth API.
-  await expect
-    .poll(() => list.locator('img').first().evaluate((img: HTMLImageElement) => img.naturalWidth), {
-      timeout: 20_000,
+
+  // The old grid of small cards is gone: one frame fills the screen, with its own details.
+  await expect(page.getByRole('list', { name: 'Frames' })).toHaveCount(0)
+  const slides = page.getByTestId('frame-slide')
+  await expect(slides).toHaveCount(OFFERED.length)
+  await settledOn(page, slideLabel(0))
+  const first = slides.first()
+  await expect(first.getByText(OFFERED[0]?.name ?? '', { exact: true })).toBeVisible()
+  await expect(first.getByText(OFFERED[0]?.summary ?? '', { exact: true })).toBeVisible()
+  await expect(first.getByText(`1 of ${OFFERED.length}`)).toBeVisible()
+  await expect(first.getByRole('button', { name: 'Use this frame' })).toBeVisible()
+  expect((await first.getByRole('button', { name: 'Use this frame' }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(64)
+  await expect(page.getByText('Swipe or scroll to see the next frame')).toBeVisible()
+
+  // The rendered sample loads from the booth API and is shown whole, in its own proportions.
+  const sample = first.getByRole('img')
+  await expect.poll(() => sample.evaluate((img: HTMLImageElement) => img.naturalWidth), { timeout: 20_000 }).toBeGreaterThan(0)
+  expect(await sample.getAttribute('src')).toMatch(/^\/api\/booth\/frames\//)
+  const fits = async (image: Locator) =>
+    image.evaluate((img: HTMLImageElement) => {
+      const box = (img.parentElement as HTMLElement).getBoundingClientRect()
+      const rect = img.getBoundingClientRect()
+      return {
+        ratio: rect.width / rect.height,
+        natural: img.naturalWidth / img.naturalHeight,
+        inside: rect.width <= box.width + 1 && rect.height <= box.height + 1,
+        big: rect.height / box.height,
+      }
     })
-    .toBeGreaterThan(0)
-  expect(await list.locator('img').first().getAttribute('src')).toMatch(/^\/api\/booth\/frames\//)
+  const portraitFit = await fits(sample)
+  expect(portraitFit.ratio).toBeCloseTo(portraitFit.natural, 1) // never stretched or cropped
+  expect(portraitFit.inside).toBe(true)
+  expect(portraitFit.big).toBeGreaterThan(0.8) // as large as the space allows
+
   // Nothing about where frames come from, and no admin actions.
   for (const word of ['Built-in', 'Uploaded', 'Replace', 'Delete', 'Rename']) {
     await expect(page.getByText(word, { exact: false })).toHaveCount(0)
   }
-  const tall = await cards.nth(1).boundingBox()
-  expect(tall?.height ?? 0).toBeGreaterThanOrEqual(64)
 
-  // Filter tab
+  // The mouse wheel moves one frame and settles it in the middle.
+  const stage = await page.getByTestId('frame-carousel').boundingBox()
+  const centre = { x: (stage?.x ?? 0) + (stage?.width ?? 0) / 2, y: (stage?.y ?? 0) + (stage?.height ?? 0) / 2 }
+  await page.mouse.move(centre.x, centre.y)
+  await page.mouse.wheel(0, 400)
+  await settledOn(page, slideLabel(1))
+  await expect(page.getByText('Swipe or scroll to see the next frame')).toHaveCount(0)
+
+  // Previous/Next buttons and the arrow keys move one frame too.
+  await page.getByRole('button', { name: 'Next frame' }).click()
+  await settledOn(page, slideLabel(2))
+  await page.getByRole('button', { name: 'Previous frame' }).click()
+  await settledOn(page, slideLabel(1))
+  await page.getByRole('button', { name: 'Next frame' }).focus()
+  await page.keyboard.press('ArrowDown')
+  await settledOn(page, slideLabel(2))
+  await page.keyboard.press('ArrowUp')
+  await settledOn(page, slideLabel(1))
+  // The page itself never drifts while the carousel moves.
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+
+  // A different aspect ratio (the 2×6 strip) is also shown whole.
+  await page.getByRole('button', { name: `Show ${OFFERED[4]?.name ?? ''}` }).nth(1).click()
+  await settledOn(page, slideLabel(4))
+  const strip = slides.nth(4).getByRole('img')
+  await expect.poll(() => strip.evaluate((img: HTMLImageElement) => img.naturalWidth), { timeout: 20_000 }).toBeGreaterThan(0)
+  const stripFit = await fits(strip)
+  expect(stripFit.ratio).toBeCloseTo(stripFit.natural, 1)
+  expect(stripFit.inside).toBe(true)
+  expect(stripFit.ratio).toBeLessThan(portraitFit.ratio) // a much taller, narrower frame
+
+  // Moving never chooses anything: only "Use this frame" does.
+  await expect(page.getByText(/^Selected:/)).toHaveCount(0)
+  expect(await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))).toBeNull()
+
+  // A size filter shows only that size and starts again at its first frame.
   await page.getByRole('tab', { name: '2×6' }).click()
-  const stripNames = await list.getByRole('button').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''))
-  expect(stripNames.filter((n) => n.includes('•')).every((n) => n.includes('2×6'))).toBe(true)
+  await expect(slides).toHaveCount(3)
+  await settledOn(page, `${OFFERED[3]?.name ?? ''}, 1 of 3`)
+  await expect(slides.first().getByText('1 of 3')).toBeVisible()
   await page.getByRole('tab', { name: 'All' }).click()
+  await settledOn(page, slideLabel(0))
 
-  // Tapping only opens the preview.
-  const midnightStrip = list.getByRole('button', { name: 'Midnight, 2×6 • 6 photos • 2 strips' })
-  await midnightStrip.click()
-  const dialog = page.getByRole('dialog', { name: 'Midnight' })
-  await expect(dialog.getByText('2×6 • 6 photos • 2 strips')).toBeVisible()
-  await expect(page.getByRole('status')).toHaveCount(0)
-  await dialog.getByRole('button', { name: 'Back' }).click()
-  await expect(dialog).toHaveCount(0)
-  await midnightStrip.click()
-  await dialog.getByRole('button', { name: 'Use this frame' }).click()
-  await expect(page.getByRole('status')).toContainText('Selected: Midnight')
+  // Confirming keeps the frame's own plan and leads to the existing next step.
+  await page.getByRole('button', { name: `Show ${OFFERED[4]?.name ?? ''}` }).nth(1).click()
+  await settledOn(page, slideLabel(4))
+  await slides.nth(4).getByRole('button', { name: 'Use this frame' }).click()
+  await expect(page.getByText(/^Selected:/)).toContainText(`Selected: ${OFFERED[4]?.name ?? ''}`)
   const plan = await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))
   expect(JSON.parse(plan ?? '{}')).toMatchObject({ template_key: 'strip_2x6', captures: 6, outputs: 2 })
   await page.getByRole('button', { name: 'Start with this frame' }).click()
   await expect(page.getByText(/Ready: Midnight/)).toBeVisible()
   await page.getByRole('button', { name: 'Choose a different frame' }).click()
-  await expect(page.getByRole('heading', { name: 'Choose your frame' })).toBeVisible()
+  // Coming back opens on the frame chosen before.
+  await settledOn(page, slideLabel(4))
 
-  // Surprise me opens the same confirmation for one of the offered frames.
-  await page.getByRole('button', { name: /Surprise me/ }).click()
-  const surprise = page.getByRole('dialog')
-  await expect(surprise).toBeVisible()
-  const picked = await surprise.getByRole('heading').innerText()
-  expect(OFFERED.map((o) => o.name)).toContain(picked)
+  // Surprise me moves to one of the offered frames without choosing it.
+  await page.getByRole('button', { name: 'Surprise me' }).click()
+  const surprised = (await inView(page)).label
+  expect(OFFERED.map((o, index) => slideLabel(index))).toContain(surprised)
+  await expect(page.getByText(/^Selected:/)).toHaveCount(0)
 })
 
-test('the participant screen fits a phone without sideways scrolling', async ({ page }) => {
-  await page.setViewportSize({ width: 360, height: 800 })
+test.describe('touchscreen', () => {
+  test.use({ hasTouch: true })
+  test('a swipe moves one frame', async ({ page }) => {
+    await pairAndSignIn(page)
+    await page.goto('/booth/frames')
+    await page.getByTestId('frame-carousel').waitFor()
+    await settledOn(page, slideLabel(0))
+    await swipe(page, 'up') // the finger moves up: the next frame comes in
+    await settledOn(page, slideLabel(1))
+    await swipe(page, 'down')
+    await settledOn(page, slideLabel(0))
+    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+  })
+})
+
+test('a frame whose sample fails offers Retry without choosing it', async ({ page }) => {
   await pairAndSignIn(page)
+  // Every sample render fails: the frame still shows its details, Retry and nothing selected.
+  await page.route('**/api/booth/frames/*/preview.jpg*', (route) => route.fulfill({ status: 503, body: 'busy' }))
   await page.goto('/booth/frames')
-  await expect(page.getByRole('heading', { name: 'Choose your frame' })).toBeVisible()
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  )
-  expect(overflow).toBeLessThanOrEqual(1)
+  await settledOn(page, slideLabel(0))
+  const retry = page.getByRole('button', { name: /^Retry/ }).first()
+  await expect(retry).toBeVisible({ timeout: 20_000 })
+  await retry.click()
+  await expect(page.getByText(/^Selected:/)).toHaveCount(0)
+  expect(await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))).toBeNull()
+  await settledOn(page, slideLabel(0))
+  await page.unroute('**/api/booth/frames/*/preview.jpg*')
+})
+
+test('the participant screen fits phone and tablet, portrait and landscape', async ({ page }) => {
+  await pairAndSignIn(page)
+  for (const size of [
+    { width: 360, height: 800 }, // phone portrait
+    { width: 800, height: 360 }, // phone landscape
+    { width: 1080, height: 1920 }, // booth portrait
+    { width: 1280, height: 800 }, // tablet landscape
+  ]) {
+    await page.setViewportSize(size)
+    await page.goto('/booth/frames')
+    await expect(page.getByRole('heading', { name: 'Choose your frame' })).toBeVisible()
+    await settledOn(page, slideLabel(0))
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow, `${size.width}x${size.height}`).toBeLessThanOrEqual(1)
+    await expect(page.getByTestId('frame-slide').first().getByRole('button', { name: 'Use this frame' })).toBeVisible()
+  }
+  await page.setViewportSize({ width: 1280, height: 800 })
 })
 
 test('the editor preview stays still while the form scrolls, fits whole and stacks on phones', async ({ page }) => {
@@ -205,7 +350,7 @@ test('the editor preview stays still while the form scrolls, fits whole and stac
   box = await fitsWindow()
   expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(1280 / 800, 2)
   await page.getByRole('button', { name: 'Frame selection' }).click()
-  await expect(screen.getByTestId('frame-gallery')).toBeVisible()
+  await expect(screen.getByTestId('frame-carousel')).toBeVisible()
   expect(await column.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
   const wide = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
