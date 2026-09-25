@@ -236,10 +236,11 @@
   border-color: var(--ev-primary-bg);
 }
 
+/* Above the frame, never over the button or the position indicator. */
 .hint {
   position: absolute;
   left: 50%;
-  bottom: 6px;
+  top: 6px;
   transform: translateX(-50%);
   margin: 0;
   padding: 8px 16px;
@@ -317,6 +318,14 @@
   .meta button {
     min-width: 0;
     width: 100%;
+  }
+
+  .slide {
+    gap: 6px;
+  }
+
+  .name {
+    font-size: 1.15em;
   }
 }
 
