@@ -96,6 +96,14 @@ describe('Photo sizes available (the profile chooses sizes, never single frames)
     expect(within(carousel).queryByRole('list', { name: 'Frames' })).toBeNull() // no grid
     expect(within(slides[0] as HTMLElement).getByText('1 of 4')).toBeInTheDocument()
     expect(carousel.textContent).not.toContain('Built-in')
+
+    // The same question as the booth, and no bar under the carousel.
+    expect(within(carousel).queryByText(/^Selected:/)).toBeNull()
+    await userEvent.click(within(slides[0] as HTMLElement).getByRole('button', { name: 'Use this frame' }))
+    const dialog = screen.getByRole('dialog', { name: 'Use this frame?' })
+    expect(within(dialog).getByRole('button', { name: 'Start with this frame' })).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Choose a different frame' }))
+    expect(screen.queryByRole('dialog', { name: 'Use this frame?' })).toBeNull()
   })
 
   it('moves "Surprise me" to the booth settings as a switch and saves it', async () => {

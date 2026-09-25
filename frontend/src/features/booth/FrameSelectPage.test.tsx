@@ -81,6 +81,15 @@ async function nextFrame() {
   await userEvent.click(screen.getByRole('button', { name: 'Next frame' }))
 }
 
+/** The centred question that "Use this frame" opens; only its main answer keeps the frame. */
+function question(): HTMLElement {
+  return screen.getByRole('dialog', { name: 'Use this frame?' })
+}
+
+async function startWithFrame() {
+  await userEvent.click(within(question()).getByRole('button', { name: 'Start with this frame' }))
+}
+
 describe('FrameSelectPage (booth)', () => {
   it('shows the event frames in its theme, confirms a choice and keeps the plan', async () => {
     const posted: unknown[] = []
@@ -104,15 +113,22 @@ describe('FrameSelectPage (booth)', () => {
 
     await nextFrame()
     expect(posted).toEqual([]) // moving never chooses
+    // Asking keeps nothing: no request, no stored plan, no bar under the carousel.
     await useCurrentFrame()
+    expect(within(question()).getByText('Night')).toBeInTheDocument()
+    expect(posted).toEqual([])
+    expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
+    expect(screen.queryByText(/^Selected:/)).toBeNull()
+
+    await startWithFrame()
     expect(posted).toEqual([{ frame_id: 'fs' }])
     expect(JSON.parse(sessionStorage.getItem(SESSION_FRAME_KEY) ?? '{}')).toMatchObject({
       frame_id: 'fs',
       captures: 6,
       outputs: 2,
     })
-    await userEvent.click(await screen.findByRole('button', { name: 'Start with this frame' }))
-    expect(screen.getByText(/Ready: Night \(2×6 • 6 photos • 2 strips\)/)).toBeInTheDocument()
+    expect(await screen.findByText(/Ready: Night \(2×6 • 6 photos • 2 strips\)/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Choose a different frame' }))
     expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
     expect(screen.getByRole('heading', { name: 'Choose your frame' })).toBeInTheDocument()
@@ -129,69 +145,31 @@ describe('FrameSelectPage (booth)', () => {
     )
     await screen.findByTestId('frame-carousel')
     await useCurrentFrame()
+    await startWithFrame()
     expect(await screen.findByText('That frame could not be chosen. Please pick again.')).toBeInTheDocument()
     expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull() // back to the carousel to pick again
   })
 
-  it('a late answer never replaces a newer choice (P5R2-002)', async () => {
+  it('an answer arriving after the screen was left is ignored (P5R2-002)', async () => {
     let release: (() => void) | null = null
-    const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
+    const { unmount } = renderPage(async (path) => {
       if (path === '/api/booth/frames') return json(MENU)
-      const body = JSON.parse(String(init?.body)) as { frame_id: string }
-      if (body.frame_id === 'fs') {
-        await new Promise<void>((resolve) => {
-          release = resolve
-        })
-        return json(PLAN_STRIP)
-      }
-      return json(PLAN_46)
-    })
-    renderPage(fetcher)
-    await screen.findByTestId('frame-carousel')
-    // Gold is confirmed right away.
-    await useCurrentFrame()
-    expect(await screen.findByText(/^Selected:/)).toHaveTextContent('Selected: Gold')
-    // Night is confirmed but the answer is slow; the participant scrolls back and starts with Gold.
-    await nextFrame()
-    await useCurrentFrame()
-    await userEvent.click(screen.getByRole('button', { name: 'Previous frame' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Start with this frame' }))
-    expect(screen.getByText(/Ready: Gold/)).toBeInTheDocument()
-    await act(async () => {
-      release?.()
-      await Promise.resolve()
-    })
-    expect(screen.getByText(/Ready: Gold/)).toBeInTheDocument()
-    expect(JSON.parse(sessionStorage.getItem(SESSION_FRAME_KEY) ?? '{}')).toMatchObject({ frame_id: 'f46' })
-  })
-
-  it('choosing again while an answer is on its way keeps the choice cleared (P5R2-002)', async () => {
-    let release: (() => void) | null = null
-    renderPage(async (path, init) => {
-      if (path === '/api/booth/frames') return json(MENU)
-      const body = JSON.parse(String(init?.body)) as { frame_id: string }
-      if (body.frame_id === 'fs') {
-        await new Promise<void>((resolve) => {
-          release = resolve
-        })
-        return json(PLAN_STRIP)
-      }
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
       return json(PLAN_46)
     })
     await screen.findByTestId('frame-carousel')
     await useCurrentFrame()
-    await nextFrame()
-    await useCurrentFrame()
-    await userEvent.click(screen.getByRole('button', { name: 'Previous frame' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Choose a different frame' }))
+    await startWithFrame()
+    unmount()
     await act(async () => {
       release?.()
       await Promise.resolve()
     })
-    expect(screen.queryByText(/^Selected:/)).toBeNull()
     expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
   })
-
   it('coming back to the screen opens the carousel on the frame chosen before', async () => {
     sessionStorage.setItem(SESSION_FRAME_KEY, JSON.stringify(PLAN_STRIP))
     renderPage(async (path) => (path === '/api/booth/frames' ? json(MENU) : json(PLAN_STRIP)))

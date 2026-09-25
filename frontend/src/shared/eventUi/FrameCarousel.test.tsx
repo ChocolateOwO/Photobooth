@@ -24,24 +24,20 @@ const FRAMES = [
 const SLIDE_HEIGHT = 600
 
 function renderCarousel(props: Partial<Parameters<typeof FrameCarousel>[0]> = {}) {
-  const onConfirm = vi.fn()
   const onStart = vi.fn()
-  const onChooseAgain = vi.fn()
-  const onCancel = vi.fn()
   const view = render(
-    <FrameCarousel
-      frames={FRAMES}
-      allowSurprise={false}
-      selectedId={null}
-      onConfirm={onConfirm}
-      onStart={onStart}
-      onChooseAgain={onChooseAgain}
-      onCancel={onCancel}
-      {...props}
-    />,
+    <FrameCarousel frames={FRAMES} allowSurprise={false} onStart={onStart} {...props} />,
   )
   Object.defineProperty(track(), 'clientHeight', { value: SLIDE_HEIGHT, configurable: true })
-  return { ...view, onConfirm, onStart, onChooseAgain, onCancel }
+  return { ...view, onStart }
+}
+
+function chooseButton(): HTMLElement {
+  return within(currentSlide()).getByRole('button', { name: 'Use this frame' })
+}
+
+function question(): HTMLElement {
+  return screen.getByRole('dialog', { name: 'Use this frame?' })
 }
 
 function track(): HTMLElement {
@@ -162,24 +158,100 @@ describe('FrameCarousel (participants)', () => {
     expect(track().scrollTop).toBe(0)
   })
 
-  it('moving never chooses a frame; only "Use this frame" does', async () => {
-    const { onConfirm } = renderCarousel()
+  it('moving never chooses a frame, and "Use this frame" only asks', async () => {
+    const { onStart } = renderCarousel()
     scrollToSlide(1)
     await userEvent.click(screen.getByRole('button', { name: 'Next frame' }))
     fireEvent.keyDown(track(), { key: 'ArrowDown' })
     await userEvent.click(screen.getByRole('tab', { name: '2×6' }))
-    expect(onConfirm).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
 
-    await userEvent.click(within(currentSlide()).getByRole('button', { name: 'Use this frame' }))
-    expect(onConfirm).toHaveBeenCalledWith(FRAMES[2])
+    // There is no bar under the carousel: the question is a centred pop-up.
+    await userEvent.click(chooseButton())
+    const dialog = question()
+    expect(within(dialog).getByRole('heading', { name: 'Use this frame?' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Night strip')).toBeInTheDocument()
+    expect(within(dialog).getByText(planSummary(STRIP))).toBeInTheDocument()
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(screen.queryByText(/^Selected:/)).toBeNull()
+    expect(onStart).not.toHaveBeenCalled() // asking keeps nothing
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Start with this frame' }))
+    expect(onStart).toHaveBeenCalledTimes(1)
+    expect(onStart).toHaveBeenCalledWith(FRAMES[2])
   })
 
-  it('moving away abandons a confirmation that is still on its way', async () => {
-    const { onCancel } = renderCarousel()
-    await userEvent.click(within(currentSlide()).getByRole('button', { name: 'Use this frame' }))
-    expect(onCancel).not.toHaveBeenCalled()
-    scrollToSlide(2)
-    expect(onCancel).toHaveBeenCalled()
+  it('the pop-up keeps the focus, then gives it back on every way out', async () => {
+    renderCarousel()
+    await userEvent.click(chooseButton())
+    const dialog = question()
+    const start = within(dialog).getByRole('button', { name: 'Start with this frame' })
+    const again = within(dialog).getByRole('button', { name: 'Choose a different frame' })
+    expect(start).toHaveFocus() // the question opens on its main answer
+    await userEvent.tab()
+    expect(again).toHaveFocus()
+    await userEvent.tab() // never out of the question
+    expect(start).toHaveFocus()
+    await userEvent.tab({ shift: true })
+    expect(again).toHaveFocus()
+
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(chooseButton()).toHaveFocus()
+  })
+
+  it('Escape, the backdrop and "Choose a different frame" keep nothing and stay put', async () => {
+    const { onStart } = renderCarousel()
+    await userEvent.click(screen.getByRole('button', { name: 'Next frame' }))
+    expect(position()).toBe('2 of 4')
+
+    for (const leave of [
+      async () => userEvent.keyboard('{Escape}'),
+      async () => userEvent.click(screen.getByTestId('confirm-backdrop')),
+      async () => userEvent.click(screen.getByRole('button', { name: 'Choose a different frame' })),
+    ]) {
+      await userEvent.click(chooseButton())
+      expect(question()).toBeInTheDocument()
+      await leave()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(onStart).not.toHaveBeenCalled()
+      // The same frame, at the same place in the carousel.
+      expect(position()).toBe('2 of 4')
+      expect(within(currentSlide()).getByText('Wide one')).toBeInTheDocument()
+      expect(track().scrollTop).toBe(SLIDE_HEIGHT)
+    }
+
+    // Moving on from there still works.
+    await userEvent.click(screen.getByRole('button', { name: 'Next frame' }))
+    expect(position()).toBe('3 of 4')
+  })
+
+  it('a second tap on "Start with this frame" can not start twice', async () => {
+    let release = () => {}
+    const onStart = vi.fn(() => new Promise<void>((resolve) => { release = resolve }))
+    renderCarousel({ onStart })
+    await userEvent.click(chooseButton())
+    const start = screen.getByRole('button', { name: 'Start with this frame' })
+    await userEvent.click(start)
+    await userEvent.click(start)
+    fireEvent.click(start)
+    expect(onStart).toHaveBeenCalledTimes(1)
+    expect(start).toBeDisabled()
+    await act(async () => {
+      release()
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('dialog')).toBeNull() // the question is answered
+    expect(onStart).toHaveBeenCalledTimes(1)
+  })
+
+  it('the admin preview asks in the same pop-up, without trapping the whole page', async () => {
+    renderCarousel({ compact: true })
+    await userEvent.click(chooseButton())
+    const dialog = screen.getByRole('dialog', { name: 'Use this frame?' })
+    expect(dialog).toHaveAttribute('aria-modal', 'false')
+    expect(within(dialog).getByRole('button', { name: 'Start with this frame' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Choose a different frame' })).toBeInTheDocument()
   })
 
   it('opens on the frame chosen earlier in this session', () => {
@@ -188,14 +260,11 @@ describe('FrameCarousel (participants)', () => {
     expect(within(currentSlide()).getByText('Night strip')).toBeInTheDocument()
   })
 
-  it('shows the selection with Start and a way to choose again', async () => {
-    const { onStart, onChooseAgain } = renderCarousel({ selectedId: 'd' })
-    const bar = screen.getByText(/^Selected:/).closest('[role="status"]') as HTMLElement
-    expect(bar).toHaveTextContent('Selected: Paper strip')
-    await userEvent.click(within(bar).getByRole('button', { name: 'Start with this frame' }))
-    expect(onStart).toHaveBeenCalledWith(FRAMES[3])
-    await userEvent.click(within(bar).getByRole('button', { name: 'Choose a different frame' }))
-    expect(onChooseAgain).toHaveBeenCalled()
+  it('has no bar under the carousel taking the frame room', () => {
+    renderCarousel()
+    expect(screen.queryByText(/^Selected:/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Start with this frame' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Choose a different frame' })).toBeNull()
   })
 
   it('a single frame needs no navigation', () => {
@@ -209,10 +278,11 @@ describe('FrameCarousel (participants)', () => {
   })
 
   it('"Surprise me" moves to a frame without choosing it', async () => {
-    const { onConfirm } = renderCarousel({ allowSurprise: true, random: () => 0.99 })
+    const { onStart } = renderCarousel({ allowSurprise: true, random: () => 0.99 })
     await userEvent.click(screen.getByRole('button', { name: 'Surprise me' }))
     expect(position()).toBe('4 of 4')
-    expect(onConfirm).not.toHaveBeenCalled()
+    expect(onStart).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('never mentions where frames come from or admin actions', () => {
@@ -226,7 +296,7 @@ describe('FrameCarousel (participants)', () => {
   it('a failed image offers Retry without choosing that frame (P5R2-003)', async () => {
     vi.useFakeTimers()
     try {
-      const { onConfirm } = renderCarousel()
+      const { onStart } = renderCarousel()
       // The automatic retries run out (1, 2 and 4 s), then a Retry control appears.
       for (const wait of [1000, 2000, 4000]) {
         fireEvent.error(document.querySelector('img') as HTMLImageElement)
@@ -237,7 +307,8 @@ describe('FrameCarousel (participants)', () => {
       fireEvent.error(document.querySelector('img') as HTMLImageElement)
       const retry = screen.getAllByRole('button', { name: /^Retry/ })[0] as HTMLElement
       fireEvent.click(retry)
-      expect(onConfirm).not.toHaveBeenCalled()
+      expect(onStart).not.toHaveBeenCalled()
+      expect(screen.queryByRole('dialog')).toBeNull()
       expect(position()).toBe('1 of 4')
     } finally {
       vi.useRealTimers()

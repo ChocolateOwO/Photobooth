@@ -210,8 +210,9 @@ test('participants move through full-size frames one at a time, then confirm and
   expect(stripFit.inside).toBe(true)
   expect(stripFit.ratio).toBeLessThan(portraitFit.ratio) // a much taller, narrower frame
 
-  // Moving never chooses anything: only "Use this frame" does.
+  // Moving never chooses anything, and no bar sits under the carousel.
   await expect(page.getByText(/^Selected:/)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Start with this frame' })).toHaveCount(0)
   expect(await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))).toBeNull()
 
   // A size filter shows only that size and starts again at its first frame.
@@ -222,24 +223,81 @@ test('participants move through full-size frames one at a time, then confirm and
   await page.getByRole('tab', { name: 'All' }).click()
   await settledOn(page, slideLabel(0))
 
-  // Confirming keeps the frame's own plan and leads to the existing next step.
+  // "Use this frame" only asks, in a centred pop-up over the carousel.
   await page.getByRole('button', { name: `Show ${OFFERED[4]?.name ?? ''}` }).nth(1).click()
   await settledOn(page, slideLabel(4))
   await slides.nth(4).getByRole('button', { name: 'Use this frame' }).click()
-  await expect(page.getByText(/^Selected:/)).toContainText(`Selected: ${OFFERED[4]?.name ?? ''}`)
+  const question = page.getByRole('dialog', { name: 'Use this frame?' })
+  await expect(question).toBeVisible()
+  await expect(question.getByText(OFFERED[4]?.name ?? '', { exact: true })).toBeVisible()
+  await expect(question.getByText(OFFERED[4]?.summary ?? '', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))).toBeNull()
+  // Centred, compact, and no second large copy of the frame.
+  const box = await question.boundingBox()
+  const view = page.viewportSize() ?? { width: 0, height: 0 }
+  expect(Math.abs((box?.x ?? 0) + (box?.width ?? 0) / 2 - view.width / 2)).toBeLessThanOrEqual(2)
+  expect(Math.abs((box?.y ?? 0) + (box?.height ?? 0) / 2 - view.height / 2)).toBeLessThanOrEqual(2)
+  expect(box?.height ?? view.height).toBeLessThan(view.height * 0.7)
+  const thumb = await question.locator('img').boundingBox()
+  expect(thumb?.height ?? 0).toBeLessThanOrEqual(130)
+  // The main answer holds the focus and the focus stays inside the question.
+  await expect(question.getByRole('button', { name: 'Start with this frame' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(question.getByRole('button', { name: 'Choose a different frame' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(question.getByRole('button', { name: 'Start with this frame' })).toBeFocused()
+
+  // Escape, the backdrop and "Choose a different frame" keep nothing and stay on this frame.
+  for (const leave of [
+    async () => page.keyboard.press('Escape'),
+    async () => page.getByTestId('confirm-backdrop').click({ position: { x: 8, y: 8 } }),
+    async () => question.getByRole('button', { name: 'Choose a different frame' }).click(),
+  ]) {
+    await expect(question).toBeVisible()
+    await leave()
+    await expect(question).toHaveCount(0)
+    expect(await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))).toBeNull()
+    await settledOn(page, slideLabel(4))
+    // The button that asked has the focus again.
+    await expect(slides.nth(4).getByRole('button', { name: 'Use this frame' })).toBeFocused()
+    await page.keyboard.press('Enter')
+  }
+
+  // Only "Start with this frame" keeps the frame, with its own plan, and goes on.
+  await question.getByRole('button', { name: 'Start with this frame' }).click()
+  await expect(page.getByText(/Ready: Midnight/)).toBeVisible()
+  await expect(question).toHaveCount(0)
   const plan = await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))
   expect(JSON.parse(plan ?? '{}')).toMatchObject({ template_key: 'strip_2x6', captures: 6, outputs: 2 })
-  await page.getByRole('button', { name: 'Start with this frame' }).click()
-  await expect(page.getByText(/Ready: Midnight/)).toBeVisible()
   await page.getByRole('button', { name: 'Choose a different frame' }).click()
   // Coming back opens on the frame chosen before.
   await settledOn(page, slideLabel(4))
 
-  // Surprise me moves to one of the offered frames without choosing it.
+  // Surprise me moves to one of the offered frames without asking anything.
   await page.getByRole('button', { name: 'Surprise me' }).click()
   const surprised = (await inView(page)).label
   expect(OFFERED.map((o, index) => slideLabel(index))).toContain(surprised)
-  await expect(page.getByText(/^Selected:/)).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('a repeated tap on "Start with this frame" starts one session only', async ({ page }) => {
+  await pairAndSignIn(page)
+  // A slow answer, so the second tap lands while the first is still on its way.
+  const posted: string[] = []
+  await page.route('**/api/booth/frame-choice', async (route) => {
+    posted.push(route.request().postData() ?? '')
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    await route.continue()
+  })
+  await page.goto('/booth/frames')
+  await settledOn(page, slideLabel(0))
+  await page.getByTestId('frame-slide').first().getByRole('button', { name: 'Use this frame' }).click()
+  const start = page.getByRole('dialog', { name: 'Use this frame?' }).getByRole('button', { name: 'Start with this frame' })
+  await start.click()
+  await start.click({ force: true, timeout: 2_000 }).catch(() => undefined) // the button is disabled meanwhile
+  await expect(page.getByText(/^Ready: /)).toBeVisible()
+  expect(posted).toHaveLength(1)
+  await page.unroute('**/api/booth/frame-choice')
 })
 
 test.describe('touchscreen', () => {
@@ -288,7 +346,35 @@ test('the participant screen fits phone and tablet, portrait and landscape', asy
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     )
     expect(overflow, `${size.width}x${size.height}`).toBeLessThanOrEqual(1)
-    await expect(page.getByTestId('frame-slide').first().getByRole('button', { name: 'Use this frame' })).toBeVisible()
+    const choose = page.getByTestId('frame-slide').first().getByRole('button', { name: 'Use this frame' })
+    await expect(choose).toBeVisible()
+
+    // No bar under the carousel, so the frame itself gets most of the height.
+    await expect(page.getByText(/^Selected:/)).toHaveCount(0)
+    const sample = page.locator('[data-current] img').first()
+    await expect
+      .poll(() => sample.evaluate((img: HTMLImageElement) => img.naturalWidth), { timeout: 20_000 })
+      .toBeGreaterThan(0)
+    const room = await page.evaluate(() => {
+      const carousel = document.querySelector('[data-testid="frame-carousel"]') as HTMLElement
+      const image = carousel.querySelector('[data-current] img') as HTMLElement
+      return image.getBoundingClientRect().height / carousel.getBoundingClientRect().height
+    })
+    // A phone held sideways has little height to give; every other screen gives the frame most of it.
+    expect(room, `${size.width}x${size.height}`).toBeGreaterThan(size.height < 420 ? 0.3 : 0.5)
+
+    // The question fits on this screen too, with big enough answers.
+    await choose.click()
+    const question = page.getByRole('dialog', { name: 'Use this frame?' })
+    const box = await question.boundingBox()
+    expect((box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= size.width + 1).toBe(true)
+    expect((box?.y ?? -1) >= 0 && (box?.y ?? 0) + (box?.height ?? 0) <= size.height + 1).toBe(true)
+    for (const name of ['Start with this frame', 'Choose a different frame']) {
+      const answer = await question.getByRole('button', { name }).boundingBox()
+      expect(answer?.height ?? 0, `${name} at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(44)
+    }
+    await page.keyboard.press('Escape')
+    await expect(question).toHaveCount(0)
   }
   await page.setViewportSize({ width: 1280, height: 800 })
 })
@@ -351,6 +437,17 @@ test('the editor preview stays still while the form scrolls, fits whole and stac
   expect((box?.width ?? 0) / (box?.height ?? 1)).toBeCloseTo(1280 / 800, 2)
   await page.getByRole('button', { name: 'Frame selection' }).click()
   await expect(screen.getByTestId('frame-carousel')).toBeVisible()
+  // The preview asks in the same pop-up, inside the preview screen, with no bar under it.
+  await expect(screen.getByText(/^Selected:/)).toHaveCount(0)
+  await screen.getByTestId('frame-slide').first().getByRole('button', { name: 'Use this frame' }).click()
+  const previewQuestion = screen.getByRole('dialog', { name: 'Use this frame?' })
+  await expect(previewQuestion).toBeVisible()
+  const previewBox = await previewQuestion.boundingBox()
+  const screenBox = await screen.boundingBox()
+  expect((previewBox?.x ?? 0) >= (screenBox?.x ?? 0) - 1).toBe(true)
+  expect((previewBox?.y ?? 0) >= (screenBox?.y ?? 0) - 1).toBe(true)
+  await previewQuestion.getByRole('button', { name: 'Choose a different frame' }).click()
+  await expect(previewQuestion).toHaveCount(0)
   expect(await column.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
   const wide = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

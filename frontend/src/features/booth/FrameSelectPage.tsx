@@ -40,13 +40,9 @@ export function FrameSelectPage() {
   const [started, setStarted] = useState(false)
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  // Each confirmation is numbered; Back, Start, choosing again or leaving the screen make any
-  // answer still on its way obsolete, so a late answer never replaces a newer choice.
+  // Each confirmation is numbered; starting again or leaving the screen makes any answer still
+  // on its way obsolete, so a late answer never replaces a newer choice.
   const confirmation = useRef(0)
-  const forgetPending = () => {
-    confirmation.current += 1
-    setBusy(false)
-  }
   useEffect(() => () => {
     confirmation.current += 1
   }, [])
@@ -90,10 +86,11 @@ export function FrameSelectPage() {
         <FrameCarousel
           frames={frames}
           allowSurprise={menu.data.allow_surprise_me}
-          selectedId={plan?.frame_id ?? null}
           startAtId={plan?.frame_id ?? lastChosen}
           busy={busy}
-          onConfirm={async (frame) => {
+          // Only "Start with this frame" in the pop-up gets here: the choice is kept and the
+          // session goes on. Until then nothing is chosen and nothing is stored.
+          onStart={async (frame) => {
             confirmation.current += 1
             const mine = confirmation.current
             setBusy(true)
@@ -104,6 +101,7 @@ export function FrameSelectPage() {
               setPlan(confirmed)
               setLastChosen(confirmed.frame_id)
               remember(confirmed)
+              setStarted(true)
             } catch {
               if (confirmation.current !== mine) return
               setProblem('That frame could not be chosen. Please pick again.')
@@ -111,16 +109,6 @@ export function FrameSelectPage() {
             } finally {
               if (confirmation.current === mine) setBusy(false)
             }
-          }}
-          onCancel={forgetPending}
-          onStart={() => {
-            forgetPending()
-            setStarted(true)
-          }}
-          onChooseAgain={() => {
-            forgetPending()
-            setPlan(null)
-            remember(null)
           }}
         />
       )}

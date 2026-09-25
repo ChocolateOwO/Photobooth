@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 
 import { RetryingImage } from '../ui/RetryingImage'
 import { EventButton, EventHeading } from './EventUi'
@@ -9,22 +9,18 @@ import styles from './FrameCarousel.module.css'
  * The participant frame chooser: one full-size frame at a time in a vertical scroll-snap
  * carousel. Used by the booth screen and, scaled down, by the admin preview, so both always show
  * the same thing. Participants only see the frame, its name and what it means for the session;
- * never where a frame came from or any admin action. Moving between frames never chooses one:
- * only "Use this frame" does.
+ * never where a frame came from or any admin action. Moving between frames never chooses one,
+ * and neither does "Use this frame": it asks in a centred pop-up, and only "Start with this
+ * frame" there keeps the choice.
  */
 
 interface FrameCarouselProps {
   frames: GalleryFrame[]
   allowSurprise: boolean
-  /** The frame confirmed with "Use this frame" (null: nothing chosen yet). */
-  selectedId: string | null
   /** Where to open the carousel (a frame chosen earlier in this session). */
   startAtId?: string | null
-  onConfirm: (frame: GalleryFrame) => void | Promise<void>
-  onStart: (frame: GalleryFrame) => void
-  onChooseAgain: () => void
-  /** Moving to another frame abandons a confirmation that is still on its way. */
-  onCancel?: () => void
+  /** "Start with this frame": keep the choice and go on to the next step. */
+  onStart: (frame: GalleryFrame) => void | Promise<void>
   /** Random source for "Surprise me" (injectable for tests). */
   random?: () => number
   /** Shown inside the admin preview: a smaller heading level. */
@@ -43,12 +39,8 @@ function reducedMotion(): boolean {
 export function FrameCarousel({
   frames,
   allowSurprise,
-  selectedId,
   startAtId = null,
-  onConfirm,
   onStart,
-  onChooseAgain,
-  onCancel,
   random = Math.random,
   compact = false,
   busy = false,
@@ -57,7 +49,14 @@ export function FrameCarousel({
   const [index, setIndex] = useState(0)
   const [hinted, setHinted] = useState(false)
   const trackRef = useRef<HTMLUListElement>(null)
-  const openedAt = useRef(startAtId ?? selectedId)
+  const openedAt = useRef(startAtId)
+  // "Use this frame" only asks; nothing is kept until "Start with this frame" in the pop-up.
+  const [asking, setAsking] = useState<GalleryFrame | null>(null)
+  const [starting, setStarting] = useState(false)
+  const askedFrom = useRef<HTMLButtonElement | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  const describedId = useId()
 
   const layouts: { key: string; label: string }[] = []
   for (const frame of frames) {
@@ -69,7 +68,6 @@ export function FrameCarousel({
   const activeTab = tab === ALL || layouts.some((l) => l.key === tab) ? tab : ALL
   const shown = activeTab === ALL ? frames : frames.filter((f) => f.plan.template_key === activeTab)
   const tabs = [{ key: ALL, label: 'All' }, ...layouts]
-  const selected = frames.find((f) => f.id === selectedId) ?? null
   const surprise = allowSurprise && shown.length >= 2
   const at = Math.min(index, Math.max(0, shown.length - 1))
   const current = shown[at] ?? null
@@ -120,7 +118,6 @@ export function FrameCarousel({
     const target = Math.max(0, Math.min(shown.length - 1, next))
     setHinted(true)
     if (target === at) return
-    onCancel?.() // a confirmation still on its way belongs to the frame being left
     setIndex(target)
     scrollTo(target, true)
   }
@@ -129,8 +126,35 @@ export function FrameCarousel({
     setTab(key)
     setIndex(0)
     setHinted(true)
-    onCancel?.()
     scrollTo(0, false)
+  }
+
+  // The pop-up takes the focus (on "Start with this frame") and gives it back to the button that
+  // opened it, so the participant never loses their place in the carousel.
+  const givingBack = useRef(false)
+  useEffect(() => {
+    if (asking) {
+      dialogRef.current?.querySelector<HTMLElement>('[data-autofocus]')?.focus()
+    } else if (givingBack.current) {
+      givingBack.current = false
+      askedFrom.current?.focus() // once the pop-up is really gone from the page
+    }
+  }, [asking])
+
+  const stopAsking = () => {
+    givingBack.current = true
+    setAsking(null)
+  }
+
+  const startWith = async (frame: GalleryFrame) => {
+    if (starting) return // a second tap on "Start with this frame" changes nothing
+    setStarting(true)
+    try {
+      await onStart(frame)
+    } finally {
+      setStarting(false)
+      setAsking(null)
+    }
   }
 
   return (
@@ -216,10 +240,7 @@ export function FrameCarousel({
               const settled = Math.max(0, Math.min(shown.length - 1, Math.round(track.scrollTop / height)))
               setHinted(true)
               settleSoon()
-              if (settled !== at) {
-                onCancel?.()
-                setIndex(settled)
-              }
+              if (settled !== at) setIndex(settled)
             }}
           >
             {shown.map((frame, position) => {
@@ -253,7 +274,14 @@ export function FrameCarousel({
                     {/* Only the frame in view can be chosen, so "Use this frame" is never
                         ambiguous, on screen or for a screen reader. */}
                     {isCurrent && (
-                      <EventButton variant="primary" disabled={busy} onClick={() => void onConfirm(frame)}>
+                      <EventButton
+                        variant="primary"
+                        disabled={busy}
+                        onClick={(e) => {
+                          askedFrom.current = e.currentTarget
+                          setAsking(frame)
+                        }}
+                      >
                         Use this frame
                       </EventButton>
                     )}
@@ -313,18 +341,77 @@ export function FrameCarousel({
         </div>
       )}
 
-      {selected && (
-        <div className={styles.selectionBar} role="status">
-          <span className={styles.selectionText}>
-            Selected: <strong>{selected.name}</strong> ({planSummary(selected.plan)})
-          </span>
-          <div className={styles.selectionActions}>
-            <EventButton variant="primary" disabled={busy} onClick={() => onStart(selected)}>
-              Start with this frame
-            </EventButton>
-            <EventButton variant="secondary" onClick={onChooseAgain}>
-              Choose a different frame
-            </EventButton>
+      {asking && (
+        <div
+          className={styles.backdrop}
+          data-testid="confirm-backdrop"
+          // A tap beside the pop-up closes it; a tap that started inside never does. The press
+          // itself changes no focus, so the button that asked can take it back afterwards.
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) e.preventDefault()
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) stopAsking()
+          }}
+        >
+          <div
+            ref={dialogRef}
+            className={styles.dialog}
+            role="dialog"
+            aria-modal={!compact}
+            aria-labelledby={titleId}
+            aria-describedby={describedId}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                stopAsking()
+                return
+              }
+              if (e.key !== 'Tab') return
+              // The focus stays inside the question until it is answered.
+              const focusable = [
+                ...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []),
+              ]
+              const first = focusable[0]
+              const last = focusable[focusable.length - 1]
+              if (!first || !last) return
+              if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault()
+                last.focus()
+              } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault()
+                first.focus()
+              }
+            }}
+          >
+            <h2 id={titleId} className={styles.dialogTitle}>
+              Use this frame?
+            </h2>
+            {/* A small reminder of the frame, never a second large copy of it. */}
+            <RetryingImage
+              src={asking.previewUrl}
+              alt=""
+              className={styles.thumb}
+              compact
+              retryLabel={`Retry ${asking.name}`}
+            />
+            <p id={describedId} className={styles.dialogFrame}>
+              <span className={styles.dialogName}>{asking.name}</span>
+              <span className={styles.dialogSummary}>{planSummary(asking.plan)}</span>
+            </p>
+            <div className={styles.dialogActions}>
+              <EventButton
+                variant="primary"
+                data-autofocus=""
+                disabled={busy || starting}
+                onClick={() => void startWith(asking)}
+              >
+                Start with this frame
+              </EventButton>
+              <EventButton variant="secondary" disabled={starting} onClick={stopAsking}>
+                Choose a different frame
+              </EventButton>
+            </div>
           </div>
         </div>
       )}

@@ -91,8 +91,6 @@ function ScaledScreen({ size, children }: { size: ScreenSize; children: ReactNod
 /** The participant screens exactly as the booth draws them, from the draft settings. */
 function PreviewScreen({ settings, templates, frames, mode }: EventPreviewProps & { mode: Mode }) {
   const api = useAdminApi()
-  // The participant gallery itself, with this draft's frames and order (a local choice only).
-  const [chosen, setChosen] = useState<string | null>(null)
   const backgroundUrl = settings.background_asset_id
     ? api.assetContentUrl(settings.background_asset_id)
     : null
@@ -130,10 +128,8 @@ function PreviewScreen({ settings, templates, frames, mode }: EventPreviewProps 
           compact
           frames={offered}
           allowSurprise={settings.allow_surprise_me}
-          selectedId={chosen}
-          onConfirm={(frame) => setChosen(frame.id)}
+          // The same pop-up as the booth; in the preview, starting simply closes it.
           onStart={() => undefined}
-          onChooseAgain={() => setChosen(null)}
         />
       )}
     </EventScreen>
