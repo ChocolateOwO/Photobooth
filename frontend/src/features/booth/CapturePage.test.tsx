@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
@@ -23,6 +23,9 @@ function shots(total: number, done: number, attempt = 1) {
     shot_index: index + 1,
     attempt_no: index < done ? 1 : attempt,
     done: index < done,
+    // Each taken shot carries its own photo, as the server reports it.
+    capture_id: index < done ? `capture-${index + 1}` : null,
+    version: index < done ? `v${index + 1}` : null,
   }))
 }
 
@@ -31,6 +34,7 @@ function visit(overrides: Partial<BoothSessionState> = {}): BoothSessionState {
   const taken = overrides.taken ?? 0
   const base: BoothSessionState = {
     id: SESSION_ID,
+    is_test: false, // a guest's visit; the organizer's test sets this
     state: 'capturing',
     state_version: 1 + taken,
     countdown_seconds: 3,
@@ -48,7 +52,23 @@ function visit(overrides: Partial<BoothSessionState> = {}): BoothSessionState {
 }
 
 const MENU: FrameMenu = {
-  frames: [],
+  frames: [
+    {
+      id: 'f34',
+      name: 'Gold frame',
+      preview_url: '/api/booth/frames/f34/preview.jpg?v=1',
+      plan: {
+        frame_id: 'f34',
+        template_key: 'print_3x4',
+        layout_label: '3×4',
+        captures: 2,
+        outputs: 1,
+        photos_per_output: 2,
+        output_capture_groups: [[1, 2]],
+        output_label: null,
+      },
+    },
+  ],
   layouts: [],
   allow_surprise_me: false,
   theme: { background: '#101418', heading: '#FFFFFF', primary_bg: '#2255CC', primary_text: '#FFFFFF' },
@@ -157,10 +177,19 @@ function server(session: BoothSessionState = visit()) {
           entry.shot_index === shot ? { ...entry, done: true } : entry,
         ),
       }
+      const attempt = Number(form.get('attempt_no'))
+      current = {
+        ...current,
+        shots: current.shots.map((entry) =>
+          entry.shot_index === shot
+            ? { ...entry, capture_id: `capture-${shot}-${attempt}`, version: `v${attempt}` }
+            : entry,
+        ),
+      }
       return json({
-        capture_id: `capture-${shot}`,
+        capture_id: `capture-${shot}-${attempt}`,
         shot_index: shot,
-        attempt_no: Number(form.get('attempt_no')),
+        attempt_no: attempt,
         status: 'ok',
         session: current,
       })
@@ -173,7 +202,13 @@ function server(session: BoothSessionState = visit()) {
         state_version: current.state_version + 1,
         shots: current.shots.map((entry) =>
           body.shot_index === undefined || entry.shot_index === body.shot_index
-            ? { ...entry, done: false, attempt_no: entry.attempt_no + 1 }
+            ? {
+                ...entry,
+                done: false,
+                attempt_no: entry.attempt_no + 1,
+                capture_id: null,
+                version: null,
+              }
             : entry,
         ),
       }
@@ -559,5 +594,96 @@ describe('CapturePage (booth)', () => {
     expect(localStorage.getItem('pb.booth.cameraDevice')).toBe('usb')
     await oneShot()
     expect(camera.photos).toBeGreaterThan(0)
+  })
+
+  it('shows every photo it has taken, each under its own number', async () => {
+    const booth = server(visit({ expected_captures: 4 }))
+    renderCapture(booth.handler)
+    await screen.findByTestId('capture-progress')
+    const places = () => screen.getAllByTestId('captured-photo')
+    // One place per shot from the start, all of them empty.
+    expect(places()).toHaveLength(4)
+    expect(screen.queryAllByRole('img')).toHaveLength(0)
+    for (const index of [1, 2, 3, 4]) {
+      expect(within(places()[index - 1] as HTMLElement).getByText(`Photo ${index}`)).toBeInTheDocument()
+    }
+
+    await oneShot()
+    // Only the first place has a picture, and it is that shot's own photo.
+    const first = within(places()[0] as HTMLElement).getByRole('img')
+    expect(first).toHaveAttribute('src', expect.stringContaining('capture-1-1'))
+    expect(first).toHaveAccessibleName('Photo 1')
+    expect(screen.getAllByRole('img')).toHaveLength(1) // the others are still empty
+
+    await oneShot()
+    const second = within(places()[1] as HTMLElement).getByRole('img')
+    expect(second).toHaveAttribute('src', expect.stringContaining('capture-2-1'))
+    expect(new Set(screen.getAllByRole('img').map((img) => img.getAttribute('src'))).size).toBe(2)
+  })
+
+  it('opens the photo of the thumbnail that was pressed, and closes without touching the camera', async () => {
+    const booth = server(visit({ expected_captures: 2 }))
+    renderCapture(booth.handler)
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    await oneShot()
+    const opened = camera.opened
+
+    await userEvent.click(screen.getByRole('button', { name: 'Photo 2, see it bigger' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'Photo 2' })).toBeInTheDocument()
+    expect(within(dialog).getByTestId('photo-large')).toHaveAttribute(
+      'src',
+      expect.stringContaining('capture-2-1'),
+    )
+    expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveFocus()
+    // Looking at a photo neither starts another camera nor stops this one.
+    expect(camera.opened).toBe(opened)
+    expect(camera.stopped).toBe(0)
+
+    await userEvent.tab()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Photo 2, see it bigger' })).toHaveFocus()
+  })
+
+  it('a retaken photo replaces only its own thumbnail', async () => {
+    const booth = server(visit({ expected_captures: 2, retake_mode: 'per_photo' }))
+    renderCapture(booth.handler)
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    await oneShot()
+    const before = screen
+      .getAllByRole('img')
+      .map((img) => img.getAttribute('src'))
+    expect(before).toHaveLength(2)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Photo 2 again' }))
+    await waitFor(() => expect(screen.getAllByRole('img')).toHaveLength(1)) // photo 2 is gone
+    expect(screen.getAllByRole('img')[0]).toHaveAttribute('src', before[0] as string)
+    await oneShot()
+    const after = screen.getAllByRole('img').map((img) => img.getAttribute('src'))
+    expect(after[0]).toBe(before[0]) // photo 1 untouched
+    expect(after[1]).not.toBe(before[1]) // photo 2 is the new one
+    expect(after[1]).toContain('capture-2-2')
+  })
+
+  it('the review shows the frame, the layout and every photo in order', async () => {
+    const booth = server(visit({ expected_captures: 2, retake_mode: 'none' }))
+    renderCapture(booth.handler)
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    await oneShot()
+    await screen.findByText('All photos taken')
+    expect(screen.getByText('Gold frame · 3×4 · 2 photos')).toBeInTheDocument()
+    const photos = screen.getAllByRole('img')
+    expect(photos.map((img) => img.getAttribute('alt'))).toEqual(['Photo 1', 'Photo 2'])
+    expect(screen.queryByRole('button', { name: /again/ })).toBeNull() // this event allows none
+  })
+
+  it('the booth screens say nothing about tests when a guest is using them', async () => {
+    renderCapture(server(visit({ expected_captures: 2 })).handler)
+    await screen.findByTestId('capture-progress')
+    expect(screen.queryByTestId('test-badge')).toBeNull()
   })
 })

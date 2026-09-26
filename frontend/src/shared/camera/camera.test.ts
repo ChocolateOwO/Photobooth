@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   BrowserCamera,
+  CAMERA_DEVICE_SETTING,
   CameraError,
-  TEST_CAMERA_SETTING,
   TestCamera,
   cameraMessage,
   chooseCamera,
+  rememberCamera,
+  rememberedCamera,
 } from './camera'
 
 /** The booth's camera port: which camera a booth gets, and how each refusal is explained. */
@@ -38,14 +40,22 @@ afterEach(() => {
 })
 
 describe('the booth camera', () => {
-  it('uses the real camera unless Dummy is asked for the drawn one', () => {
-    expect(chooseCamera('main', '?camera=test').kind).toBe('browser') // never outside Dummy
-    expect(chooseCamera('dummy', '').kind).toBe('browser')
-    expect(chooseCamera('dummy', '?camera=test').kind).toBe('test')
-    // The choice is kept for the next screens of the same visit.
-    expect(localStorage.getItem(TEST_CAMERA_SETTING)).toBe('test')
-    expect(chooseCamera('dummy', '').kind).toBe('test')
-    expect(chooseCamera('dummy', '?camera=real').kind).toBe('browser')
+  it("is always the machine's own camera; the drawn one can not be asked for", () => {
+    expect(chooseCamera().kind).toBe('browser')
+    expect(chooseCamera()).toBeInstanceOf(BrowserCamera)
+    // Nothing in an address or left in storage can turn a booth into generated pictures.
+    localStorage.setItem('pb.booth.camera', 'test')
+    window.history.replaceState(null, '', '/booth?camera=test')
+    expect(chooseCamera().kind).toBe('browser')
+  })
+
+  it("remembers which of the machine's cameras the booth should use", () => {
+    expect(rememberedCamera()).toBeNull()
+    rememberCamera('usb-cam')
+    expect(localStorage.getItem(CAMERA_DEVICE_SETTING)).toBe('usb-cam')
+    expect(rememberedCamera()).toBe('usb-cam')
+    rememberCamera(null)
+    expect(rememberedCamera()).toBeNull()
   })
 
   it('says plainly what went wrong, in words a guest can act on', () => {

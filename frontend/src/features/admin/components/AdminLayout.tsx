@@ -37,6 +37,9 @@ export function AdminLayout({ username, onLogout, children }: AdminLayoutProps) 
           <Link to="/admin/frames" className={styles.navLink}>
             Frames
           </Link>
+          <Link to="/admin/test" className={styles.navLink}>
+            Test booth
+          </Link>
         </nav>
         <button
           type="button"

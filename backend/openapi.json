@@ -67,6 +67,11 @@
             "title": "Inactivity Timeout S",
             "type": "integer"
           },
+          "is_test": {
+            "description": "An organizer trying the booth from Admin, not a guest.",
+            "title": "Is Test",
+            "type": "boolean"
+          },
           "layout_label": {
             "anyOf": [
               {
@@ -119,6 +124,7 @@
         },
         "required": [
           "id",
+          "is_test",
           "state",
           "state_version",
           "countdown_seconds",
@@ -1413,6 +1419,18 @@
             "title": "Attempt No",
             "type": "integer"
           },
+          "capture_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The photo that counts for this shot; null while it is missing.",
+            "title": "Capture Id"
+          },
           "done": {
             "title": "Done",
             "type": "boolean"
@@ -1420,6 +1438,18 @@
           "shot_index": {
             "title": "Shot Index",
             "type": "integer"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Changes when the photo does.",
+            "title": "Version"
           }
         },
         "required": [
@@ -1532,6 +1562,29 @@
           "idempotency_key"
         ],
         "title": "StartSessionBody",
+        "type": "object"
+      },
+      "StartTestBody": {
+        "additionalProperties": false,
+        "description": "The organizer names the saved profile to try; it is read, never activated or changed.",
+        "properties": {
+          "idempotency_key": {
+            "description": "Repeat the same key to retry safely; it never starts a second visit.",
+            "pattern": "^[A-Za-z0-9_-]{8,64}$",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "profile_id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Profile Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "profile_id"
+        ],
+        "title": "StartTestBody",
         "type": "object"
       },
       "TemplateLinks": {
@@ -2138,6 +2191,107 @@
         "summary": "Current Session",
         "tags": [
           "admin-auth"
+        ]
+      }
+    },
+    "/api/admin/booth-test/cleanup": {
+      "post": {
+        "description": "Clear away test visits that are over or were left behind. Guests' visits are untouched.",
+        "operationId": "clear_tests_api_admin_booth_test_cleanup_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear Tests",
+        "tags": [
+          "admin-booth-test"
+        ]
+      }
+    },
+    "/api/admin/booth-test/menu/{profile_id}": {
+      "get": {
+        "description": "The booth screens of a saved profile, exactly as a guest would see them.",
+        "operationId": "test_menu_api_admin_booth_test_menu__profile_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameMenuResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Menu",
+        "tags": [
+          "admin-booth-test"
+        ]
+      }
+    },
+    "/api/admin/booth-test/sessions": {
+      "post": {
+        "description": "Start a test visit on that profile. It never becomes the active event.",
+        "operationId": "start_test_api_admin_booth_test_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartTestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoothSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Test",
+        "tags": [
+          "admin-booth-test"
         ]
       }
     },
@@ -3450,6 +3604,56 @@
           }
         },
         "summary": "Add Capture",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}/captures/{capture_id}.jpg": {
+      "get": {
+        "description": "A photo of this visit, shown back on the booth screen that took it.",
+        "operationId": "capture_photo_api_booth_sessions__session_id__captures__capture_id__jpg_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "capture_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Capture Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Capture Photo",
         "tags": [
           "booth"
         ]

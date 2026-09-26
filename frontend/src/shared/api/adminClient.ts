@@ -1,4 +1,5 @@
 import type { Fetcher } from './client'
+import type { BoothSessionState, FrameMenu } from './client'
 import { DEVICE_KEY_HEADER, type DeviceKeyStore } from './deviceKey'
 import type { components } from './schema'
 
@@ -337,6 +338,18 @@ export function createAdminApiClient(
     getAsset: (id: string) => send<MediaAsset>('GET', `/api/admin/assets/${encodeURIComponent(id)}`),
     /** Same-origin image URL; the admin cookie authorizes it (usable directly in <img src>). */
     assetContentUrl: (id: string) => `/api/admin/assets/${encodeURIComponent(id)}/content`,
+
+    // ---- "Test booth": the organizer tries a saved profile with the real camera -----------
+    /** That profile's booth screens, exactly as a guest would see them. It is only read. */
+    boothTestMenu: (profileId: string) =>
+      send<FrameMenu>('GET', `/api/admin/booth-test/menu/${encodeURIComponent(profileId)}`),
+    /** Start a test visit on that profile. It never becomes the active event. */
+    startBoothTest: (profileId: string, idempotencyKey: string) =>
+      send<BoothSessionState>('POST', '/api/admin/booth-test/sessions', {
+        json: { profile_id: profileId, idempotency_key: idempotencyKey },
+      }),
+    /** Clear away test visits that are over or were left behind (never a guest's). */
+    clearBoothTests: () => send<undefined>('POST', '/api/admin/booth-test/cleanup'),
   }
 }
 

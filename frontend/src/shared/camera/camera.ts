@@ -222,7 +222,6 @@ export class TestCamera implements CameraSource {
   }
 }
 
-export const TEST_CAMERA_SETTING = 'pb.booth.camera'
 export const CAMERA_DEVICE_SETTING = 'pb.booth.cameraDevice'
 
 /** The camera this booth was told to use (an operator's choice, kept for the next visits). */
@@ -244,35 +243,10 @@ export function rememberCamera(deviceId: string | null): void {
 }
 
 /**
- * `?camera=test` is remembered as the page loads, because the booth screen that needs the camera
- * is reached by navigation, long after that address has gone.
+ * The camera of this booth. There is only one kind in the running app: the machine's own camera
+ * through the browser. The drawn `TestCamera` above is never chosen here — automated tests hand
+ * it to a screen directly — so a booth can never quietly photograph generated pictures.
  */
-export function rememberCameraPreference(
-  search: string = typeof window === 'undefined' ? '' : window.location.search,
-): void {
-  try {
-    const wanted = new URLSearchParams(search).get('camera')
-    if (wanted) window.localStorage.setItem(TEST_CAMERA_SETTING, wanted)
-  } catch {
-    // Storage may be unavailable; the booth then simply uses the real camera.
-  }
-}
-
-/**
- * Which camera this booth uses. The drawn test camera is only ever available in Dummy, and only
- * when it is asked for by `?camera=test` (kept for the rest of the visit in this browser).
- */
-export function chooseCamera(
-  instance: string,
-  search: string = typeof window === 'undefined' ? '' : window.location.search,
-): CameraSource {
-  if (instance !== 'dummy') return new BrowserCamera()
-  rememberCameraPreference(search)
-  let wanted: string | null = null
-  try {
-    wanted = window.localStorage.getItem(TEST_CAMERA_SETTING)
-  } catch {
-    // Storage may be unavailable; the booth then simply uses the real camera.
-  }
-  return wanted === 'test' ? new TestCamera() : new BrowserCamera()
+export function chooseCamera(): CameraSource {
+  return new BrowserCamera()
 }

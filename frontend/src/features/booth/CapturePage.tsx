@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
 
-import { ApiError, type BoothSessionState } from '../../shared/api/client'
+import { ApiError, type BoothSessionState, type ShotState } from '../../shared/api/client'
 import { useApiClient } from '../../shared/api/ApiClientContext'
 import {
   CameraError,
@@ -22,6 +21,8 @@ import {
   EventText,
 } from '../../shared/eventUi/EventUi'
 import { useBoothMenu } from './boothMenu'
+import { useBoothServices } from './boothServices'
+import { CapturedPhotos } from './CapturedPhotos'
 import styles from './CapturePage.module.css'
 
 /**
@@ -59,8 +60,7 @@ interface CapturePageProps {
 export function CapturePage({ camera: given }: CapturePageProps = {}) {
   const api = useApiClient()
   const menu = useBoothMenu()
-  const navigate = useNavigate()
-  const instance = (import.meta.env.PHOTOBOOTH_INSTANCE as string | undefined) ?? 'dummy'
+  const booth = useBoothServices()
 
   const [session, setSession] = useState<BoothSessionState | null>(null)
   const [phase, setPhase] = useState<Phase>('starting')
@@ -78,7 +78,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   // The photo waiting for its answer. A retry sends these very bytes again under the same key,
   // so a lost answer never turns into a second (different) photo (P67-002).
   const pending = useRef<PendingPhoto | null>(null)
-  const camera = useMemo(() => given ?? chooseCamera(instance), [given, instance])
+  const camera = useMemo(() => given ?? chooseCamera(), [given])
 
   const clearTimers = useCallback(() => {
     for (const timer of timers.current) window.clearTimeout(timer)
@@ -99,6 +99,14 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   }, [])
 
   const next = useMemo(() => session?.shots.find((shot) => !shot.done) ?? null, [session])
+  /** Where one shot's own photo lives; null while that shot has none (never another's). */
+  const photoUrl = useCallback(
+    (shot: ShotState) =>
+      session && shot.capture_id
+        ? api.captureImageUrl(session.id, shot.capture_id, shot.version ?? undefined)
+        : null,
+    [api, session],
+  )
   const taken = session?.taken ?? 0
   const total = session?.expected_captures ?? 0
   const capturing = session?.state === 'capturing'
@@ -111,19 +119,19 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
         const current = await api.currentSession()
         if (!alive) return
         if (!current || current.state === 'eligibility_ok') {
-          navigate('/booth/frames', { replace: true }) // no frame chosen yet
+          booth.go('frames', { replace: true }) // no frame chosen yet
           return
         }
         setSession(current)
         setPhase(current.state === 'capturing' ? 'ready' : 'complete')
       } catch {
-        if (alive) navigate('/booth/frames', { replace: true })
+        if (alive) booth.go('frames', { replace: true })
       }
     })()
     return () => {
       alive = false
     }
-  }, [api, navigate])
+  }, [api, booth])
 
   // ---- the camera -------------------------------------------------------------------------
   // Bumped by "Try again" and by picking another camera: the effect opens it once per value.
@@ -241,14 +249,14 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
           setPhase(fresh.state === 'capturing' ? 'ready' : 'complete')
           return
         } catch {
-          navigate('/booth/frames', { replace: true })
+          booth.go('frames', { replace: true })
           return
         }
       }
       setProblem({ text: 'That photo did not reach the booth. Try again.', kind: 'session' })
       setPhase('ready')
     }
-  }, [api, later, navigate, next, seenSomebody, session])
+  }, [api, later, booth, next, seenSomebody, session])
 
   // ---- the countdown -----------------------------------------------------------------------
   const startCountdown = useCallback(() => {
@@ -307,9 +315,9 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
           // Leaving always works for the participant; the visit also ends by itself.
         }
       }
-      navigate('/booth', { replace: reason === 'timed-out' })
+      booth.go('start', { replace: reason === 'timed-out' })
     },
-    [api, clearTimers, navigate, session, stopCamera],
+    [api, booth, clearTimers, session, stopCamera],
   )
 
   // Nobody at the booth for the event's inactivity time: the visit ends and the booth goes back
@@ -369,6 +377,9 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
 
   const tokens = menu.isSuccess ? menu.data.theme : {}
   const complete = session.taken >= session.expected_captures
+  const frameName = menu.isSuccess
+    ? (menu.data.frames.find((frame) => frame.id === session.frame_id)?.name ?? null)
+    : null
   const canRetakeOne = capturing && session.retake_mode === 'per_photo'
   const canRetakeAll = capturing && session.retake_mode === 'all'
 
@@ -381,17 +392,11 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
             ? `${session.taken} of ${total} photos`
             : `Photo ${Math.min(taken + 1, total)} of ${total}`}
         </p>
-        <ul className={styles.dots} aria-label="Photos taken">
-          {session.shots.map((shot) => (
-            <li
-              key={shot.shot_index}
-              className={styles.dot}
-              data-done={shot.done ? '' : undefined}
-              data-current={!complete && shot.shot_index === next?.shot_index ? '' : undefined}
-              aria-label={`Photo ${shot.shot_index}${shot.done ? ', taken' : ''}`}
-            />
-          ))}
-        </ul>
+        {booth.isTest && (
+          <p className={styles.testBadge} data-testid="test-badge">
+            TEST — nothing here is kept
+          </p>
+        )}
       </div>
 
       <div className={styles.stage}>
@@ -440,6 +445,15 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
         )}
       </div>
 
+      {/* Every shot has its place here, in order: a photo only ever appears under its own number. */}
+      <CapturedPhotos
+        shots={session.shots}
+        photoUrl={photoUrl}
+        large={complete}
+        busy={busy}
+        {...(canRetakeOne ? { onRetake: (shot: number) => void retake(shot) } : {})}
+      />
+
       <div className={styles.actions}>
         {devices.length > 1 && capturing && (
           <label className={styles.cameraPicker}>
@@ -463,9 +477,12 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
         {complete ? (
           <>
             <EventText>
-              {capturing
-                ? 'Happy with these?'
-                : 'The photos are ready for the next step.'}
+              {frameName && session.layout_label
+                ? `${frameName} · ${session.layout_label} · ${session.taken} photos`
+                : `${session.taken} photos`}
+            </EventText>
+            <EventText>
+              {capturing ? 'Happy with these?' : 'The photos are ready for the next step.'}
             </EventText>
             {canRetakeAll && (
               <EventButton variant="secondary" disabled={busy} onClick={() => void retake()}>

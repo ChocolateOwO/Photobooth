@@ -88,6 +88,11 @@ class CaptureRefusedError(SessionError):
     """The photo itself is not usable (not a JPEG, too small, too large)."""
 
 
+class CaptureNotFoundError(SessionError):
+    def __init__(self) -> None:
+        super().__init__("that photo is not part of this booth session")
+
+
 class TooManyCapturesError(SessionError):
     def __init__(self, shot_index: int) -> None:
         super().__init__(f"photo {shot_index} has been retaken too many times")
@@ -225,6 +230,9 @@ class BoothSession:
     completed_at: datetime | None = None
     error_code: str | None = None
     eligibility: Mapping[str, str] | None = None
+    # An organizer trying the booth from Admin, not a guest. Test visits and their photos are
+    # scratch data: they are cleaned up when the test ends and swept when they go stale.
+    is_test: bool = False
 
     @property
     def closed(self) -> bool:
@@ -295,6 +303,9 @@ class ShotProgress:
     shot_index: int
     attempt_no: int
     done: bool
+    # The photo that counts for this shot, so the screen can show it back to the guest.
+    capture_id: str | None = None
+    version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -328,9 +339,13 @@ class EligibilityProvider(Protocol):
 
 
 class ActiveEvent(Protocol):
-    """The active Event Profile, flattened for a snapshot (from the event_profiles module)."""
+    """An Event Profile flattened for a snapshot (from the event_profiles module).
 
-    def snapshot(self) -> ProfileSnapshot | None: ...
+    `profile_id` is None for the event the booth is running; the Admin test names a saved profile
+    instead, which is read but never activated or changed.
+    """
+
+    def snapshot(self, profile_id: str | None = None) -> ProfileSnapshot | None: ...
 
 
 class CaptureImages(Protocol):
@@ -345,6 +360,8 @@ class CaptureFiles(Protocol):
     def put(self, key: str, data: bytes) -> None: ...
 
     def exists(self, key: str) -> bool: ...
+
+    def read(self, key: str) -> bytes: ...
 
     def delete(self, key: str) -> None: ...
 
@@ -434,6 +451,14 @@ class SessionRepository(ABC):
     @abstractmethod
     def pinned_frames(self) -> set[str]:
         """Frames that visits in progress depend on; their files may not be replaced or removed."""
+
+    @abstractmethod
+    def finished_test_sessions(self, before: datetime) -> list[str]:
+        """Test visits that ended, or went stale, and may be cleared away. Never a guest's."""
+
+    @abstractmethod
+    def forget_test_session(self, session_id: str) -> list[str]:
+        """Remove a test visit and its rows; returns the files that belonged to it."""
 
     @abstractmethod
     def unfinished_operations(self, boot_id: str) -> list[Operation]:

@@ -121,9 +121,11 @@ class _BoothEvent:
     def __init__(self, profiles: EventProfileService) -> None:
         self._profiles = profiles
 
-    def offer(self) -> EventOffer | None:
-        active = self._profiles.get_active()
-        if active is None:
+    def offer(self, profile_id: str | None = None) -> EventOffer | None:
+        active = (
+            self._profiles.get_active() if profile_id is None else self._profiles.get(profile_id)
+        )
+        if active is None or active.deleted:
             return None
         settings = active.settings
         return EventOffer(
@@ -257,9 +259,13 @@ class _SessionEvent:
         self._frames = frames
         self._templates = templates
 
-    def snapshot(self) -> SessionProfileSnapshot | None:
-        profile = self._profiles.get_active()
-        if profile is None:
+    def snapshot(self, profile_id: str | None = None) -> SessionProfileSnapshot | None:
+        # No profile named: the event the booth is running. Named: a saved profile the organizer
+        # is testing from Admin, which is only read (never activated or changed).
+        profile = (
+            self._profiles.get_active() if profile_id is None else self._profiles.get(profile_id)
+        )
+        if profile is None or profile.deleted:
             return None
         settings = profile.settings
         layouts: list[LayoutOffer] = []
@@ -340,6 +346,9 @@ class _CaptureFiles:
 
     def exists(self, key: str) -> bool:
         return self._storage.exists(StorageKey(key))
+
+    def read(self, key: str) -> bytes:
+        return self._storage.get(StorageKey(key))
 
     def delete(self, key: str) -> None:
         self._storage.delete(StorageKey(key))

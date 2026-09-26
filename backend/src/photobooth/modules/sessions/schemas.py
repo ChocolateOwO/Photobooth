@@ -28,6 +28,12 @@ class StartSessionBody(BaseModel):
     )
 
 
+class StartTestBody(StartSessionBody):
+    """The organizer names the saved profile to try; it is read, never activated or changed."""
+
+    profile_id: FrameId
+
+
 class ChooseFrameBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -51,16 +57,27 @@ class ShotResponse(BaseModel):
     shot_index: int
     attempt_no: int
     done: bool
+    capture_id: str | None = Field(
+        default=None, description="The photo that counts for this shot; null while it is missing."
+    )
+    version: str | None = Field(default=None, description="Changes when the photo does.")
 
     @classmethod
     def of(cls, shot: ShotProgress) -> ShotResponse:
-        return cls(shot_index=shot.shot_index, attempt_no=shot.attempt_no, done=shot.done)
+        return cls(
+            shot_index=shot.shot_index,
+            attempt_no=shot.attempt_no,
+            done=shot.done,
+            capture_id=shot.capture_id,
+            version=shot.version,
+        )
 
 
 class BoothSessionResponse(BaseModel):
     """The session as the booth screens see it."""
 
     id: str
+    is_test: bool = Field(description="An organizer trying the booth from Admin, not a guest.")
     state: str
     state_version: int
     countdown_seconds: int
@@ -81,6 +98,7 @@ class BoothSessionResponse(BaseModel):
         selection = session.selection
         return cls(
             id=session.id,
+            is_test=session.is_test,
             state=str(session.state),
             state_version=session.state_version,
             countdown_seconds=session.countdown_seconds,

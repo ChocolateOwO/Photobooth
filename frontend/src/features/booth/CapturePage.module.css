@@ -145,6 +145,16 @@
   justify-content: center;
 }
 
+.testBadge {
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background-color: var(--ev-warning-bg);
+  color: var(--ev-warning-text);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
 .cameraPicker {
   display: flex;
   align-items: center;

@@ -151,7 +151,9 @@ class EventImages(Protocol):
 
 
 class ActiveEvent(Protocol):
-    def offer(self) -> EventOffer | None: ...
+    """The event the booth runs, or (for the Admin test) a saved profile read by its id."""
+
+    def offer(self, profile_id: str | None = None) -> EventOffer | None: ...
 
 
 class FrameDirectory(Protocol):

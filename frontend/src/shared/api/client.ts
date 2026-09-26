@@ -133,6 +133,9 @@ export function createApiClient(
         },
         photo,
       ),
+    /** One photo of this visit, for the screen that took it (a same-origin <img> source). */
+    captureImageUrl: (sessionId: string, captureId: string, version?: string) =>
+      `/api/booth/sessions/${sessionId}/captures/${captureId}.jpg${version ? `?v=${version}` : ''}`,
     /**
      * Take one photo again, or the whole set when no photo is named. `stateVersion` says which
      * state of the visit this answers, so a late second tap is refused rather than obeyed.

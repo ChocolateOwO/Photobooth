@@ -5,9 +5,10 @@ import { PERSISTED, pairAndSignIn, profileRow } from './support/admin'
 /**
  * The photo session: from the confirmed frame to a full set of photos.
  *
- * Dummy's drawn test camera (`?camera=test`) stands in for hardware, so these runs need no
- * webcam and every photo differs. The browser camera itself is exercised through its refusals:
- * a blocked camera, a missing one and one unplugged mid-session.
+ * There is only one camera in the booth: the machine's own, through `getUserMedia`. These runs
+ * point that same code path at Chromium's fake capture device (see the Playwright config), so no
+ * webcam is needed and the picture still moves. The refusals are exercised too: a blocked camera,
+ * a missing one and one unplugged mid-session.
  */
 
 test.describe.configure({ mode: 'serial' })
@@ -25,9 +26,9 @@ function sizePill(page: Page, label: string) {
     .getByRole('button', { name: new RegExp(`^${label}`) })
 }
 
-/** The booth as a guest sees it, with the drawn camera Dummy provides for testing. */
+/** The booth exactly as a guest opens it: a plain address, and the machine's own camera. */
 async function openBooth(page: Page, path = '/booth/frames'): Promise<void> {
-  await page.goto(`${path}${path.includes('?') ? '&' : '?'}camera=test`)
+  await page.goto(path)
 }
 
 async function chooseFrame(page: Page, label: string): Promise<void> {
@@ -133,6 +134,29 @@ for (const layout of LAYOUTS) {
     expect(finished.shots.filter((shot) => shot.done)).toHaveLength(layout.photos)
     expect(new Set(finished.shots.map((shot) => shot.shot_index)).size).toBe(layout.photos)
     await expect(page.getByRole('heading', { name: 'All photos taken' })).toBeVisible()
+
+    // One place per shot, each holding its own photo — and the review says what was made.
+    const slots = page.getByTestId('captured-photo')
+    await expect(slots).toHaveCount(layout.photos)
+    const sources = new Set<string>()
+    for (let shot = 1; shot <= layout.photos; shot += 1) {
+      const slot = slots.nth(shot - 1)
+      await expect(slot).toContainText(`Photo ${shot}`)
+      sources.add(String(await slot.getByRole('img').getAttribute('src')))
+    }
+    expect(sources.size).toBe(layout.photos) // no photo stands in for another
+    await expect(
+      page.getByText(`Midnight · ${layout.pill} · ${layout.photos} photos`),
+    ).toBeVisible()
+
+    // A guest can look at any one of them, big, without disturbing the camera.
+    await page.getByRole('button', { name: 'Photo 1, see it bigger' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: 'Photo 1' })).toBeVisible()
+    await expect(dialog.getByTestId('photo-large')).toBeVisible()
+    await expect(page.getByLabel('Camera preview')).toHaveCount(1)
+    await dialog.getByRole('button', { name: 'Close' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
 
     await page.getByRole('button', { name: 'These are good' }).click()
     // The visit leaves the camera behind and waits for the review step of a later phase.
@@ -276,7 +300,7 @@ test('a blocked camera says so and works after it is allowed', async ({ page }) 
       blocked = false
     }
   })
-  await page.goto('/booth/frames?camera=real')
+  await page.goto('/booth/frames')
   await page.getByRole('tab', { name: '3×4' }).click()
   await chooseFrame(page, 'Midnight')
 
@@ -307,7 +331,7 @@ test('a booth with no camera explains it and offers a way out', async ({ page })
       },
     })
   })
-  await page.goto('/booth/frames?camera=real')
+  await page.goto('/booth/frames')
   await page.getByRole('tab', { name: '3×4' }).click()
   await chooseFrame(page, 'Midnight')
   await expect(page.getByRole('alert')).toContainText('No camera is connected to this booth')
@@ -342,7 +366,7 @@ test('a camera unplugged in the middle of a session is reported, not ignored', a
       for (const track of stream?.getTracks() ?? []) track.stop()
     }
   })
-  await page.goto('/booth/frames?camera=real')
+  await page.goto('/booth/frames')
   await page.getByRole('tab', { name: '3×4' }).click()
   await chooseFrame(page, 'Midnight')
   await waitForPhotos(page, 1)

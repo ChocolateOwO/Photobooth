@@ -35,8 +35,25 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:5192',
     trace: 'off',
+    // A click that can never happen should say which one it was, not sit until the test's own
+    // timeout and take the reason with it.
+    actionTimeout: 15_000,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // The booth always uses the machine's own camera through getUserMedia. On a build machine
+        // that camera is Chromium's own fake device: the real code path, a moving picture, and no
+        // permission pop-up — never a drawn camera inside the app.
+        permissions: ['camera'],
+        launchOptions: {
+          args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+        },
+      },
+    },
+  ],
   webServer: [
     {
       command: `"${python}" -m photobooth serve --env-file "${envFile}" --expect-root "${instanceRoot}" --expect-profile e2e`,

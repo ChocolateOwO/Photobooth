@@ -1,0 +1,108 @@
+/* "Test booth": the organizer's own run of the booth, inside Admin. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  max-width: 640px;
+}
+
+.heading {
+  margin: 0;
+  color: var(--pb-color-heading);
+}
+
+.intro,
+.hint {
+  margin: 0;
+  color: var(--pb-color-muted);
+  max-width: 60ch;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.label {
+  color: var(--pb-color-text);
+  font-weight: 600;
+}
+
+.select {
+  min-height: var(--pb-touch-target);
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--pb-color-border);
+  background-color: var(--pb-color-input-bg);
+  color: var(--pb-color-text);
+  font: inherit;
+}
+
+.start,
+.exit {
+  min-height: var(--pb-touch-target);
+  padding: 12px 24px;
+  border-radius: 999px;
+  border: 0;
+  background-color: var(--pb-color-accent);
+  color: var(--pb-color-accent-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.start:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.runner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: calc(100vh - 140px);
+  min-height: 420px;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.badge {
+  margin: 0;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background-color: var(--pb-color-warning-bg, #7a4b00);
+  color: var(--pb-color-warning-text, #ffe9c2);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.exit {
+  background-color: var(--pb-color-surface);
+  color: var(--pb-color-text);
+  border: 1px solid var(--pb-color-border);
+}
+
+/* The booth's own screens, drawn at the size they have here. */
+.screen {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--pb-color-border);
+  container-type: inline-size;
+}
+
+.screen > * {
+  width: 100%;
+  height: 100%;
+}

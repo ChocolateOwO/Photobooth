@@ -48,8 +48,10 @@ class BoothService:
         self._previews = previews
         self._images = images
 
-    def _offer(self) -> EventOffer:
-        offer = self._event.offer()
+    def _offer(self, profile_id: str | None = None) -> EventOffer:
+        # No profile named: the event the booth is running. Named: a saved profile the organizer
+        # is trying from Admin, which is read but never activated.
+        offer = self._event.offer(profile_id)
         if offer is None:
             raise NoActiveEventError()
         return offer
@@ -78,9 +80,9 @@ class BoothService:
             raise ImageNotSetError(kind)
         return image
 
-    def menu(self) -> FrameMenu:
+    def menu(self, profile_id: str | None = None) -> FrameMenu:
         """Every valid frame of the event's photo sizes whose layout is known, in stable order."""
-        offer = self._offer()
+        offer = self._offer(profile_id)
         frames: list[BoothFrame] = []
         for frame in self._frames.offered(offer.layouts):
             facts = self._layouts.facts(frame.template_key, frame.template_version)

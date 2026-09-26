@@ -37,6 +37,7 @@ from tests.unit.test_frame_validator import frame_png
 
 PROFILES = "/api/admin/profiles"
 SESSIONS = "/api/booth/sessions"
+MENU = "/api/booth/frames"
 STRIP = builtin_frame_id("midnight", "strip_2x6")  # 2x6: six photos, two strips
 PRINT34 = builtin_frame_id("celebration_gold", "print_3x4")  # 3x4: two photos
 PRINT46 = builtin_frame_id("minimal_light", "print_4x6")  # 4x6: four photos
@@ -694,3 +695,184 @@ def test_a_visit_used_again_at_the_last_moment_is_not_ended_behind_the_guest(
     # A visit that really is idle still ends.
     repository.touch(session["id"], long_ago)
     assert session["id"] in repository.close_inactive(datetime.now(UTC))
+
+
+# ---- the organizer's own test of the booth (Admin "Test booth") -----------------------------
+
+TEST_SESSIONS = "/api/admin/booth-test/sessions"
+TEST_MENU = "/api/admin/booth-test/menu"
+
+
+def test_the_organizer_tests_a_saved_profile_without_activating_it(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    admin, device = booth(kiosk_client, container)
+    activate(kiosk_client, admin, name="Live event", enabled_layouts=["strip_2x6"])
+    other = kiosk_client.post(
+        PROFILES,
+        json={
+            "name": "Next week",
+            "title": "Soon",
+            "enabled_layouts": ["print_3x4"],
+            "countdown_seconds": 9,
+        },
+        headers=admin,
+    ).json()
+
+    menu = kiosk_client.get(f"{TEST_MENU}/{other['id']}", headers=admin)
+    assert menu.status_code == 200, menu.text
+    assert menu.json()["countdown_seconds"] == 9
+    assert {frame["plan"]["template_key"] for frame in menu.json()["frames"]} == {"print_3x4"}
+
+    started = kiosk_client.post(
+        TEST_SESSIONS,
+        json={"idempotency_key": "test-visit-1", "profile_id": other["id"]},
+        headers=admin,
+    )
+    assert started.status_code == 201, started.text
+    session = started.json()
+    assert session["is_test"] is True
+    assert session["countdown_seconds"] == 9  # the profile under test, not the live one
+
+    # The live event is untouched: still active, still the one the booth offers.
+    profiles = {p["settings"]["name"]: p for p in kiosk_client.get(PROFILES, headers=admin).json()}
+    assert profiles["Live event"]["is_active"] is True
+    assert profiles["Next week"]["is_active"] is False
+    assert profiles["Next week"]["revision"] == other["revision"]
+    assert kiosk_client.get(MENU, headers=device).json()["layouts"] == ["strip_2x6"]
+
+
+def test_a_test_visit_takes_photos_like_a_guest_and_leaves_nothing_behind(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    admin, device = booth(kiosk_client, container)
+    profile = activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
+    session = kiosk_client.post(
+        TEST_SESSIONS,
+        json={"idempotency_key": "test-visit-2", "profile_id": profile["id"]},
+        headers=admin,
+    ).json()
+    choose(kiosk_client, device, session["id"], PRINT34)
+    for shot in (1, 2):
+        assert send(kiosk_client, device, session["id"], shot).status_code == 200
+    captures = container.session_service._repository.captures(session["id"])
+    files = [capture.storage_key for capture in captures if capture.storage_key]
+    assert len(files) == 2
+    for key in files:
+        assert container.storage.exists(StorageKey(key))
+
+    # Leaving the test clears its photos, its rows and its files.
+    assert (
+        kiosk_client.post(f"{SESSIONS}/{session['id']}/give-up", headers=device).status_code == 200
+    )
+    assert container.session_service._repository.get(session["id"]) is None
+    assert container.session_service._repository.captures(session["id"]) == []
+    for key in files:
+        assert not container.storage.exists(StorageKey(key))
+
+
+def test_clearing_test_visits_never_touches_a_guests_photos(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    admin, device = booth(kiosk_client, container)
+    profile = activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
+    guest = choose(kiosk_client, device, start(kiosk_client, device)["id"], PRINT34)
+    assert send(kiosk_client, device, guest["id"], 1).status_code == 200
+    guest_files = [
+        capture.storage_key
+        for capture in container.session_service._repository.captures(guest["id"])
+    ]
+
+    # The organizer tests meanwhile (this ends the guest's visit on this one device, as always).
+    test_session = kiosk_client.post(
+        TEST_SESSIONS,
+        json={"idempotency_key": "test-visit-3", "profile_id": profile["id"]},
+        headers=admin,
+    ).json()
+    choose(kiosk_client, device, test_session["id"], PRINT34)
+    assert send(kiosk_client, device, test_session["id"], 1).status_code == 200
+
+    cleared = kiosk_client.post("/api/admin/booth-test/cleanup", headers=admin)
+    assert cleared.status_code == 204
+    assert container.session_service._repository.get(test_session["id"]) is None
+    # The guest's visit and photo are still exactly where they were.
+    kept = container.session_service._repository.get(guest["id"])
+    assert kept is not None and kept.successful_capture_count == 1
+    for key in guest_files:
+        assert key is not None and container.storage.exists(StorageKey(key))
+
+
+def test_repeated_tests_do_not_pile_up_rows_or_files(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    admin, device = booth(kiosk_client, container)
+    profile = activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
+    for round_no in range(4):
+        session = kiosk_client.post(
+            TEST_SESSIONS,
+            json={"idempotency_key": f"test-round-{round_no}", "profile_id": profile["id"]},
+            headers=admin,
+        ).json()
+        choose(kiosk_client, device, session["id"], PRINT34)
+        assert send(kiosk_client, device, session["id"], 1).status_code == 200
+        assert (
+            kiosk_client.post(f"{SESSIONS}/{session['id']}/give-up", headers=device).status_code
+            == 200
+        )
+    repository = container.session_service._repository
+    assert repository.finished_test_sessions(datetime.now(UTC) + timedelta(days=1)) == []
+    stored = list((container.settings.storage_dir / "captures").glob("*/*.jpg"))
+    assert stored == []  # nothing left over from four rounds
+
+
+def test_the_booth_shows_a_photo_back_only_to_the_screen_that_took_it(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    admin, device = booth(kiosk_client, container)
+    activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
+    session = choose(kiosk_client, device, start(kiosk_client, device)["id"], PRINT34)
+    sent = photo(1)
+    answer = send(kiosk_client, device, session["id"], 1, data=sent)
+    assert answer.status_code == 200
+    capture_id = answer.json()["capture_id"]
+
+    shown = kiosk_client.get(
+        f"{SESSIONS}/{session['id']}/captures/{capture_id}.jpg", headers=device
+    )
+    assert shown.status_code == 200
+    assert shown.content == sent  # the very photo that was taken
+    assert shown.headers["content-type"] == "image/jpeg"
+    assert shown.headers["cache-control"] == "private, no-store"
+    assert shown.headers["x-content-type-options"] == "nosniff"
+
+    # Each shot carries its own photo, and a shot without one carries nothing.
+    shots = kiosk_client.get(f"{SESSIONS}/{session['id']}", headers=device).json()["shots"]
+    assert shots[0]["capture_id"] == capture_id and shots[0]["done"] is True
+    assert shots[1]["capture_id"] is None and shots[1]["done"] is False
+
+    second = TestClient(
+        create_kiosk_app(container.registry, KioskAppOptions()), base_url="http://127.0.0.1:18111"
+    )
+    with second:
+        other = device_headers(adopt_device(second, container))
+        stranger = second.get(
+            f"{SESSIONS}/{session['id']}/captures/{capture_id}.jpg", headers=other
+        )
+        assert stranger.status_code == 404  # another device sees nothing of this visit
+
+
+def test_the_admin_test_needs_both_the_paired_device_and_an_admin_session(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    admin, device = booth(kiosk_client, container)
+    profile = activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
+    start_body = {"idempotency_key": "test-visit-9", "profile_id": profile["id"]}
+    # The booth's own headers are not enough: an admin request needs its CSRF header too.
+    assert kiosk_client.post(TEST_SESSIONS, json=start_body, headers=device).status_code == 403
+    # An admin session is required even for reading a profile's booth screens.
+    no_admin = {k: v for k, v in device.items()}
+    kiosk_client.post("/api/admin/auth/logout", headers=admin)
+    assert kiosk_client.get(f"{TEST_MENU}/{profile['id']}", headers=no_admin).status_code == 401
+    # And nothing at all without the paired device.
+    kiosk_client.cookies.clear()
+    assert kiosk_client.post(TEST_SESSIONS, json=start_body, headers=admin).status_code == 401

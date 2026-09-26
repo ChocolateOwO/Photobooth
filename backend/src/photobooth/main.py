@@ -25,6 +25,7 @@ from photobooth.modules.event_profiles.api import router as profiles_router
 from photobooth.modules.frames.api import router as frames_router
 from photobooth.modules.kiosk.api import booth_router, pairing_router, status_router
 from photobooth.modules.rendering.api import router as rendering_router
+from photobooth.modules.sessions.admin_api import router as booth_test_router
 from photobooth.modules.sessions.api import router as booth_sessions_router
 from photobooth.modules.system.api import router as system_router
 from photobooth.modules.templates.api import router as templates_router
@@ -60,6 +61,7 @@ def create_kiosk_app(registry: ServiceRegistry, options: KioskAppOptions) -> Fas
     app.include_router(themes_router)
     app.include_router(booth_frames_router)
     app.include_router(booth_sessions_router)
+    app.include_router(booth_test_router)
 
     if options.frontend_dist is not None and (options.frontend_dist / "index.html").is_file():
         _mount_spa(app, options.frontend_dist)

@@ -106,6 +106,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/booth-test/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clear Tests
+         * @description Clear away test visits that are over or were left behind. Guests' visits are untouched.
+         */
+        post: operations["clear_tests_api_admin_booth_test_cleanup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/booth-test/menu/{profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Test Menu
+         * @description The booth screens of a saved profile, exactly as a guest would see them.
+         */
+        get: operations["test_menu_api_admin_booth_test_menu__profile_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/booth-test/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Test
+         * @description Start a test visit on that profile. It never becomes the active event.
+         */
+        post: operations["start_test_api_admin_booth_test_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/frames": {
         parameters: {
             query?: never;
@@ -501,6 +561,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/booth/sessions/{session_id}/captures/{capture_id}.jpg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Capture Photo
+         * @description A photo of this visit, shown back on the booth screen that took it.
+         */
+        get: operations["capture_photo_api_booth_sessions__session_id__captures__capture_id__jpg_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/booth/sessions/{session_id}/finish": {
         parameters: {
             query?: never;
@@ -788,6 +868,11 @@ export interface components {
             id: string;
             /** Inactivity Timeout S */
             inactivity_timeout_s: number;
+            /**
+             * Is Test
+             * @description An organizer trying the booth from Admin, not a guest.
+             */
+            is_test: boolean;
             /** Layout Label */
             layout_label: string | null;
             /** Mirror */
@@ -1392,10 +1477,20 @@ export interface components {
         ShotResponse: {
             /** Attempt No */
             attempt_no: number;
+            /**
+             * Capture Id
+             * @description The photo that counts for this shot; null while it is missing.
+             */
+            capture_id?: string | null;
             /** Done */
             done: boolean;
             /** Shot Index */
             shot_index: number;
+            /**
+             * Version
+             * @description Changes when the photo does.
+             */
+            version?: string | null;
         };
         /** SlotModel */
         SlotModel: {
@@ -1441,6 +1536,19 @@ export interface components {
              * @description Repeat the same key to retry safely; it never starts a second visit.
              */
             idempotency_key: string;
+        };
+        /**
+         * StartTestBody
+         * @description The organizer names the saved profile to try; it is read, never activated or changed.
+         */
+        StartTestBody: {
+            /**
+             * Idempotency Key
+             * @description Repeat the same key to retry safely; it never starts a second visit.
+             */
+            idempotency_key: string;
+            /** Profile Id */
+            profile_id: string;
         };
         /** TemplateLinks */
         TemplateLinks: {
@@ -1743,6 +1851,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+        };
+    };
+    clear_tests_api_admin_booth_test_cleanup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    test_menu_api_admin_booth_test_menu__profile_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameMenuResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_test_api_admin_booth_test_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartTestBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -2681,6 +2871,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CaptureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    capture_photo_api_booth_sessions__session_id__captures__capture_id__jpg_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                capture_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
                 };
             };
             /** @description Validation Error */

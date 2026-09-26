@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
 
-import { useApiClient } from '../../shared/api/ApiClientContext'
+import { useBoothServices } from './boothServices'
 import { EventMessage, EventScreen } from '../../shared/eventUi/EventUi'
+import { useApiClient } from '../../shared/api/ApiClientContext'
 import { FrameCarousel } from '../../shared/eventUi/FrameCarousel'
 import { type GalleryFrame } from '../../shared/eventUi/framePlan'
 import { BoothLoadState } from './BoothLoadState'
@@ -35,10 +35,10 @@ function newKey(): string {
 
 /** Participant screen: choose the frame, confirm it, and the photo session begins. */
 export function FrameSelectPage() {
-  const api = useApiClient()
+  const booth = useBoothServices()
   const menu = useBoothMenu()
-  const navigate = useNavigate()
   const [lastChosen, setLastChosen] = useState<string | null>(() => remembered())
+  const api = useApiClient()
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   // Each confirmation is numbered; leaving the screen makes an answer still on its way obsolete.
@@ -82,12 +82,14 @@ export function FrameSelectPage() {
             setBusy(true)
             setProblem(null)
             try {
-              const session = await api.startSession(startKey.current)
-              const capturing = await api.chooseSessionFrame(session.id, frame.id)
+              // A guest starts a visit on the active event; the organizer's test starts one on
+              // the profile being tried. From here both take the same path.
+              const session = await booth.startVisit(startKey.current)
+              await api.chooseSessionFrame(session.id, frame.id)
               if (confirmation.current !== mine) return // superseded meanwhile
               setLastChosen(frame.id)
               remember(frame.id)
-              navigate('/booth/capture', { state: { session: capturing.id } })
+              booth.go('capture')
             } catch {
               if (confirmation.current !== mine) return
               setProblem('That frame could not be chosen. Please pick again.')

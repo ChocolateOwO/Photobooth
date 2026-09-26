@@ -24,6 +24,7 @@ from photobooth.core.web import device_identity, provide, require_device
 from photobooth.modules.sessions.domain import (
     MAX_CAPTURE_BYTES,
     BoothSession,
+    CaptureNotFoundError,
     CaptureRefusedError,
     EligibilityRefusedError,
     FrameNotOfferedError,
@@ -208,6 +209,31 @@ def finish(session_id: SessionId, service: Service, device: Device) -> BoothSess
         raise _not_found(exc) from exc
     except (SessionClosedError, StaleSessionError, TransitionRefusedError) as exc:
         raise _conflict(exc) from exc
+
+
+@router.get(
+    "/{session_id}/captures/{capture_id}.jpg",
+    response_class=Response,
+    responses={200: {"content": {"image/jpeg": {}}}},
+)
+def capture_photo(
+    session_id: SessionId, capture_id: SessionId, service: Service, device: Device
+) -> Response:
+    """A photo of this visit, shown back on the booth screen that took it."""
+    try:
+        data = service.photo(device, session_id, capture_id)
+    except (SessionNotFoundError, CaptureNotFoundError) as exc:
+        raise _not_found(exc) from exc
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={
+            "Content-Disposition": "inline",
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
 
 
 @router.post("/{session_id}/give-up", response_model=BoothSessionResponse)

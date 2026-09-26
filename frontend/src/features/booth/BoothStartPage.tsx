@@ -1,8 +1,8 @@
-import { useNavigate } from 'react-router'
 
 import { StartScreen } from '../../shared/eventUi/StartScreen'
 import { BoothLoadState } from './BoothLoadState'
 import { useBoothMenu } from './boothMenu'
+import { useBoothServices } from './boothServices'
 import styles from './BoothStartPage.module.css'
 
 /**
@@ -11,7 +11,7 @@ import styles from './BoothStartPage.module.css'
  */
 export function BoothStartPage() {
   const menu = useBoothMenu()
-  const navigate = useNavigate()
+  const booth = useBoothServices()
 
   if (menu.isPending) {
     return <p className={styles.loading}>Loading…</p>
@@ -28,7 +28,7 @@ export function BoothStartPage() {
         backgroundImageUrl={screen.background_url}
         logoUrl={screen.logo_url}
         startText={screen.start_button_text}
-        onStart={() => void navigate('/booth/frames')}
+        onStart={() => booth.go('frames')}
       />
     </div>
   )

@@ -12,7 +12,7 @@ import threading
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from weakref import WeakValueDictionary
 
 from photobooth.modules.sessions.domain import (
@@ -23,6 +23,7 @@ from photobooth.modules.sessions.domain import (
     CaptureFacts,
     CaptureFiles,
     CaptureImages,
+    CaptureNotFoundError,
     CaptureOutcome,
     CaptureRefusedError,
     CaptureStatus,
@@ -103,15 +104,27 @@ class BoothSessionService:
 
     # ---- starting and reading -------------------------------------------------------------
 
-    def start(self, device_id: str, idempotency_key: str) -> BoothSession:
-        """Begin a visit from the active event. A repeated key returns the same session."""
+    def start(
+        self,
+        device_id: str,
+        idempotency_key: str,
+        profile_id: str | None = None,
+        is_test: bool = False,
+    ) -> BoothSession:
+        """Begin a visit. A repeated key returns the same session.
+
+        `profile_id` and `is_test` belong to the Admin "Test booth" page: the organizer tries a
+        saved profile with the real camera, and that visit is scratch data from the start.
+        """
         with self._device_locks.held(device_id):
             # Visits nobody came back to are ended first, so the booth starts from a clean slate.
             self._repository.close_inactive(self._clock.now())
-            snapshot = self._event.snapshot()
+            if is_test:
+                self.clear_old_tests()
+            snapshot = self._event.snapshot(profile_id)
             if snapshot is None:
                 raise NoActiveEventError()
-            fingerprint = _fingerprint("session", snapshot.profile_id)
+            fingerprint = _fingerprint("session", snapshot.profile_id, is_test)
             recorded = self._repository.device_operation(device_id, idempotency_key)
             if recorded is not None:
                 if recorded.fingerprint != fingerprint:
@@ -140,6 +153,7 @@ class BoothSessionService:
                 started_at=now,
                 last_activity_at=now,
                 eligibility=dict(decision.details or {}),
+                is_test=is_test,
             )
             operation = DeviceOperation(
                 id=str(uuid.uuid4()),
@@ -164,10 +178,14 @@ class BoothSessionService:
         return self._load(device_id, session_id, allow_closed=True)
 
     def progress(self, session_id: str) -> list[ShotProgress]:
-        """Which photo is next and how far the session has come."""
+        """Which photo is next and how far the session has come.
+
+        A visit that is gone (a test the organizer just cleared away) simply has no photos left
+        to describe.
+        """
         session = self._repository.get(session_id)
         if session is None:
-            raise SessionNotFoundError()
+            return []
         done: dict[int, CaptureAsset] = {}
         attempts: dict[int, int] = {}
         for capture in self._repository.captures(session_id):
@@ -176,6 +194,8 @@ class BoothSessionService:
             )
             if capture.status is CaptureStatus.OK:
                 done[capture.shot_index] = capture
+        # Each shot carries the photo that counts for it, so a screen can never show the picture
+        # of another shot (a shot with no photo carries nothing at all).
         # For a photo still to be taken this is the attempt the booth must send next (a retake
         # moves it on); for one already taken, the attempt that counted.
         return [
@@ -183,6 +203,8 @@ class BoothSessionService:
                 shot_index=shot,
                 attempt_no=(done[shot].attempt_no if shot in done else attempts.get(shot, 0) + 1),
                 done=shot in done,
+                capture_id=done[shot].id if shot in done else None,
+                version=(done[shot].sha256 or "")[:16] if shot in done else None,
             )
             for shot in range(1, session.expected_capture_count + 1)
         ]
@@ -340,9 +362,47 @@ class BoothSessionService:
             if session is None or session.device_id != device_id:
                 raise SessionNotFoundError()
             if session.closed:
+                self._clear_test(session)
                 return session
             closed = self._repository.close(session_id, SessionState.CANCELLED, self._clock.now())
-            return closed or session
+            settled = closed or session
+            self._clear_test(settled)
+            return settled
+
+    def photo(self, device_id: str, session_id: str, capture_id: str) -> bytes:
+        """One photo of this visit, for the screen that took it. Only its own device may see it."""
+        with self._locks.held(session_id):
+            self._owned(device_id, session_id)
+            capture = self._repository.capture(capture_id)
+            if (
+                capture is None
+                or capture.session_id != session_id
+                or capture.status is not CaptureStatus.OK
+                or capture.storage_key is None
+            ):
+                raise CaptureNotFoundError()
+            try:
+                return self._files.read(capture.storage_key)
+            except Exception as exc:  # a stored photo that vanished is not a 500 for the booth
+                raise CaptureNotFoundError() from exc
+
+    def clear_old_tests(self, keep_for_seconds: int = 3600) -> int:
+        """Clear away the organizer's finished or forgotten test visits. Never a guest's."""
+        cutoff = self._clock.now() - timedelta(seconds=keep_for_seconds)
+        cleared = 0
+        for session_id in self._repository.finished_test_sessions(cutoff):
+            with self._locks.held(session_id):
+                for key in self._repository.forget_test_session(session_id):
+                    self._files.delete(key)
+                cleared += 1
+        return cleared
+
+    def _clear_test(self, session: BoothSession) -> None:
+        """A test visit leaves nothing behind once the organizer has finished with it."""
+        if not session.is_test:
+            return
+        for key in self._repository.forget_test_session(session.id):
+            self._files.delete(key)
 
     # ---- keeping the booth honest --------------------------------------------------------
 

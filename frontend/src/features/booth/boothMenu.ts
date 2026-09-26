@@ -1,9 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 
-import { useApiClient } from '../../shared/api/ApiClientContext'
+import { useBoothServices } from './boothServices'
 
-/** The active event as the participant screens see it (start screen, theme and frames). */
+/**
+ * The event as the booth screens see it (start screen, theme and frames).
+ *
+ * Guests get the active event; the Admin "Test booth" page gets the saved profile it is trying.
+ */
 export function useBoothMenu() {
-  const api = useApiClient()
-  return useQuery({ queryKey: ['booth', 'frames'], queryFn: () => api.frameMenu(), retry: false })
+  const booth = useBoothServices()
+  return useQuery({ queryKey: [...booth.key], queryFn: () => booth.menu(), retry: false })
 }

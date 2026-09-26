@@ -26,6 +26,9 @@
 
 .nav {
   display: flex;
+  /* The menu grows with the app; on a phone it wraps onto more lines rather than pushing the
+     page sideways. */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--pb-space);
 }

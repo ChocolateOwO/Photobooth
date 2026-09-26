@@ -34,6 +34,32 @@ export function defaultTheme() {
   return presetTheme(presetById(THEME_CATALOG.default_preset))
 }
 
+/** One shot of a booth visit, as the participant endpoints report it. */
+interface BoothShot {
+  shot_index: number
+  attempt_no: number
+  done: boolean
+  capture_id: string | null
+  version: string | null
+}
+
+interface BoothVisit {
+  id: string
+  is_test: boolean
+  state: string
+  state_version: number
+  countdown_seconds: number
+  mirror: boolean
+  retake_mode: string
+  inactivity_timeout_s: number
+  expected_captures: number
+  taken: number
+  template_key: string | null
+  layout_label: string | null
+  frame_id: string | null
+  shots: BoothShot[]
+}
+
 function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(status === 204 ? null : JSON.stringify(body), {
     status,
@@ -67,6 +93,12 @@ function template(key: string, name: string): TemplateSummary {
 export class FakeAdminServer {
   password = 'correct horse battery staple'
   signedIn = false
+  /** What the Admin "Test booth" page asked for, so tests can see it never activates anything. */
+  boothTestMenus: string[] = []
+  boothTestSessions: string[] = []
+  boothTestCleanups = 0
+  /** The test visit in progress, driven through the ordinary booth endpoints. */
+  boothVisit: { visit: BoothVisit; profileId: string } | null = null
   throttleSeconds: number | null = null
   csrf = 'c'.repeat(43)
   /** When set, the upload response waits for this promise (simulates a slow upload). */
@@ -166,6 +198,66 @@ export class FakeAdminServer {
     return frame
   }
 
+  /** That profile's booth screens, as the admin booth-test endpoint returns them. */
+  boothMenuFor(profile: EventProfile) {
+    const frames = [...this.frames.values()]
+      .filter(
+        (frame) =>
+          frame.status === 'valid' && profile.settings.enabled_layouts.includes(frame.template_key),
+      )
+      .map((frame) => ({
+        id: frame.id,
+        name: frame.name,
+        preview_url: `/api/admin/frames/${frame.id}/preview/1.jpg`,
+        plan: {
+          frame_id: frame.id,
+          template_key: frame.template_key,
+          layout_label: frame.template_key === 'strip_2x6' ? '2×6' : '3×4',
+          captures: frame.template_key === 'strip_2x6' ? 6 : 2,
+          outputs: frame.template_key === 'strip_2x6' ? 2 : 1,
+          photos_per_output: frame.template_key === 'strip_2x6' ? 3 : 2,
+          output_capture_groups: frame.template_key === 'strip_2x6' ? [[1, 2, 3], [4, 5, 6]] : [[1, 2]],
+          output_label: frame.template_key === 'strip_2x6' ? '2 strips' : null,
+        },
+      }))
+    return {
+      frames,
+      layouts: [...new Set(frames.map((frame) => frame.plan.template_key))],
+      allow_surprise_me: profile.settings.allow_surprise_me && frames.length >= 2,
+      theme: profile.settings.theme.tokens,
+      start_screen: {
+        start_button_text: profile.settings.start_button_text,
+        logo_url: null,
+        background_url: null,
+      },
+      countdown_seconds: profile.settings.countdown_seconds,
+    }
+  }
+
+  /** A test visit on that profile, as the admin booth-test endpoint returns it. */
+  boothTestSession(profile: EventProfile) {
+    const visit = {
+      id: this.id(),
+      is_test: true,
+      state: 'eligibility_ok',
+      state_version: 1,
+      countdown_seconds: profile.settings.countdown_seconds,
+      mirror: profile.settings.mirror,
+      retake_mode: profile.settings.retake_mode,
+      inactivity_timeout_s: profile.settings.inactivity_timeout_s,
+      expected_captures: 0,
+      taken: 0,
+      template_key: null,
+      layout_label: null,
+      frame_id: null,
+      shots: [] as BoothShot[],
+    }
+    // From here the test visit is an ordinary booth visit: the shared booth screens drive it
+    // through the participant endpoints below, exactly as a guest's visit does.
+    this.boothVisit = { visit, profileId: profile.id }
+    return visit
+  }
+
   seedProfile(settings: Partial<ProfileSettings> & { name: string }, extra: Partial<EventProfile> = {}) {
     const now = '2026-09-17T10:00:00Z'
     const profile: EventProfile = {
@@ -244,6 +336,69 @@ export class FakeAdminServer {
     this.requests.push({ method, path: `${path}${url.search}`, headers })
 
     if (path === '/api/templates' && method === 'GET') return json(this.templates)
+    // ---- "Test booth": a saved profile is read and tried, never activated or changed -------
+    if (path.startsWith('/api/admin/booth-test/menu/') && method === 'GET') {
+      if (!this.signedIn) return json({ detail: 'admin login required' }, 401)
+      const profileId = path.slice('/api/admin/booth-test/menu/'.length)
+      const profile = this.profiles.get(profileId)
+      if (!profile) return json({ detail: 'no such profile' }, 404)
+      this.boothTestMenus.push(profileId)
+      return json(this.boothMenuFor(profile))
+    }
+    if (path === '/api/admin/booth-test/sessions' && method === 'POST') {
+      if (!this.signedIn) return json({ detail: 'admin login required' }, 401)
+      const asked = JSON.parse(String(init?.body)) as { profile_id: string }
+      const profile = this.profiles.get(asked.profile_id)
+      if (!profile) return json({ detail: 'no such profile' }, 404)
+      this.boothTestSessions.push(asked.profile_id)
+      return json(this.boothTestSession(profile), 201)
+    }
+    if (path === '/api/admin/booth-test/cleanup' && method === 'POST') {
+      if (!this.signedIn) return json({ detail: 'admin login required' }, 401)
+      this.boothTestCleanups += 1
+      this.boothVisit = null
+      return new Response(null, { status: 204 })
+    }
+    // ---- the visit itself: the same participant endpoints a guest's booth uses -------------
+    if (path.startsWith('/api/booth/sessions')) {
+      const held = this.boothVisit
+      const rest = path.slice('/api/booth/sessions'.length)
+      if (rest === '/current' && method === 'GET') return json(held?.visit ?? null)
+      const action = /^\/([^/]+)(?:\/([a-z-]+))?$/.exec(rest)
+      if (action && held && action[1] === held.visit.id) {
+        const visit = held.visit
+        if (!action[2] && method === 'GET') return json(visit)
+        if (action[2] === 'frame' && method === 'POST') {
+          const asked = JSON.parse(String(init?.body)) as { frame_id: string }
+          const profile = this.profiles.get(held.profileId)
+          const frame = profile
+            ? this.boothMenuFor(profile).frames.find((f) => f.id === asked.frame_id)
+            : undefined
+          if (!frame) return json({ detail: 'no such frame' }, 404)
+          visit.state = 'capturing'
+          visit.state_version += 1
+          visit.frame_id = frame.id
+          visit.template_key = frame.plan.template_key
+          visit.layout_label = frame.plan.layout_label
+          visit.expected_captures = frame.plan.captures
+          visit.shots = Array.from({ length: frame.plan.captures }, (_unused, index) => ({
+            shot_index: index + 1,
+            attempt_no: 1,
+            done: false,
+            capture_id: null,
+            version: null,
+          }))
+          return json(visit)
+        }
+        if (action[2] === 'give-up' && method === 'POST') {
+          visit.state = 'gave_up'
+          visit.state_version += 1
+          return json(visit)
+        }
+      }
+      return json({ detail: 'no such session' }, 404)
+    }
+
     if (path === '/api/admin/themes' && method === 'GET' && this.signedIn) {
       return json(THEME_CATALOG)
     }

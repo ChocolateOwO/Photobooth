@@ -26,6 +26,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    delete,
     func,
     select,
     text,
@@ -71,6 +72,8 @@ class BoothSessionRow(Base):
             sqlite_where=text("state NOT IN ('completed', 'cancelled', 'error', 'abandoned')"),
         ),
         Index("ix_booth_sessions_state", "state"),
+        # The organizer's test visits are found (and cleared away) without reading the guests'.
+        Index("ix_booth_sessions_test", "is_test", sqlite_where=text("is_test = 1")),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -90,6 +93,7 @@ class BoothSessionRow(Base):
     last_activity_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class CaptureAssetRow(Base):
@@ -278,6 +282,7 @@ def _session_of(row: BoothSessionRow) -> BoothSession:
         completed_at=row.completed_at,
         error_code=row.error_code,
         eligibility=json.loads(row.eligibility_result) if row.eligibility_result else None,
+        is_test=row.is_test,
     )
 
 
@@ -413,6 +418,7 @@ class SqlSessionRepository(SessionRepository):
                     eligibility_result=json.dumps(dict(session.eligibility or {})),
                     started_at=session.started_at,
                     last_activity_at=session.last_activity_at,
+                    is_test=session.is_test,
                 )
             )
             db.add(
@@ -661,6 +667,34 @@ class SqlSessionRepository(SessionRepository):
             if settled is not None and settled.closed:
                 closed.append(session_id)
         return closed
+
+    def finished_test_sessions(self, before: datetime) -> list[str]:
+        """Test visits that are over, or were left behind, and may be cleared away."""
+        with self._sessions() as db:
+            rows = db.scalars(
+                select(BoothSessionRow).where(BoothSessionRow.is_test.is_(True))
+            ).all()
+            return [
+                row.id
+                for row in rows
+                if row.state in {str(state) for state in _TERMINAL} or row.last_activity_at < before
+            ]
+
+    def forget_test_session(self, session_id: str) -> list[str]:
+        """Remove one test visit with its photos and operations; a guest's visit is never taken."""
+        with self._sessions() as db, db.begin():
+            row = db.get(BoothSessionRow, session_id)
+            if row is None or not row.is_test:
+                return []  # never a real booth visit
+            keys = db.scalars(
+                select(CaptureAssetRow.storage_key).where(CaptureAssetRow.session_id == session_id)
+            ).all()
+            # Plain DELETEs, children first: the session's own foreign keys cascade anyway, so
+            # deleting each child through the identity map would only look for rows already gone.
+            db.execute(delete(OperationRow).where(OperationRow.session_id == session_id))
+            db.execute(delete(CaptureAssetRow).where(CaptureAssetRow.session_id == session_id))
+            db.execute(delete(BoothSessionRow).where(BoothSessionRow.id == session_id))
+            return [key for key in keys if key]
 
     def pinned_frames(self) -> set[str]:
         """Frames a visit in progress depends on: its own and every one its event offered."""
