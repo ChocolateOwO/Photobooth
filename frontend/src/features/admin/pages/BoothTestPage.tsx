@@ -46,7 +46,8 @@ export function BoothTestPage() {
   const profiles = useProfiles()
   const [profileId, setProfileId] = useState<string | null>(null)
   const [deviceId, setDeviceId] = useState<string | null>(() => rememberedCamera())
-  const [cameras, setCameras] = useState<CameraDevice[]>([])
+  // null until the browser has answered, so the hint below is never shown over a list still coming.
+  const [cameras, setCameras] = useState<CameraDevice[] | null>(null)
   const [running, setRunning] = useState(false)
   const [round, setRound] = useState(0)
 
@@ -137,14 +138,14 @@ export function BoothTestPage() {
           }}
         >
           <option value="">This machine&apos;s usual camera</option>
-          {cameras.map((camera) => (
+          {(cameras ?? []).map((camera) => (
             <option key={camera.id} value={camera.id}>
               {camera.label}
             </option>
           ))}
         </select>
       </label>
-      {cameras.length === 0 && (
+      {cameras !== null && cameras.length === 0 && (
         <p className={styles.hint}>
           Cameras are named once the browser has been allowed to use one; start the test and allow
           the camera, then come back here to choose another.
