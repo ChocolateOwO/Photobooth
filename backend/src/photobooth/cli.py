@@ -68,6 +68,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
             migrator = Migrator(settings.db_path)
             if migrator.current_revision() == migrator.head_revision():
                 container.restore_builtin_files()
+                # Photos left half-published by a process that died are settled before serving.
+                container.session_service.recover()
             kiosk_spec, delivery_spec = listener_specs(settings)
             kiosk_app = create_kiosk_app(
                 container.registry,
@@ -142,6 +144,8 @@ def cmd_db_upgrade(args: argparse.Namespace) -> int:
             if migrator.current_revision() == migrator.head_revision():
                 # Built-in frame rows exist from 0004 on; their packaged files go into storage.
                 container.restore_builtin_files()
+                # Photos left half-published by a process that died are settled before serving.
+                container.session_service.recover()
         finally:
             container.close()
     print(json.dumps({"db": str(settings.db_path), "revision": args.revision, "instance": stamped}))

@@ -6,6 +6,7 @@ import { FrameManagerPage } from '../features/admin/pages/FrameManagerPage'
 import { ProfileEditorPage } from '../features/admin/pages/ProfileEditorPage'
 import { ProfileListPage } from '../features/admin/pages/ProfileListPage'
 import { BoothStartPage } from '../features/booth/BoothStartPage'
+import { CapturePage } from '../features/booth/CapturePage'
 import { FrameSelectPage } from '../features/booth/FrameSelectPage'
 import { SystemHomePage } from '../features/system/SystemHomePage'
 import { buildInstance } from '../shared/config/instance'
@@ -30,6 +31,7 @@ export const routes = [
   },
   { path: '/booth', element: <BoothStartPage /> },
   { path: '/booth/frames', element: <FrameSelectPage /> },
+  { path: '/booth/capture', element: <CapturePage /> },
   { path: '*', element: <SystemHomePage instance={buildInstance} /> },
 ]
 

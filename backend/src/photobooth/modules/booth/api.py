@@ -4,7 +4,8 @@
                                               the start screen (Start text, logo/background URLs)
 - GET  /api/booth/start/{logo|background}     the active event's own logo or background image
 - GET  /api/booth/frames/{id}/preview.jpg     rendered sample of an offered frame
-- POST /api/booth/frame-choice                confirm a frame; returns its capture/output plan
+Confirming a frame belongs to a visit, so it lives with the session routes
+(POST /api/booth/sessions/{id}/frame), not here.
 
 Only what participants need is returned: no file, storage or built-in/uploaded information.
 """
@@ -25,11 +26,7 @@ from photobooth.modules.booth.domain import (
     PreviewFailedError,
     StartImageKind,
 )
-from photobooth.modules.booth.schemas import (
-    FrameChoiceBody,
-    FrameMenuResponse,
-    FramePlanResponse,
-)
+from photobooth.modules.booth.schemas import FrameMenuResponse
 from photobooth.modules.booth.service import BoothService
 
 router = APIRouter(prefix="/api/booth", tags=["booth"], dependencies=[Depends(require_device)])
@@ -78,15 +75,6 @@ async def frame_preview(frame_id: FrameId, service: Service) -> Response:
         media_type="image/jpeg",
         headers={"Cache-Control": "private, max-age=60", "X-Content-Type-Options": "nosniff"},
     )
-
-
-@router.post("/frame-choice", response_model=FramePlanResponse)
-def choose_frame(body: FrameChoiceBody, service: Service) -> FramePlanResponse:
-    """Confirm the participant's frame for the next session (capture starts in a later phase)."""
-    try:
-        return FramePlanResponse.of(service.choose(body.frame_id))
-    except (NoActiveEventError, FrameNotOfferedError) as exc:
-        raise _not_found(exc) from exc
 
 
 @router.get(

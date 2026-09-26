@@ -269,6 +269,30 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "Booth sessions talk to other modules only through ports"
+type = "forbidden"
+source_modules = ["photobooth.modules.sessions"]
+forbidden_modules = [
+    "photobooth.modules.assets",
+    "photobooth.modules.auth",
+    "photobooth.modules.booth",
+    "photobooth.modules.eligibility",
+    "photobooth.modules.event_profiles",
+    "photobooth.modules.frames",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.rendering",
+    "photobooth.modules.storage",
+    "photobooth.modules.system",
+    "photobooth.modules.templates",
+    "photobooth.modules.themes",
+]
+
+[[tool.importlinter.contracts]]
+name = "The eligibility check knows nothing about the rest of the app"
+type = "forbidden"
+source_modules = ["photobooth.modules.eligibility"]
+forbidden_modules = ["photobooth.core", "photobooth.modules"]
+[[tool.importlinter.contracts]]
 name = "The participant booth module talks to other modules only through ports"
 type = "forbidden"
 source_modules = ["photobooth.modules.booth"]

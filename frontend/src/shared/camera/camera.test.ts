@@ -1,0 +1,121 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import {
+  BrowserCamera,
+  CameraError,
+  TEST_CAMERA_SETTING,
+  TestCamera,
+  cameraMessage,
+  chooseCamera,
+} from './camera'
+
+/** The booth's camera port: which camera a booth gets, and how each refusal is explained. */
+
+class StubStream {
+  getTracks() {
+    return []
+  }
+  getVideoTracks() {
+    return []
+  }
+}
+
+function withMediaDevices(getUserMedia: unknown, devices: MediaDeviceInfo[] = []) {
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia, enumerateDevices: async () => devices },
+  })
+}
+
+beforeEach(() => {
+  ;(globalThis as { MediaStream?: unknown }).MediaStream = StubStream
+  localStorage.clear()
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  Reflect.deleteProperty(navigator, 'mediaDevices')
+})
+
+describe('the booth camera', () => {
+  it('uses the real camera unless Dummy is asked for the drawn one', () => {
+    expect(chooseCamera('main', '?camera=test').kind).toBe('browser') // never outside Dummy
+    expect(chooseCamera('dummy', '').kind).toBe('browser')
+    expect(chooseCamera('dummy', '?camera=test').kind).toBe('test')
+    // The choice is kept for the next screens of the same visit.
+    expect(localStorage.getItem(TEST_CAMERA_SETTING)).toBe('test')
+    expect(chooseCamera('dummy', '').kind).toBe('test')
+    expect(chooseCamera('dummy', '?camera=real').kind).toBe('browser')
+  })
+
+  it('says plainly what went wrong, in words a guest can act on', () => {
+    expect(cameraMessage('denied')).toContain('Allow it in the browser')
+    expect(cameraMessage('missing')).toContain('No camera is connected')
+    expect(cameraMessage('in-use')).toContain('Another program is using the camera')
+    expect(cameraMessage('lost')).toContain('disconnected')
+    expect(cameraMessage('insecure')).toContain('127.0.0.1')
+  })
+
+  it('turns each browser refusal into the matching problem', async () => {
+    const cases: [string, string][] = [
+      ['NotAllowedError', 'denied'],
+      ['NotFoundError', 'missing'],
+      ['NotReadableError', 'in-use'],
+      ['SomethingElseError', 'failed'],
+    ]
+    for (const [name, problem] of cases) {
+      withMediaDevices(() => {
+        const error = new Error('refused')
+        error.name = name
+        return Promise.reject(error)
+      })
+      await expect(new BrowserCamera().open()).rejects.toMatchObject({ problem })
+    }
+  })
+
+  it('explains that a camera needs the booth page itself, not a page with no camera access', async () => {
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: undefined })
+    await expect(new BrowserCamera().open()).rejects.toBeInstanceOf(CameraError)
+    await expect(new BrowserCamera().open()).rejects.toMatchObject({ problem: 'insecure' })
+  })
+
+  it('lists the cameras of this machine, naming the unnamed ones', async () => {
+    withMediaDevices(undefined, [
+      { kind: 'videoinput', deviceId: 'a', label: 'Front' },
+      { kind: 'audioinput', deviceId: 'b', label: 'Mic' },
+      { kind: 'videoinput', deviceId: 'c', label: '' },
+    ] as MediaDeviceInfo[])
+    expect(await new BrowserCamera().devices()).toEqual([
+      { id: 'a', label: 'Front' },
+      { id: 'c', label: 'Camera 2' },
+    ])
+  })
+
+  it('the drawn test camera gives a different photo every time and stops cleanly', async () => {
+    // jsdom draws nothing, so the canvas is stood in for: whatever was last drawn becomes the
+    // photo, which is exactly what the real camera does with the picture on screen.
+    let drawn = ''
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillRect: () => undefined,
+      fillText: (text: string) => {
+        if (/^\d+$/.test(text)) drawn = text
+      },
+      drawImage: () => undefined,
+      set fillStyle(_value: string) {},
+      set font(_value: string) {},
+      set textAlign(_value: string) {},
+    } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => {
+      callback(new Blob([`frame-${drawn}`], { type: 'image/jpeg' }))
+    })
+    const view = await new TestCamera().open()
+    expect(view.live()).toBe(true)
+    const photos = [await view.photo(), await view.photo(), await view.photo()]
+    const contents = await Promise.all(photos.map((photo) => photo.text()))
+    expect(new Set(contents).size).toBe(3) // three different pictures, as a real camera gives
+    for (const photo of photos) expect(photo.type).toBe('image/jpeg')
+    view.stop()
+    expect(view.live()).toBe(false)
+    await expect(view.photo()).rejects.toMatchObject({ problem: 'lost' })
+  })
+})

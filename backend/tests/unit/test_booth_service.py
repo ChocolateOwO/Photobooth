@@ -112,14 +112,14 @@ def test_a_size_that_is_not_chosen_offers_nothing_and_countdown_reaches_the_boot
     assert menu.countdown_seconds == 8
 
 
-def test_only_offered_frames_can_be_chosen_or_previewed() -> None:
+def test_only_offered_frames_are_described_or_previewed() -> None:
     booth, previews = service(["strip_2x6"], known={"a": "strip_2x6", "c": "print_4x6"})
-    assert booth.choose("a").captures == 6
+    menu = booth.menu()
+    assert [frame.frame_id for frame in menu.frames] == ["a"]
+    assert menu.frames[0].plan.captures == 6
     assert booth.preview("a") == b"jpeg"
     with pytest.raises(FrameNotOfferedError):
-        booth.choose("c")  # a size the event does not offer
-    with pytest.raises(FrameNotOfferedError):
-        booth.preview("c")
+        booth.preview("c")  # a size the event does not offer
     assert previews.rendered == ["a"]
 
 

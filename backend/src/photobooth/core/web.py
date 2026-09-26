@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -75,6 +76,19 @@ def require_device(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="origin not allowed")
     if not credentials.verify_key(device, request.headers.get(DEVICE_KEY_HEADER)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="device key invalid")
+
+
+def device_identity(request: Request) -> str:
+    """A stable name for the paired device, derived from its cookie.
+
+    Sessions belong to the device that started them, so a second browser can not read or continue
+    somebody else's visit. The cookie itself is a secret and is never stored: only this digest is.
+    """
+    registry = cast(ServiceRegistry, getattr(request.app.state, REGISTRY_STATE_KEY))
+    cookie = request.cookies.get(registry.get(DeviceCookieSettings).cookie_name)
+    if cookie is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="device not paired")
+    return hashlib.sha256(cookie.encode()).hexdigest()[:32]
 
 
 def require_launcher(request: Request) -> None:

@@ -1,48 +1,50 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
 
-import type { FramePlan } from '../../shared/api/client'
 import { useApiClient } from '../../shared/api/ApiClientContext'
-import { EventButton, EventMessage, EventScreen, EventText } from '../../shared/eventUi/EventUi'
+import { EventMessage, EventScreen } from '../../shared/eventUi/EventUi'
 import { FrameCarousel } from '../../shared/eventUi/FrameCarousel'
-import { planSummary, type GalleryFrame } from '../../shared/eventUi/framePlan'
+import { type GalleryFrame } from '../../shared/eventUi/framePlan'
 import { BoothLoadState } from './BoothLoadState'
 import { useBoothMenu } from './boothMenu'
 import styles from './FrameSelectPage.module.css'
 
-/** Where the confirmed frame waits for the capture step of the session (a later phase). */
+/** The frame this browser confirmed, so coming back opens the carousel where it was left. */
 export const SESSION_FRAME_KEY = 'pb.booth.chosenFrame'
 
-function remembered(): FramePlan | null {
+function remembered(): string | null {
   try {
-    const stored = sessionStorage.getItem(SESSION_FRAME_KEY)
-    return stored ? (JSON.parse(stored) as FramePlan) : null
+    return sessionStorage.getItem(SESSION_FRAME_KEY)
   } catch {
     return null
   }
 }
 
-function remember(plan: FramePlan | null): void {
+function remember(frameId: string | null): void {
   try {
-    if (plan) sessionStorage.setItem(SESSION_FRAME_KEY, JSON.stringify(plan))
+    if (frameId) sessionStorage.setItem(SESSION_FRAME_KEY, frameId)
     else sessionStorage.removeItem(SESSION_FRAME_KEY)
   } catch {
     // Storage may be unavailable (private mode); the choice stays in this screen's state.
   }
 }
 
-/** Participant screen: choose the frame, confirm it, then start (capture comes next phase). */
+function newKey(): string {
+  return crypto.randomUUID().replaceAll('-', '')
+}
+
+/** Participant screen: choose the frame, confirm it, and the photo session begins. */
 export function FrameSelectPage() {
   const api = useApiClient()
   const menu = useBoothMenu()
-  const [plan, setPlan] = useState<FramePlan | null>(null)
-  // Coming back to this screen (or choosing again) opens the carousel on the last chosen frame.
-  const [lastChosen, setLastChosen] = useState<string | null>(() => remembered()?.frame_id ?? null)
-  const [started, setStarted] = useState(false)
+  const navigate = useNavigate()
+  const [lastChosen, setLastChosen] = useState<string | null>(() => remembered())
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
-  // Each confirmation is numbered; starting again or leaving the screen makes any answer still
-  // on its way obsolete, so a late answer never replaces a newer choice.
+  // Each confirmation is numbered; leaving the screen makes an answer still on its way obsolete.
   const confirmation = useRef(0)
+  // One key per visit start: a retry after a lost answer joins the same visit, never a second one.
+  const startKey = useRef(newKey())
   useEffect(() => () => {
     confirmation.current += 1
   }, [])
@@ -60,51 +62,36 @@ export function FrameSelectPage() {
     previewUrl: frame.preview_url,
     plan: frame.plan,
   }))
-  const chosen = plan ? frames.find((f) => f.id === plan.frame_id) : undefined
 
   return (
     <EventScreen tokens={menu.data.theme} className={styles.screen} label="Frame selection">
       {frames.length === 0 ? (
         <EventMessage kind="info">No frames are available for this event.</EventMessage>
-      ) : started && chosen && plan ? (
-        <div className={styles.ready} role="status">
-          <EventText>
-            Ready: {chosen.name} ({planSummary(chosen.plan)}). The camera starts in the next step.
-          </EventText>
-          <EventButton
-            variant="secondary"
-            onClick={() => {
-              setStarted(false)
-              setPlan(null)
-              remember(null)
-            }}
-          >
-            Choose a different frame
-          </EventButton>
-        </div>
       ) : (
         <FrameCarousel
           frames={frames}
           allowSurprise={menu.data.allow_surprise_me}
-          startAtId={plan?.frame_id ?? lastChosen}
+          startAtId={lastChosen}
           busy={busy}
-          // Only "Start with this frame" in the pop-up gets here: the choice is kept and the
-          // session goes on. Until then nothing is chosen and nothing is stored.
+          // Only "Start with this frame" in the pop-up gets here: the visit begins, the frame is
+          // pinned to it (with its photo count) and the camera step opens. Until then nothing is
+          // chosen and nothing is stored.
           onStart={async (frame) => {
             confirmation.current += 1
             const mine = confirmation.current
             setBusy(true)
             setProblem(null)
             try {
-              const confirmed = await api.chooseFrame(frame.id)
+              const session = await api.startSession(startKey.current)
+              const capturing = await api.chooseSessionFrame(session.id, frame.id)
               if (confirmation.current !== mine) return // superseded meanwhile
-              setPlan(confirmed)
-              setLastChosen(confirmed.frame_id)
-              remember(confirmed)
-              setStarted(true)
+              setLastChosen(frame.id)
+              remember(frame.id)
+              navigate('/booth/capture', { state: { session: capturing.id } })
             } catch {
               if (confirmation.current !== mine) return
               setProblem('That frame could not be chosen. Please pick again.')
+              startKey.current = newKey() // the next try starts its own visit
               void menu.refetch()
             } finally {
               if (confirmation.current === mine) setBusy(false)

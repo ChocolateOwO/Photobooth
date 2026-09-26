@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, Route, Routes } from 'react-router'
 
 import { ApiClientProvider } from '../../shared/api/ApiClientContext'
 import { createApiClient, type FrameMenu } from '../../shared/api/client'
@@ -48,6 +49,21 @@ const MENU = menu([
   { id: 'fs', name: 'Night', preview_url: '/api/booth/frames/fs/preview.jpg?v=1', plan: PLAN_STRIP },
 ])
 
+const VISIT = {
+  id: '11111111-1111-4111-8111-111111111111',
+  state: 'eligibility_ok',
+  state_version: 1,
+  countdown_seconds: 5,
+  mirror: true,
+  retake_mode: 'per_photo',
+  expected_captures: 0,
+  taken: 0,
+  template_key: null,
+  layout_label: null,
+  frame_id: null,
+  shots: [],
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 }
@@ -58,7 +74,12 @@ function renderPage(fetcher: (path: string, init?: RequestInit) => Promise<Respo
   return render(
     <QueryClientProvider client={new QueryClient()}>
       <ApiClientProvider client={client}>
-        <FrameSelectPage />
+        <MemoryRouter initialEntries={['/booth/frames']}>
+          <Routes>
+            <Route path="/booth/frames" element={<FrameSelectPage />} />
+            <Route path="/booth/capture" element={<p>the camera screen</p>} />
+          </Routes>
+        </MemoryRouter>
       </ApiClientProvider>
     </QueryClientProvider>,
   )
@@ -77,11 +98,7 @@ async function useCurrentFrame() {
   await userEvent.click(within(currentSlide()).getByRole('button', { name: 'Use this frame' }))
 }
 
-async function nextFrame() {
-  await userEvent.click(screen.getByRole('button', { name: 'Next frame' }))
-}
-
-/** The centred question that "Use this frame" opens; only its main answer keeps the frame. */
+/** The centred question that "Use this frame" opens; only its main answer starts the visit. */
 function question(): HTMLElement {
   return screen.getByRole('dialog', { name: 'Use this frame?' })
 }
@@ -90,48 +107,39 @@ async function startWithFrame() {
   await userEvent.click(within(question()).getByRole('button', { name: 'Start with this frame' }))
 }
 
+async function nextFrame() {
+  await userEvent.click(screen.getByRole('button', { name: 'Next frame' }))
+}
+
 describe('FrameSelectPage (booth)', () => {
-  it('shows the event frames in its theme, confirms a choice and keeps the plan', async () => {
-    const posted: unknown[] = []
+  it('confirming a frame starts the visit with that frame and opens the camera screen', async () => {
+    const posted: { path: string; body: unknown }[] = []
     const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/booth/frames') return json(MENU)
-      if (path === '/api/booth/frame-choice') {
-        posted.push(JSON.parse(String(init?.body)))
-        return json(PLAN_STRIP)
+      posted.push({ path, body: JSON.parse(String(init?.body)) })
+      if (path === '/api/booth/sessions') return json(VISIT, 201)
+      if (path.endsWith('/frame')) {
+        return json({ ...VISIT, state: 'capturing', expected_captures: 6, frame_id: 'fs' })
       }
       return json({ detail: 'nope' }, 404)
     })
     renderPage(fetcher)
     const screenEl = await screen.findByRole('group', { name: 'Frame selection' })
     expect(screenEl.style.getPropertyValue('--ev-primary-bg')).toBe('#2255CC')
-    // One frame at a time, in the order the booth offers them; no grid of cards.
-    expect(screen.queryByRole('list', { name: 'Frames' })).toBeNull()
-    expect(screen.getAllByTestId('frame-slide').map((s) => s.getAttribute('aria-label'))).toEqual([
-      'Gold, 1 of 2',
-      'Night, 2 of 2',
-    ])
+    expect(screen.queryByRole('list', { name: 'Frames' })).toBeNull() // still the carousel
 
     await nextFrame()
-    expect(posted).toEqual([]) // moving never chooses
-    // Asking keeps nothing: no request, no stored plan, no bar under the carousel.
     await useCurrentFrame()
-    expect(within(question()).getByText('Night')).toBeInTheDocument()
-    expect(posted).toEqual([])
-    expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
-    expect(screen.queryByText(/^Selected:/)).toBeNull()
+    expect(posted).toEqual([]) // asking keeps nothing and starts nothing
 
     await startWithFrame()
-    expect(posted).toEqual([{ frame_id: 'fs' }])
-    expect(JSON.parse(sessionStorage.getItem(SESSION_FRAME_KEY) ?? '{}')).toMatchObject({
-      frame_id: 'fs',
-      captures: 6,
-      outputs: 2,
-    })
-    expect(await screen.findByText(/Ready: Night \(2×6 • 6 photos • 2 strips\)/)).toBeInTheDocument()
-    expect(screen.queryByRole('dialog')).toBeNull()
-    await userEvent.click(screen.getByRole('button', { name: 'Choose a different frame' }))
-    expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
-    expect(screen.getByRole('heading', { name: 'Choose your frame' })).toBeInTheDocument()
+    expect(await screen.findByText('the camera screen')).toBeInTheDocument()
+    expect(posted.map((call) => call.path)).toEqual([
+      '/api/booth/sessions',
+      `/api/booth/sessions/${VISIT.id}/frame`,
+    ])
+    expect(posted[1]?.body).toEqual({ frame_id: 'fs' })
+    expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBe('fs')
   })
 
   it('explains when no event is active', async () => {
@@ -139,26 +147,53 @@ describe('FrameSelectPage (booth)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('This booth has no active event yet.')
   })
 
-  it('a refused choice asks the participant to pick again', async () => {
-    renderPage(async (path) =>
-      path === '/api/booth/frames' ? json(MENU) : json({ detail: 'not offered' }, 404),
-    )
+  it('a frame the event no longer offers asks the participant to pick again', async () => {
+    renderPage(async (path) => {
+      if (path === '/api/booth/frames') return json(MENU)
+      if (path === '/api/booth/sessions') return json(VISIT, 201)
+      return json({ detail: 'frame is not offered' }, 404)
+    })
     await screen.findByTestId('frame-carousel')
     await useCurrentFrame()
     await startWithFrame()
     expect(await screen.findByText('That frame could not be chosen. Please pick again.')).toBeInTheDocument()
+    expect(screen.queryByText('the camera screen')).toBeNull()
     expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
-    expect(screen.queryByRole('dialog')).toBeNull() // back to the carousel to pick again
+  })
+
+  it('a retry after a lost answer joins the same visit instead of starting a second one', async () => {
+    const keys: string[] = []
+    let attempt = 0
+    renderPage(async (path, init) => {
+      if (path === '/api/booth/frames') return json(MENU)
+      if (path === '/api/booth/sessions') {
+        keys.push((JSON.parse(String(init?.body)) as { idempotency_key: string }).idempotency_key)
+        return json(VISIT, 201)
+      }
+      attempt += 1
+      if (attempt === 1) return json({ detail: 'lost' }, 503)
+      return json({ ...VISIT, state: 'capturing', expected_captures: 2, frame_id: 'f46' })
+    })
+    await screen.findByTestId('frame-carousel')
+    await useCurrentFrame()
+    await startWithFrame()
+    expect(await screen.findByText('That frame could not be chosen. Please pick again.')).toBeInTheDocument()
+    await useCurrentFrame()
+    await startWithFrame()
+    expect(await screen.findByText('the camera screen')).toBeInTheDocument()
+    expect(keys).toHaveLength(2)
+    expect(new Set(keys).size).toBe(2) // a fresh key only after the failure, never mid-flight
   })
 
   it('an answer arriving after the screen was left is ignored (P5R2-002)', async () => {
     let release: (() => void) | null = null
     const { unmount } = renderPage(async (path) => {
       if (path === '/api/booth/frames') return json(MENU)
+      if (path === '/api/booth/sessions') return json(VISIT, 201)
       await new Promise<void>((resolve) => {
         release = resolve
       })
-      return json(PLAN_46)
+      return json({ ...VISIT, state: 'capturing' })
     })
     await screen.findByTestId('frame-carousel')
     await useCurrentFrame()
@@ -170,9 +205,10 @@ describe('FrameSelectPage (booth)', () => {
     })
     expect(sessionStorage.getItem(SESSION_FRAME_KEY)).toBeNull()
   })
+
   it('coming back to the screen opens the carousel on the frame chosen before', async () => {
-    sessionStorage.setItem(SESSION_FRAME_KEY, JSON.stringify(PLAN_STRIP))
-    renderPage(async (path) => (path === '/api/booth/frames' ? json(MENU) : json(PLAN_STRIP)))
+    sessionStorage.setItem(SESSION_FRAME_KEY, 'fs')
+    renderPage(async (path) => (path === '/api/booth/frames' ? json(MENU) : json(VISIT, 201)))
     await screen.findByTestId('frame-carousel')
     expect(currentSlide()).toHaveAttribute('aria-label', 'Night, 2 of 2')
   })

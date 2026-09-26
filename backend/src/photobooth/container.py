@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 import threading
 import time
@@ -22,7 +23,7 @@ from photobooth.core.kiosk_pairing import (
 )
 from photobooth.core.uploads import UploadAdmission
 from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
-from photobooth.modules.assets.domain import AssetNotFoundError
+from photobooth.modules.assets.domain import AssetNotFoundError, AssetValidationError, UploadLimits
 from photobooth.modules.assets.inspector import PillowImageInspector, presentation_copy
 from photobooth.modules.assets.repository import SqlAssetRepository
 from photobooth.modules.assets.service import AssetService
@@ -44,8 +45,10 @@ from photobooth.modules.booth.domain import (
     PreviewBusyError,
     PreviewFailedError,
     StartImageKind,
+    layout_label,
 )
 from photobooth.modules.booth.service import BoothService
+from photobooth.modules.eligibility.service import AllowAllEligibility
 from photobooth.modules.event_profiles.repository import SqlEventProfileRepository
 from photobooth.modules.event_profiles.service import EventProfileService
 from photobooth.modules.frames.domain import FrameError
@@ -57,6 +60,20 @@ from photobooth.modules.rendering.domain import RenderBusyError, RenderError
 from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
 from photobooth.modules.rendering.service import RenderService
+from photobooth.modules.sessions.domain import (
+    MAX_CAPTURE_BYTES,
+    MAX_CAPTURE_SIDE,
+    MIN_CAPTURE_SIDE,
+    CaptureFacts,
+    CaptureRefusedError,
+    EligibilityDecision,
+    LayoutOffer,
+)
+from photobooth.modules.sessions.domain import ProfileSnapshot as SessionProfileSnapshot
+from photobooth.modules.sessions.domain import RetakeMode as SessionRetakeMode
+from photobooth.modules.sessions.repository import SqlSessionRepository
+from photobooth.modules.sessions.service import BoothSessionService
+from photobooth.modules.storage.domain import StorageKey
 from photobooth.modules.storage.local import LocalStorageProvider
 from photobooth.modules.system.domain import AppMetaRepository
 from photobooth.modules.system.repository import SqlAppMetaRepository
@@ -230,6 +247,104 @@ class _BoothPreviews:
             raise PreviewFailedError("the sample could not be made") from exc
 
 
+class _SessionEvent:
+    """Adapter: the active Event Profile flattened into the snapshot a session keeps."""
+
+    def __init__(
+        self, profiles: EventProfileService, frames: FrameService, templates: TemplateSpecService
+    ) -> None:
+        self._profiles = profiles
+        self._frames = frames
+        self._templates = templates
+
+    def snapshot(self) -> SessionProfileSnapshot | None:
+        profile = self._profiles.get_active()
+        if profile is None:
+            return None
+        settings = profile.settings
+        layouts: list[LayoutOffer] = []
+        for frame in self._frames.offered_frames(settings.enabled_layouts):
+            try:
+                template = self._templates.get(frame.template_key, frame.template_version)
+            except TemplateNotFoundError:
+                continue
+            layouts.append(
+                LayoutOffer(
+                    template_key=frame.template_key,
+                    template_version=frame.template_version,
+                    layout_label=layout_label(template.width_in, template.height_in),
+                    frame_id=frame.id,
+                    frame_sha256=frame.sha256,
+                    captures=template.captures_per_session,
+                    outputs=template.outputs_per_session,
+                )
+            )
+        return SessionProfileSnapshot(
+            profile_id=profile.id,
+            profile_revision=profile.revision,
+            countdown_seconds=settings.countdown_seconds,
+            mirror=settings.mirror,
+            retake_mode=SessionRetakeMode(str(settings.retake_mode)),
+            delivery_mode=str(settings.delivery_mode),
+            inactivity_timeout_s=settings.inactivity_timeout_s,
+            layouts=tuple(layouts),
+        )
+
+
+class _CaptureImages:
+    """Adapter: what the server checks about a photo before it is kept."""
+
+    def __init__(self, inspector: PillowImageInspector) -> None:
+        self._inspector = inspector
+        self._limits = UploadLimits(
+            max_bytes=MAX_CAPTURE_BYTES,
+            max_width=MAX_CAPTURE_SIDE,
+            max_height=MAX_CAPTURE_SIDE,
+            min_width=MIN_CAPTURE_SIDE,
+            min_height=MIN_CAPTURE_SIDE,
+        )
+
+    def inspect(self, data: bytes) -> CaptureFacts:
+        try:
+            facts = self._inspector.inspect(data, self._limits)
+        except AssetValidationError as exc:
+            raise CaptureRefusedError(str(exc)) from exc
+        if facts.format != "JPEG":
+            raise CaptureRefusedError("the booth camera sends JPEG photos")
+        return CaptureFacts(
+            width=facts.width, height=facts.height, sha256=hashlib.sha256(data).hexdigest()
+        )
+
+
+class _Eligibility:
+    """Adapter: the eligibility module answers in the shape the sessions module asks for."""
+
+    def __init__(self, check: AllowAllEligibility) -> None:
+        self._check = check
+
+    def check(self, device_id: str, profile_id: str) -> EligibilityDecision:
+        decision = self._check.check(device_id, profile_id)
+        return EligibilityDecision(
+            allowed=decision.allowed, reason=decision.reason, details=decision.details
+        )
+
+
+class _CaptureFiles:
+    """Adapter: photos are written through the StorageProvider, under server-made keys only."""
+
+    def __init__(self, storage: LocalStorageProvider) -> None:
+        self._storage = storage
+
+    def put(self, key: str, data: bytes) -> None:
+        self._storage.put(StorageKey(key), data)
+
+    def exists(self, key: str) -> bool:
+        return self._storage.exists(StorageKey(key))
+
+    def delete(self, key: str) -> None:
+        self._storage.delete(StorageKey(key))
+
+
 class Container:
     """Owns process-lifetime resources for one instance."""
 
@@ -324,6 +439,15 @@ class Container:
             _BoothImages(self.asset_service),
         )
         self.registry.register(BoothService, self.booth_service)
+        self.session_service = BoothSessionService(
+            SqlSessionRepository(self.engine),
+            _SessionEvent(self.profile_service, self.frame_service, self.template_service),
+            _CaptureImages(PillowImageInspector()),
+            _CaptureFiles(self.storage),
+            _Eligibility(AllowAllEligibility()),
+            boot_id=self.boot_id,
+        )
+        self.registry.register(BoothSessionService, self.session_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))
         self.registry.register(
             AdminCookieSettings, AdminCookieSettings(f"pb_admin_{settings.instance}")

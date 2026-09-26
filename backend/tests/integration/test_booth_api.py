@@ -15,7 +15,8 @@ from tests.integration.admin_support import ORIGIN, device_headers, login
 from tests.integration.test_frames_api import upload
 
 MENU = "/api/booth/frames"
-CHOICE = "/api/booth/frame-choice"
+SESSIONS = "/api/booth/sessions"
+START = {"idempotency_key": "booth-api-start-1"}
 PROFILES = "/api/admin/profiles"
 STRIP = builtin_frame_id("midnight", "strip_2x6")
 GOLD34 = builtin_frame_id("celebration_gold", "print_3x4")
@@ -138,15 +139,16 @@ def test_surprise_me_needs_two_frames(kiosk_client: TestClient, container: Conta
     assert len(several["frames"]) == 3 and several["allow_surprise_me"] is True
 
 
-def test_choosing_returns_the_plan_and_refuses_other_frames(
+def test_the_menu_carries_the_plan_of_every_offered_frame(
     kiosk_client: TestClient, container: Container
 ) -> None:
+    """Confirming a frame is part of a visit now; the menu still says what each frame means."""
     headers = login(kiosk_client, container)
     _activate(kiosk_client, headers, ["strip_2x6", "print_4x6"])
     device = _device_only(headers)
-    chosen = kiosk_client.post(CHOICE, json={"frame_id": LIGHT46}, headers=device)
-    assert chosen.status_code == 200, chosen.text
-    assert chosen.json() == {
+    menu = kiosk_client.get(MENU, headers=device).json()
+    plan = next(frame["plan"] for frame in menu["frames"] if frame["id"] == LIGHT46)
+    assert plan == {
         "frame_id": LIGHT46,
         "template_key": "print_4x6",
         "layout_label": "4×6",
@@ -156,9 +158,7 @@ def test_choosing_returns_the_plan_and_refuses_other_frames(
         "output_capture_groups": [[1, 2, 3, 4]],
         "output_label": None,
     }
-    refused = kiosk_client.post(CHOICE, json={"frame_id": GOLD34}, headers=device)
-    assert refused.status_code == 404
-    assert kiosk_client.post(CHOICE, json={"frame_id": "x"}, headers=device).status_code == 422
+    assert GOLD34 not in [frame["id"] for frame in menu["frames"]]  # its size is not offered
 
 
 def test_booth_routes_need_the_paired_device(
@@ -168,11 +168,11 @@ def test_booth_routes_need_the_paired_device(
     _activate(kiosk_client, headers, ["strip_2x6"])
     key = headers["X-Photobooth-Device-Key"]
     no_key = {"Origin": ORIGIN}
-    assert kiosk_client.post(CHOICE, json={"frame_id": STRIP}, headers=no_key).status_code == 403
+    assert kiosk_client.post(SESSIONS, json=START, headers=no_key).status_code == 403
     assert (
         kiosk_client.post(
-            CHOICE,
-            json={"frame_id": STRIP},
+            SESSIONS,
+            json=START,
             headers={**device_headers(key), "Origin": "http://evil"},
         ).status_code
         == 403
@@ -180,10 +180,7 @@ def test_booth_routes_need_the_paired_device(
     kiosk_client.cookies.clear()
     assert kiosk_client.get(MENU).status_code == 401
     assert kiosk_client.get(f"{MENU}/{STRIP}/preview.jpg").status_code == 401
-    assert (
-        kiosk_client.post(CHOICE, json={"frame_id": STRIP}, headers=device_headers(key)).status_code
-        == 401
-    )
+    assert kiosk_client.post(SESSIONS, json=START, headers=device_headers(key)).status_code == 401
 
 
 START = "/api/booth/start"

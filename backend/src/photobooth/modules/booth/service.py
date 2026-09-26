@@ -110,10 +110,6 @@ class BoothService:
                 return frame
         raise FrameNotOfferedError(frame_id)
 
-    def choose(self, frame_id: str) -> FramePlan:
-        """Confirm a participant's choice: only an offered frame, with its capture/output plan."""
-        return self._offered(frame_id).plan
-
     def preview(self, frame_id: str) -> bytes:
         """The sample output of an offered frame (other library frames stay private)."""
         self._offered(frame_id)

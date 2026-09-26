@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from photobooth.modules.booth.domain import BoothFrame, FrameMenu, FramePlan, StartScreen
 
@@ -90,9 +90,3 @@ class FrameMenuResponse(BaseModel):
             start_screen=StartScreenResponse.of(menu.start_screen),
             countdown_seconds=menu.countdown_seconds,
         )
-
-
-class FrameChoiceBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    frame_id: FrameIdField

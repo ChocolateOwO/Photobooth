@@ -8,6 +8,9 @@ export type PingResponse = components['schemas']['PingResponse']
 export type FrameMenu = components['schemas']['FrameMenuResponse']
 export type BoothFrame = components['schemas']['BoothFrameResponse']
 export type FramePlan = components['schemas']['FramePlanResponse']
+export type BoothSessionState = components['schemas']['BoothSessionResponse']
+export type CaptureResult = components['schemas']['CaptureResponse']
+export type ShotState = components['schemas']['ShotResponse']
 
 export class ApiError extends Error {
   readonly status: number
@@ -67,6 +70,34 @@ export function createApiClient(
     return (await response.json()) as T
   }
 
+  /** A photo of the session: multipart, device-authenticated, never retried under the same key. */
+  async function postCapture(
+    path: string,
+    fields: Record<string, string>,
+    photo: Blob,
+  ): Promise<CaptureResult> {
+    const key = deviceKeys.get()
+    if (!key) {
+      throw new ApiError(401, 'kiosk is not paired in this browser')
+    }
+    const form = new FormData()
+    for (const [name, value] of Object.entries(fields)) form.append(name, value)
+    form.append('file', photo, 'photo.jpg')
+    const response = await fetcher(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json', [DEVICE_KEY_HEADER]: key },
+      body: form,
+    })
+    if (response.status === 401 || response.status === 403) {
+      deviceKeys.clear()
+    }
+    if (!response.ok) {
+      throw new ApiError(response.status, `POST ${path} failed with ${response.status}`)
+    }
+    return (await response.json()) as CaptureResult
+  }
+
   return {
     health: () => getJson<HealthResponse>('/api/health'),
     version: () => getJson<VersionResponse>('/api/version'),
@@ -75,9 +106,43 @@ export function createApiClient(
     boothPing: () => postJson<PingResponse>('/api/booth/ping'),
     /** Frames the active event offers to participants, in display order (404: no active event). */
     frameMenu: () => getJson<FrameMenu>('/api/booth/frames'),
-    /** Confirm the participant's frame; returns its capture/output plan for the session. */
-    chooseFrame: (frameId: string) =>
-      postJson<FramePlan>('/api/booth/frame-choice', { frame_id: frameId }),
+
+    // ---- the visit itself (Phase 6) and its photos (Phase 7) ----------------------------
+    /** Begin a visit. The same key never starts a second one (safe to retry). */
+    startSession: (idempotencyKey: string) =>
+      postJson<BoothSessionState>('/api/booth/sessions', { idempotency_key: idempotencyKey }),
+    /** The visit this browser is in the middle of, or null (used after a reload). */
+    currentSession: () => getJson<BoothSessionState | null>('/api/booth/sessions/current'),
+    readSession: (sessionId: string) =>
+      getJson<BoothSessionState>(`/api/booth/sessions/${sessionId}`),
+    /** Confirm the frame: it fixes how many photos this visit takes. */
+    chooseSessionFrame: (sessionId: string, frameId: string) =>
+      postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/frame`, { frame_id: frameId }),
+    /** Send one photo. The same key returns the first answer and stores nothing new. */
+    sendCapture: (
+      sessionId: string,
+      photo: Blob,
+      shot: { index: number; attempt: number; idempotencyKey: string },
+    ) =>
+      postCapture(
+        `/api/booth/sessions/${sessionId}/captures`,
+        {
+          idempotency_key: shot.idempotencyKey,
+          shot_index: String(shot.index),
+          attempt_no: String(shot.attempt),
+        },
+        photo,
+      ),
+    /** Take one photo again, or the whole set when no photo is named. */
+    retakeCapture: (sessionId: string, shotIndex?: number) =>
+      postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/retake`, {
+        ...(shotIndex === undefined ? {} : { shot_index: shotIndex }),
+      }),
+    finishCaptures: (sessionId: string) =>
+      postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/finish`),
+    /** The participant leaves: the visit ends and takes no more photos. */
+    giveUpSession: (sessionId: string) =>
+      postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/give-up`),
   }
 }
 

@@ -263,14 +263,17 @@ test('participants move through full-size frames one at a time, then confirm and
     await page.keyboard.press('Enter')
   }
 
-  // Only "Start with this frame" keeps the frame, with its own plan, and goes on.
+  // Only "Start with this frame" keeps the frame, and the photo session begins with it.
   await question.getByRole('button', { name: 'Start with this frame' }).click()
-  await expect(page.getByText(/Ready: Midnight/)).toBeVisible()
-  await expect(question).toHaveCount(0)
-  const plan = await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))
-  expect(JSON.parse(plan ?? '{}')).toMatchObject({ template_key: 'strip_2x6', captures: 6, outputs: 2 })
-  await page.getByRole('button', { name: 'Choose a different frame' }).click()
-  // Coming back opens on the frame chosen before.
+  await expect(page).toHaveURL(/\/booth\/capture$/)
+  await expect(page.getByTestId('capture-progress')).toHaveText('Photo 1 of 6')
+  // The browser remembers which frame it was, so coming back opens the carousel there.
+  const kept = await page.evaluate(() => sessionStorage.getItem('pb.booth.chosenFrame'))
+  expect(kept).toMatch(/^[0-9a-f-]{36}$/)
+  // Stopping returns to the start screen; the frames open again on the frame chosen before.
+  await page.getByRole('button', { name: 'Stop and start over' }).click()
+  await expect(page).toHaveURL(/\/booth$/)
+  await page.goto('/booth/frames')
   await settledOn(page, slideLabel(4))
 
   // Surprise me moves to one of the offered frames without asking anything.
@@ -280,12 +283,12 @@ test('participants move through full-size frames one at a time, then confirm and
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
-test('a repeated tap on "Start with this frame" starts one session only', async ({ page }) => {
+test('a repeated tap on "Start with this frame" starts one visit only', async ({ page }) => {
   await pairAndSignIn(page)
   // A slow answer, so the second tap lands while the first is still on its way.
-  const posted: string[] = []
-  await page.route('**/api/booth/frame-choice', async (route) => {
-    posted.push(route.request().postData() ?? '')
+  const started: string[] = []
+  await page.route('**/api/booth/sessions', async (route) => {
+    started.push(route.request().postData() ?? '')
     await new Promise((resolve) => setTimeout(resolve, 900))
     await route.continue()
   })
@@ -295,9 +298,10 @@ test('a repeated tap on "Start with this frame" starts one session only', async 
   const start = page.getByRole('dialog', { name: 'Use this frame?' }).getByRole('button', { name: 'Start with this frame' })
   await start.click()
   await start.click({ force: true, timeout: 2_000 }).catch(() => undefined) // the button is disabled meanwhile
-  await expect(page.getByText(/^Ready: /)).toBeVisible()
-  expect(posted).toHaveLength(1)
-  await page.unroute('**/api/booth/frame-choice')
+  await expect(page).toHaveURL(/\/booth\/capture$/)
+  expect(started).toHaveLength(1)
+  await page.unroute('**/api/booth/sessions')
+  await page.getByRole('button', { name: 'Stop and start over' }).click()
 })
 
 test.describe('touchscreen', () => {

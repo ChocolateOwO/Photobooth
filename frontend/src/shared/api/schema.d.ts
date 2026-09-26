@@ -373,26 +373,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/booth/frame-choice": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Choose Frame
-         * @description Confirm the participant's frame for the next session (capture starts in a later phase).
-         */
-        post: operations["choose_frame_api_booth_frame_choice_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/booth/frames": {
         parameters: {
             query?: never;
@@ -438,6 +418,163 @@ export interface paths {
         put?: never;
         /** Booth Ping */
         post: operations["booth_ping_api_booth_ping_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Session
+         * @description Begin a visit from the active event, with its settings frozen for the whole session.
+         */
+        post: operations["start_session_api_booth_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current Session
+         * @description What this device was doing (after a reload or a step back), or null.
+         */
+        get: operations["current_session_api_booth_sessions_current_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Session */
+        get: operations["read_session_api_booth_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/{session_id}/captures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Capture
+         * @description One photo of this session. The same key twice returns the first answer, stores nothing.
+         */
+        post: operations["add_capture_api_booth_sessions__session_id__captures_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/{session_id}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish
+         * @description Every photo is in; the camera step is over (the review screen comes in a later phase).
+         */
+        post: operations["finish_api_booth_sessions__session_id__finish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/{session_id}/frame": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose Frame
+         * @description Confirm the frame: it fixes the template, the photo count and the outputs.
+         */
+        post: operations["choose_frame_api_booth_sessions__session_id__frame_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/{session_id}/give-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give Up
+         * @description The participant leaves the booth: the visit ends and takes no more photos.
+         */
+        post: operations["give_up_api_booth_sessions__session_id__give_up_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/{session_id}/retake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retake
+         * @description Take one photo again, or the whole set, as the event's retake setting allows.
+         */
+        post: operations["retake_api_booth_sessions__session_id__retake_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -636,6 +773,53 @@ export interface components {
             /** Preview Url */
             preview_url: string;
         };
+        /**
+         * BoothSessionResponse
+         * @description The session as the booth screens see it.
+         */
+        BoothSessionResponse: {
+            /** Countdown Seconds */
+            countdown_seconds: number;
+            /** Expected Captures */
+            expected_captures: number;
+            /** Frame Id */
+            frame_id: string | null;
+            /** Id */
+            id: string;
+            /** Layout Label */
+            layout_label: string | null;
+            /** Mirror */
+            mirror: boolean;
+            /** Retake Mode */
+            retake_mode: string;
+            /** Shots */
+            shots: components["schemas"]["ShotResponse"][];
+            /** State */
+            state: string;
+            /** State Version */
+            state_version: number;
+            /** Taken */
+            taken: number;
+            /** Template Key */
+            template_key: string | null;
+        };
+        /** CaptureResponse */
+        CaptureResponse: {
+            /** Attempt No */
+            attempt_no: number;
+            /** Capture Id */
+            capture_id: string;
+            session: components["schemas"]["BoothSessionResponse"];
+            /** Shot Index */
+            shot_index: number;
+            /** Status */
+            status: string;
+        };
+        /** ChooseFrameBody */
+        ChooseFrameBody: {
+            /** Frame Id */
+            frame_id: string;
+        };
         /** ContrastRuleInfo */
         ContrastRuleInfo: {
             /** Background */
@@ -722,11 +906,6 @@ export interface components {
             tokens: {
                 [key: string]: string;
             };
-        };
-        /** FrameChoiceBody */
-        FrameChoiceBody: {
-            /** Frame Id */
-            frame_id: string;
         };
         /** FrameMenuResponse */
         FrameMenuResponse: {
@@ -1180,6 +1359,14 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** RetakeBody */
+        RetakeBody: {
+            /**
+             * Shot Index
+             * @description Which photo to take again; all of them when null.
+             */
+            shot_index?: number | null;
+        };
         /**
          * RetakeMode
          * @enum {string}
@@ -1193,6 +1380,15 @@ export interface components {
             expires_in_seconds: number;
             /** Username */
             username: string;
+        };
+        /** ShotResponse */
+        ShotResponse: {
+            /** Attempt No */
+            attempt_no: number;
+            /** Done */
+            done: boolean;
+            /** Shot Index */
+            shot_index: number;
         };
         /** SlotModel */
         SlotModel: {
@@ -1230,6 +1426,14 @@ export interface components {
             logo_url: string | null;
             /** Start Button Text */
             start_button_text: string;
+        };
+        /** StartSessionBody */
+        StartSessionBody: {
+            /**
+             * Idempotency Key
+             * @description Repeat the same key to retry safely; it never starts a second visit.
+             */
+            idempotency_key: string;
         };
         /** TemplateLinks */
         TemplateLinks: {
@@ -2284,39 +2488,6 @@ export interface operations {
             };
         };
     };
-    choose_frame_api_booth_frame_choice_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FrameChoiceBody"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FramePlanResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     frame_menu_api_booth_frames_get: {
         parameters: {
             query?: never;
@@ -2384,6 +2555,266 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PingResponse"];
+                };
+            };
+        };
+    };
+    start_session_api_booth_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartSessionBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    current_session_api_booth_sessions_current_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothSessionResponse"] | null;
+                };
+            };
+        };
+    };
+    read_session_api_booth_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_capture_api_booth_sessions__session_id__captures_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** @example 1 */
+                    attempt_no: string;
+                    /** Format: binary */
+                    file: string;
+                    /** @example a1b2c3d4e5f6a7b8 */
+                    idempotency_key: string;
+                    /** @example 1 */
+                    shot_index: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finish_api_booth_sessions__session_id__finish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    choose_frame_api_booth_sessions__session_id__frame_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChooseFrameBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    give_up_api_booth_sessions__session_id__give_up_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retake_api_booth_sessions__session_id__retake_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetakeBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -37,6 +37,146 @@
         "title": "BoothFrameResponse",
         "type": "object"
       },
+      "BoothSessionResponse": {
+        "description": "The session as the booth screens see it.",
+        "properties": {
+          "countdown_seconds": {
+            "title": "Countdown Seconds",
+            "type": "integer"
+          },
+          "expected_captures": {
+            "title": "Expected Captures",
+            "type": "integer"
+          },
+          "frame_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frame Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "layout_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout Label"
+          },
+          "mirror": {
+            "title": "Mirror",
+            "type": "boolean"
+          },
+          "retake_mode": {
+            "title": "Retake Mode",
+            "type": "string"
+          },
+          "shots": {
+            "items": {
+              "$ref": "#/components/schemas/ShotResponse"
+            },
+            "title": "Shots",
+            "type": "array"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "state_version": {
+            "title": "State Version",
+            "type": "integer"
+          },
+          "taken": {
+            "title": "Taken",
+            "type": "integer"
+          },
+          "template_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Key"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "state_version",
+          "countdown_seconds",
+          "mirror",
+          "retake_mode",
+          "expected_captures",
+          "taken",
+          "template_key",
+          "layout_label",
+          "frame_id",
+          "shots"
+        ],
+        "title": "BoothSessionResponse",
+        "type": "object"
+      },
+      "CaptureResponse": {
+        "properties": {
+          "attempt_no": {
+            "title": "Attempt No",
+            "type": "integer"
+          },
+          "capture_id": {
+            "title": "Capture Id",
+            "type": "string"
+          },
+          "session": {
+            "$ref": "#/components/schemas/BoothSessionResponse"
+          },
+          "shot_index": {
+            "title": "Shot Index",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capture_id",
+          "shot_index",
+          "attempt_no",
+          "status",
+          "session"
+        ],
+        "title": "CaptureResponse",
+        "type": "object"
+      },
+      "ChooseFrameBody": {
+        "additionalProperties": false,
+        "properties": {
+          "frame_id": {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "title": "Frame Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "frame_id"
+        ],
+        "title": "ChooseFrameBody",
+        "type": "object"
+      },
       "ContrastRuleInfo": {
         "properties": {
           "background": {
@@ -258,21 +398,6 @@
           "palette"
         ],
         "title": "ExtractedTheme",
-        "type": "object"
-      },
-      "FrameChoiceBody": {
-        "additionalProperties": false,
-        "properties": {
-          "frame_id": {
-            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-            "title": "Frame Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "frame_id"
-        ],
-        "title": "FrameChoiceBody",
         "type": "object"
       },
       "FrameMenuResponse": {
@@ -1211,6 +1336,27 @@
         "title": "RenameFrameBody",
         "type": "object"
       },
+      "RetakeBody": {
+        "additionalProperties": false,
+        "properties": {
+          "shot_index": {
+            "anyOf": [
+              {
+                "maximum": 64.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which photo to take again; all of them when null.",
+            "title": "Shot Index"
+          }
+        },
+        "title": "RetakeBody",
+        "type": "object"
+      },
       "RetakeMode": {
         "enum": [
           "none",
@@ -1241,6 +1387,29 @@
           "expires_in_seconds"
         ],
         "title": "SessionResponse",
+        "type": "object"
+      },
+      "ShotResponse": {
+        "properties": {
+          "attempt_no": {
+            "title": "Attempt No",
+            "type": "integer"
+          },
+          "done": {
+            "title": "Done",
+            "type": "boolean"
+          },
+          "shot_index": {
+            "title": "Shot Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "shot_index",
+          "attempt_no",
+          "done"
+        ],
+        "title": "ShotResponse",
         "type": "object"
       },
       "SlotModel": {
@@ -1329,6 +1498,22 @@
           "background_url"
         ],
         "title": "StartScreenResponse",
+        "type": "object"
+      },
+      "StartSessionBody": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "description": "Repeat the same key to retry safely; it never starts a second visit.",
+            "pattern": "^[A-Za-z0-9_-]{8,64}$",
+            "title": "Idempotency Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "title": "StartSessionBody",
         "type": "object"
       },
       "TemplateLinks": {
@@ -2972,48 +3157,6 @@
         ]
       }
     },
-    "/api/booth/frame-choice": {
-      "post": {
-        "description": "Confirm the participant's frame for the next session (capture starts in a later phase).",
-        "operationId": "choose_frame_api_booth_frame_choice_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FrameChoiceBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FramePlanResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Choose Frame",
-        "tags": [
-          "booth"
-        ]
-      }
-    },
     "/api/booth/frames": {
       "get": {
         "operationId": "frame_menu_api_booth_frames_get",
@@ -3090,6 +3233,401 @@
           }
         },
         "summary": "Booth Ping",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions": {
+      "post": {
+        "description": "Begin a visit from the active event, with its settings frozen for the whole session.",
+        "operationId": "start_session_api_booth_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSessionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoothSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Session",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/current": {
+      "get": {
+        "description": "What this device was doing (after a reload or a step back), or null.",
+        "operationId": "current_session_api_booth_sessions_current_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/BoothSessionResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Current Session Api Booth Sessions Current Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Current Session",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}": {
+      "get": {
+        "operationId": "read_session_api_booth_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoothSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Session",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}/captures": {
+      "post": {
+        "description": "One photo of this session. The same key twice returns the first answer, stores nothing.",
+        "operationId": "add_capture_api_booth_sessions__session_id__captures_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "attempt_no": {
+                    "examples": [
+                      "1"
+                    ],
+                    "type": "string"
+                  },
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  },
+                  "idempotency_key": {
+                    "examples": [
+                      "a1b2c3d4e5f6a7b8"
+                    ],
+                    "type": "string"
+                  },
+                  "shot_index": {
+                    "examples": [
+                      "1"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "idempotency_key",
+                  "shot_index",
+                  "attempt_no",
+                  "file"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Capture",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}/finish": {
+      "post": {
+        "description": "Every photo is in; the camera step is over (the review screen comes in a later phase).",
+        "operationId": "finish_api_booth_sessions__session_id__finish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoothSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}/frame": {
+      "post": {
+        "description": "Confirm the frame: it fixes the template, the photo count and the outputs.",
+        "operationId": "choose_frame_api_booth_sessions__session_id__frame_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChooseFrameBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoothSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Choose Frame",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}/give-up": {
+      "post": {
+        "description": "The participant leaves the booth: the visit ends and takes no more photos.",
+        "operationId": "give_up_api_booth_sessions__session_id__give_up_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoothSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Give Up",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}/retake": {
+      "post": {
+        "description": "Take one photo again, or the whole set, as the event's retake setting allows.",
+        "operationId": "retake_api_booth_sessions__session_id__retake_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetakeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoothSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retake",
         "tags": [
           "booth"
         ]

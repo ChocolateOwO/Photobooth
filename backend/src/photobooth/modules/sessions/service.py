@@ -1,0 +1,452 @@
+"""Booth session use cases: start a visit, take its photos, retake, give up, recover.
+
+One booth runs one backend process, so a per-session lock is enough to make every change to a
+session happen one at a time. A repeated request (a lost answer, a double tap, a reload) never
+does the work twice: each change carries an idempotency key whose recorded outcome is replayed.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import threading
+import uuid
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from weakref import WeakValueDictionary
+
+from photobooth.modules.sessions.domain import (
+    MAX_ATTEMPTS_PER_SHOT,
+    ActiveEvent,
+    BoothSession,
+    CaptureAsset,
+    CaptureFacts,
+    CaptureFiles,
+    CaptureImages,
+    CaptureOutcome,
+    CaptureRefusedError,
+    CaptureStatus,
+    Clock,
+    DeviceOperation,
+    EligibilityProvider,
+    EligibilityRefusedError,
+    IdempotencyReuseError,
+    NoActiveEventError,
+    Operation,
+    OperationFailedError,
+    OperationStatus,
+    RetakeMode,
+    Selection,
+    SessionClosedError,
+    SessionNotFoundError,
+    SessionRepository,
+    SessionState,
+    ShotProgress,
+    StaleAttemptError,
+    StaleSessionError,
+    TooManyCapturesError,
+    TransitionRefusedError,
+    capture_key,
+    may_move,
+)
+
+
+class SystemClock:
+    def now(self) -> datetime:
+        return datetime.now(UTC)
+
+
+class SessionLocks:
+    """One lock per session id, kept only while somebody holds or waits for it."""
+
+    def __init__(self) -> None:
+        self._locks: WeakValueDictionary[str, threading.RLock] = WeakValueDictionary()
+        self._guard = threading.Lock()
+
+    @contextmanager
+    def held(self, session_id: str) -> Iterator[None]:
+        with self._guard:
+            lock = self._locks.get(session_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._locks[session_id] = lock
+        with lock:
+            yield
+
+
+def _fingerprint(*parts: object) -> str:
+    return hashlib.sha256("|".join(str(part) for part in parts).encode()).hexdigest()
+
+
+class BoothSessionService:
+    """Everything the participant screens may do with a session."""
+
+    def __init__(
+        self,
+        repository: SessionRepository,
+        event: ActiveEvent,
+        images: CaptureImages,
+        files: CaptureFiles,
+        eligibility: EligibilityProvider,
+        boot_id: str,
+        clock: Clock | None = None,
+    ) -> None:
+        self._repository = repository
+        self._event = event
+        self._images = images
+        self._files = files
+        self._eligibility = eligibility
+        self._boot_id = boot_id
+        self._clock = clock or SystemClock()
+        self._locks = SessionLocks()
+        self._device_locks = SessionLocks()
+
+    # ---- starting and reading -------------------------------------------------------------
+
+    def start(self, device_id: str, idempotency_key: str) -> BoothSession:
+        """Begin a visit from the active event. A repeated key returns the same session."""
+        with self._device_locks.held(device_id):
+            # Visits nobody came back to are ended first, so the booth starts from a clean slate.
+            self._repository.close_inactive(self._clock.now())
+            snapshot = self._event.snapshot()
+            if snapshot is None:
+                raise NoActiveEventError()
+            fingerprint = _fingerprint("session", snapshot.profile_id)
+            recorded = self._repository.device_operation(device_id, idempotency_key)
+            if recorded is not None:
+                if recorded.fingerprint != fingerprint:
+                    raise IdempotencyReuseError()
+                existing = (
+                    self._repository.get(recorded.result_ref) if recorded.result_ref else None
+                )
+                if existing is not None:
+                    return existing
+            decision = self._eligibility.check(device_id, snapshot.profile_id)
+            if not decision.allowed:
+                raise EligibilityRefusedError(decision.reason or "this booth can not start a visit")
+            now = self._clock.now()
+            session = BoothSession(
+                id=str(uuid.uuid4()),
+                device_id=device_id,
+                event_profile_id=snapshot.profile_id,
+                # The placeholder provider allows everyone, so the visit starts already checked.
+                state=SessionState.ELIGIBILITY_OK,
+                state_version=1,
+                profile=snapshot,
+                selection=None,
+                expected_capture_count=0,
+                successful_capture_count=0,
+                failed_capture_attempts=0,
+                started_at=now,
+                last_activity_at=now,
+                eligibility=dict(decision.details or {}),
+            )
+            operation = DeviceOperation(
+                id=str(uuid.uuid4()),
+                device_id=device_id,
+                idempotency_key=idempotency_key,
+                fingerprint=fingerprint,
+                status=OperationStatus.DONE,
+                result_ref=session.id,
+            )
+            return self._repository.create(session, operation)
+
+    def current(self, device_id: str) -> BoothSession | None:
+        """The visit this device is in the middle of, if any (used after a reload)."""
+        session = self._repository.active_for_device(device_id)
+        if session is None:
+            return None
+        # A visit nobody came back to ends here rather than waiting for the next guest.
+        settled = self._closed_if_inactive(session)
+        return None if settled.closed else settled
+
+    def read(self, device_id: str, session_id: str) -> BoothSession:
+        return self._load(device_id, session_id, allow_closed=True)
+
+    def progress(self, session_id: str) -> list[ShotProgress]:
+        """Which photo is next and how far the session has come."""
+        session = self._repository.get(session_id)
+        if session is None:
+            raise SessionNotFoundError()
+        done: dict[int, CaptureAsset] = {}
+        attempts: dict[int, int] = {}
+        for capture in self._repository.captures(session_id):
+            attempts[capture.shot_index] = max(
+                attempts.get(capture.shot_index, 0), capture.attempt_no
+            )
+            if capture.status is CaptureStatus.OK:
+                done[capture.shot_index] = capture
+        # For a photo still to be taken this is the attempt the booth must send next (a retake
+        # moves it on); for one already taken, the attempt that counted.
+        return [
+            ShotProgress(
+                shot_index=shot,
+                attempt_no=(done[shot].attempt_no if shot in done else attempts.get(shot, 0) + 1),
+                done=shot in done,
+            )
+            for shot in range(1, session.expected_capture_count + 1)
+        ]
+
+    # ---- choosing the frame ----------------------------------------------------------------
+
+    def choose_frame(self, device_id: str, session_id: str, frame_id: str) -> BoothSession:
+        """Confirm the frame: it pins the template and how many photos the session takes."""
+        with self._locks.held(session_id):
+            session = self._load(device_id, session_id)
+            if session.selection is not None:
+                if session.selection.frame_id != frame_id:
+                    raise TransitionRefusedError("this session already has its frame")
+                return session
+            if not may_move(session.state, SessionState.CAPTURING):
+                raise TransitionRefusedError(f"a {session.state} session can not start photos")
+            selection = Selection.of(session.profile.offer(frame_id))
+            return self._repository.select_frame(
+                session_id, session.state_version, selection, self._clock.now()
+            )
+
+    # ---- photos ------------------------------------------------------------------------------
+
+    def add_capture(
+        self,
+        device_id: str,
+        session_id: str,
+        *,
+        idempotency_key: str,
+        shot_index: int,
+        attempt_no: int,
+        data: bytes,
+    ) -> CaptureOutcome:
+        """Publish one photo. The same key twice returns the first answer and stores nothing."""
+        with self._locks.held(session_id):
+            fingerprint = _fingerprint(
+                "capture", session_id, shot_index, attempt_no, hashlib.sha256(data).hexdigest()
+            )
+            replay = self._replay(session_id, idempotency_key, fingerprint)
+            if replay is not None:
+                return replay
+
+            session = self._load(device_id, session_id)
+            if session.state is not SessionState.CAPTURING or session.selection is None:
+                raise TransitionRefusedError("this session is not taking photos")
+            if not 1 <= shot_index <= session.expected_capture_count:
+                raise TransitionRefusedError(
+                    f"this session takes photos 1 to {session.expected_capture_count}"
+                )
+            self._check_attempt(session_id, shot_index, attempt_no)
+
+            facts = self._images.inspect(data)
+            capture_id = str(uuid.uuid4())
+            key = capture_key(session_id, capture_id)
+            now = self._clock.now()
+            operation = Operation(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                idempotency_key=idempotency_key,
+                kind="capture",
+                fingerprint=fingerprint,
+                status=OperationStatus.PENDING,
+                owner_boot_id=self._boot_id,
+            )
+            capture = CaptureAsset(
+                id=capture_id,
+                session_id=session_id,
+                operation_id=operation.id,
+                shot_index=shot_index,
+                attempt_no=attempt_no,
+                idempotency_key=idempotency_key,
+                status=CaptureStatus.PENDING,
+                storage_key=key,
+                sha256=facts.sha256,
+                width=facts.width,
+                height=facts.height,
+                # The photo is stored exactly as the camera made it; the mirror is a render
+                # setting, so what was on the preview is reproduced later, not baked in now.
+                mirrored=session.mirror,
+                captured_at=now,
+            )
+            self._repository.start_capture(capture, operation, now)
+            try:
+                self._files.put(key, data)
+            except Exception:
+                self._repository.fail_capture(operation.id, "file_not_stored")
+                self._collect_files()
+                raise
+            outcome = self._repository.finalize_capture(operation.id, facts)
+            if outcome.capture.status is not CaptureStatus.OK:
+                self._collect_files()
+            return outcome
+
+    def retake(
+        self, device_id: str, session_id: str, shots: Sequence[int] | None = None
+    ) -> BoothSession:
+        """Take a photo (or the whole set) again, as the event's retake setting allows."""
+        with self._locks.held(session_id):
+            session = self._load(device_id, session_id)
+            if session.state is not SessionState.CAPTURING:
+                raise TransitionRefusedError("this session is not taking photos")
+            mode = session.retake_mode
+            if mode is RetakeMode.NONE:
+                raise TransitionRefusedError("this event does not allow retakes")
+            wanted = list(shots or range(1, session.expected_capture_count + 1))
+            if mode is RetakeMode.PER_PHOTO and len(wanted) != 1:
+                raise TransitionRefusedError("this event retakes one photo at a time")
+            if mode is RetakeMode.ALL and len(wanted) != session.expected_capture_count:
+                raise TransitionRefusedError("this event retakes all the photos together")
+            if any(not 1 <= shot <= session.expected_capture_count for shot in wanted):
+                raise TransitionRefusedError("that photo is not part of this session")
+            taken = {
+                capture.shot_index
+                for capture in self._repository.captures(session_id)
+                if capture.status is CaptureStatus.OK
+            }
+            if any(shot not in taken for shot in wanted):
+                raise TransitionRefusedError("that photo has not been taken yet")
+            for shot in wanted:
+                self._check_attempt_room(session_id, shot)
+            return self._repository.allocate_retake(
+                session_id, session.state_version, wanted, self._clock.now()
+            )
+
+    def finish_capturing(self, device_id: str, session_id: str) -> BoothSession:
+        """All photos are in: the session leaves the camera behind (review comes next phase)."""
+        with self._locks.held(session_id):
+            session = self._load(device_id, session_id)
+            if session.state is not SessionState.CAPTURING:
+                raise TransitionRefusedError("this session is not taking photos")
+            if session.successful_capture_count < session.expected_capture_count:
+                raise TransitionRefusedError("some photos are still missing")
+            return self._repository.finish_capturing(
+                session_id, session.state_version, self._clock.now()
+            )
+
+    def give_up(self, device_id: str, session_id: str) -> BoothSession:
+        """The participant leaves: the session ends and nothing more may be added to it."""
+        with self._locks.held(session_id):
+            session = self._repository.get(session_id)
+            if session is None or session.device_id != device_id:
+                raise SessionNotFoundError()
+            if session.closed:
+                return session
+            closed = self._repository.close(session_id, SessionState.CANCELLED, self._clock.now())
+            return closed or session
+
+    # ---- keeping the booth honest --------------------------------------------------------
+
+    def close_inactive(self) -> list[str]:
+        """End every session nobody has touched within its event's inactivity timeout."""
+        return self._repository.close_inactive(self._clock.now())
+
+    def recover(self) -> int:
+        """After a restart: settle photos left half-published and delete files nobody wants."""
+        settled = 0
+        for operation in self._repository.unfinished_operations(self._boot_id):
+            with self._locks.held(operation.session_id):
+                capture = self._repository.capture(operation.result_ref or "")
+                stored = capture.storage_key if capture else None
+                if (
+                    capture is not None
+                    and stored is not None
+                    and capture.sha256 is not None
+                    and self._files.exists(stored)
+                ):
+                    facts = self._facts_of(capture)
+                    self._repository.finalize_capture(operation.id, facts)
+                else:
+                    self._repository.fail_capture(operation.id, "file_not_stored")
+                settled += 1
+        self._collect_files()
+        return settled
+
+    # ---- internals ---------------------------------------------------------------------------
+
+    def _facts_of(self, capture: CaptureAsset) -> CaptureFacts:
+        return CaptureFacts(width=capture.width, height=capture.height, sha256=capture.sha256 or "")
+
+    def _collect_files(self) -> None:
+        """Delete the files of photos that never counted (idempotent; a missing file is fine)."""
+        for capture_id, key in self._repository.files_to_delete():
+            self._files.delete(key)
+            self._repository.mark_file_deleted(capture_id, self._clock.now())
+
+    def _replay(self, session_id: str, key: str, fingerprint: str) -> CaptureOutcome | None:
+        recorded = self._repository.operation(session_id, key)
+        if recorded is None:
+            return None
+        if recorded.fingerprint != fingerprint:
+            raise IdempotencyReuseError()
+        if recorded.status is OperationStatus.PENDING:
+            # Its publisher is gone (this process holds the lock): settle it before answering.
+            capture = self._repository.capture(recorded.result_ref or "")
+            stored = capture.storage_key if capture else None
+            if capture is not None and stored is not None and self._files.exists(stored):
+                self._repository.finalize_capture(recorded.id, self._facts_of(capture))
+            else:
+                self._repository.fail_capture(recorded.id, "file_not_stored")
+            self._collect_files()
+            recorded = self._repository.operation(session_id, key) or recorded
+        if recorded.status is OperationStatus.FAILED:
+            raise OperationFailedError(recorded.failure_code or "capture_failed")
+        capture = self._repository.capture(recorded.result_ref or "")
+        session = self._repository.get(session_id)
+        if capture is None or session is None:
+            raise SessionNotFoundError()
+        return CaptureOutcome(capture=capture, session=session)
+
+    def _check_attempt(self, session_id: str, shot_index: int, attempt_no: int) -> None:
+        captures = [
+            capture
+            for capture in self._repository.captures(session_id)
+            if capture.shot_index == shot_index
+        ]
+        if any(capture.status is CaptureStatus.OK for capture in captures):
+            raise StaleAttemptError(shot_index, max(c.attempt_no for c in captures))
+        expected = max((capture.attempt_no for capture in captures), default=0) + 1
+        # A photo that was never taken starts at attempt 1; a retake moves the number on.
+        if attempt_no != expected:
+            raise StaleAttemptError(shot_index, expected)
+        if attempt_no > MAX_ATTEMPTS_PER_SHOT:
+            raise TooManyCapturesError(shot_index)
+
+    def _check_attempt_room(self, session_id: str, shot_index: int) -> None:
+        attempts = [
+            capture.attempt_no
+            for capture in self._repository.captures(session_id)
+            if capture.shot_index == shot_index
+        ]
+        if max(attempts, default=0) + 1 > MAX_ATTEMPTS_PER_SHOT:
+            raise TooManyCapturesError(shot_index)
+
+    def _load(self, device_id: str, session_id: str, allow_closed: bool = False) -> BoothSession:
+        session = self._repository.get(session_id)
+        if session is None or session.device_id != device_id:
+            raise SessionNotFoundError()
+        session = self._closed_if_inactive(session)
+        if session.closed and not allow_closed:
+            raise SessionClosedError(session.state)
+        if not session.closed:
+            now = self._clock.now()
+            self._repository.touch(session_id, now)
+        return session
+
+    def _closed_if_inactive(self, session: BoothSession) -> BoothSession:
+        """Nobody at the booth for the whole timeout: the session is over, server-side first."""
+        if session.closed:
+            return session
+        idle = (self._clock.now() - session.last_activity_at).total_seconds()
+        if idle < session.profile.inactivity_timeout_s:
+            return session
+        return (
+            self._repository.close(
+                session.id, SessionState.ABANDONED, self._clock.now(), "inactivity"
+            )
+            or session
+        )
+
+
+__all__ = [
+    "BoothSessionService",
+    "CaptureRefusedError",
+    "SessionLocks",
+    "StaleSessionError",
+    "SystemClock",
+]

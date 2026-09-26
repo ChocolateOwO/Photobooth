@@ -114,9 +114,16 @@ def test_participants_get_every_valid_frame_of_the_chosen_sizes_in_a_stable_orde
     deleted = kiosk_client.delete(f"{FRAMES}/{a['id']}", headers=headers)
     assert deleted.status_code == 204  # a size, not the frame, is what a profile offers
     assert a["id"] not in menu_ids(kiosk_client)
+    # A deleted frame can not be chosen for a visit either.
+    session = kiosk_client.post(
+        "/api/booth/sessions", json={"idempotency_key": "sizes-visit-1"}, headers=headers
+    )
+    assert session.status_code == 201, session.text
     assert (
         kiosk_client.post(
-            "/api/booth/frame-choice", json={"frame_id": a["id"]}, headers=headers
+            f"/api/booth/sessions/{session.json()['id']}/frame",
+            json={"frame_id": a["id"]},
+            headers=headers,
         ).status_code
         == 404
     )

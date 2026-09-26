@@ -1,0 +1,163 @@
+/* The photo session screen: the camera fills it, everything else stays out of the way. */
+
+.screen {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.header {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.progress {
+  margin: 0;
+  color: var(--ev-body);
+  font-size: 1.2em;
+  font-weight: 700;
+}
+
+.dots {
+  list-style: none;
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--ev-input-border);
+  background-color: var(--ev-surface);
+}
+
+.dot[data-done] {
+  background-color: var(--ev-primary-bg);
+  border-color: var(--ev-primary-bg);
+}
+
+.dot[data-current] {
+  border-color: var(--ev-heading);
+}
+
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20px;
+  overflow: hidden;
+  background-color: var(--ev-surface);
+}
+
+.preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background-color: var(--ev-surface);
+}
+
+/* Only the live picture is mirrored: the photo is kept exactly as the camera took it. */
+.preview[data-mirrored] {
+  transform: scaleX(-1);
+}
+
+.countdown {
+  position: absolute;
+  margin: 0;
+  color: var(--ev-heading);
+  font-size: clamp(64px, 18vh, 220px);
+  font-weight: 800;
+  text-shadow: 0 4px 24px var(--ev-overlay);
+}
+
+.flash {
+  position: absolute;
+  inset: 0;
+  background-color: var(--ev-heading);
+  opacity: 0.85;
+}
+
+.working {
+  position: absolute;
+  bottom: 16px;
+  margin: 0;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background-color: var(--ev-surface);
+  color: var(--ev-body);
+  font-weight: 600;
+}
+
+.problem {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  background-color: color-mix(in srgb, var(--ev-overlay) 78%, transparent);
+  text-align: center;
+}
+
+.problemActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.problemActions button,
+.actions button {
+  min-height: 64px;
+}
+
+.actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.retakes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.plain {
+  padding: 24px;
+  color: var(--pb-color-text);
+}
+
+@media (max-height: 520px) {
+  .screen {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .problemActions button,
+  .actions button {
+    min-height: 48px;
+  }
+}
