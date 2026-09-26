@@ -190,7 +190,7 @@ def retake(
     """Take one photo again, or the whole set, as the event's retake setting allows."""
     shots = [body.shot_index] if body.shot_index is not None else None
     try:
-        return _view(service, service.retake(device, session_id, shots))
+        return _view(service, service.retake(device, session_id, shots, body.state_version))
     except SessionNotFoundError as exc:
         raise _not_found(exc) from exc
     except (SessionClosedError, StaleSessionError, TransitionRefusedError) as exc:

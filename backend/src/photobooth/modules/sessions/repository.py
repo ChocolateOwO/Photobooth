@@ -605,14 +605,22 @@ class SqlSessionRepository(SessionRepository):
             return _session_of(row)
 
     def close(
-        self, session_id: str, state: SessionState, at: datetime, code: str | None = None
+        self,
+        session_id: str,
+        state: SessionState,
+        at: datetime,
+        code: str | None = None,
+        idle_since: datetime | None = None,
     ) -> BoothSession | None:
+        """`idle_since` closes the visit only while nobody has touched it since that moment."""
         with self._sessions() as db, db.begin():
             row = db.get(BoothSessionRow, session_id)
             if row is None:
                 return None
             if row.state in {str(terminal) for terminal in _TERMINAL}:
                 return _session_of(row)
+            if idle_since is not None and row.last_activity_at > idle_since:
+                return _session_of(row)  # somebody is at the booth after all
             row.state = str(state)
             row.state_version += 1
             row.completed_at = at
@@ -638,16 +646,38 @@ class SqlSessionRepository(SessionRepository):
                     BoothSessionRow.state.notin_([str(state) for state in _TERMINAL])
                 )
             ).all()
+            # The activity seen here is carried into the closing transaction, so a visit that
+            # was used in the meantime is never ended behind the participant's back (P67-008).
             stale = [
-                row.id
+                (row.id, row.last_activity_at)
                 for row in rows
                 if (now - row.last_activity_at).total_seconds()
                 >= _snapshot_of(row.profile_snapshot).inactivity_timeout_s
             ]
-        for session_id in stale:
-            if self.close(session_id, SessionState.ABANDONED, now, "inactivity") is not None:
+        for session_id, idle_since in stale:
+            settled = self.close(
+                session_id, SessionState.ABANDONED, now, "inactivity", idle_since=idle_since
+            )
+            if settled is not None and settled.closed:
                 closed.append(session_id)
         return closed
+
+    def pinned_frames(self) -> set[str]:
+        """Frames a visit in progress depends on: its own and every one its event offered."""
+        pinned: set[str] = set()
+        with self._sessions() as db:
+            rows = db.scalars(
+                select(BoothSessionRow).where(
+                    BoothSessionRow.state.notin_([str(state) for state in _TERMINAL])
+                )
+            ).all()
+        for row in rows:
+            for layout in _snapshot_of(row.profile_snapshot).layouts:
+                pinned.add(layout.frame_id)
+            selection = _selection_of(row.selection_snapshot)
+            if selection is not None:
+                pinned.add(selection.frame_id)
+        return pinned
 
     def unfinished_operations(self, boot_id: str) -> list[Operation]:
         with self._sessions() as db:

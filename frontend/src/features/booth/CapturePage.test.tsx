@@ -29,7 +29,7 @@ function shots(total: number, done: number, attempt = 1) {
 function visit(overrides: Partial<BoothSessionState> = {}): BoothSessionState {
   const expected = overrides.expected_captures ?? 2
   const taken = overrides.taken ?? 0
-  return {
+  const base: BoothSessionState = {
     id: SESSION_ID,
     state: 'capturing',
     state_version: 1 + taken,
@@ -42,8 +42,9 @@ function visit(overrides: Partial<BoothSessionState> = {}): BoothSessionState {
     layout_label: '3×4',
     frame_id: 'f34',
     shots: shots(expected, taken),
-    ...overrides,
+    inactivity_timeout_s: 120,
   }
+  return { ...base, ...overrides }
 }
 
 const MENU: FrameMenu = {
@@ -66,13 +67,16 @@ class FakeCamera implements CameraSource {
   stopped = 0
   failWith: CameraError | null = null
   alive = true
+  cameras = [{ id: 'fake', label: 'Fake camera' }]
+  openedWith: (string | undefined)[] = []
 
   async devices() {
-    return [{ id: 'fake', label: 'Fake camera' }]
+    return this.cameras
   }
 
-  async open(): Promise<CameraView> {
+  async open(deviceId?: string): Promise<CameraView> {
     this.opened += 1
+    this.openedWith.push(deviceId)
     if (this.failWith) throw this.failWith
     // Arrow functions keep this fake camera's own counters without aliasing `this`.
     const photo = async (): Promise<Blob> => {
@@ -140,6 +144,7 @@ function server(session: BoothSessionState = visit()) {
   const handler = async (path: string, init?: RequestInit) => {
     if (path === '/api/booth/frames') return json(MENU)
     if (path.endsWith('/sessions/current')) return json(current)
+    if (path.endsWith(`/sessions/${current.id}`)) return json(current) // a plain read
     if (path.endsWith('/captures')) {
       const form = init?.body as FormData
       const shot = Number(form.get('shot_index'))
@@ -419,5 +424,140 @@ describe('CapturePage (booth)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'These are good' }))
     await waitFor(() => expect(booth.state().state).toBe('reviewing'))
     expect(screen.getByText('The photos are ready for the next step.')).toBeInTheDocument()
+  })
+
+  it('a lost answer is retried with the very same photo, never a new one (P67-002)', async () => {
+    const booth = server(visit({ expected_captures: 1 }))
+    let fail = true
+    const { sent } = renderCapture(async (path, init) => {
+      if (path.endsWith('/captures') && fail) {
+        fail = false
+        return json({ detail: 'the answer was lost' }, 500)
+      }
+      return booth.handler(path, init)
+    })
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    expect(await screen.findByRole('alert')).toHaveTextContent('That photo did not reach the booth')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await oneShot()
+    await screen.findByText('All photos taken')
+    expect(sent).toHaveLength(2)
+    expect(sent[0]?.bytes).toBe(sent[1]?.bytes) // the same picture, not a second one
+    expect(sent[0]?.fields.idempotency_key).toBe(sent[1]?.fields.idempotency_key)
+    expect(camera.photos).toBe(1) // the camera was asked once
+  })
+
+  it('a photo the visit has moved past is dropped instead of being retried forever', async () => {
+    const booth = server(visit({ expected_captures: 2 }))
+    const { sent } = renderCapture(async (path, init) => {
+      if (path.endsWith('/captures') && sent.length === 1) {
+        return json({ detail: 'this idempotency key was used for a different request' }, 422)
+      }
+      return booth.handler(path, init)
+    })
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    await oneShot()
+    await waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(2))
+    // The refused photo is not sent again under its old key.
+    expect(new Set(sent.map((call) => call.fields.idempotency_key)).size).toBe(sent.length)
+  })
+
+  it('a camera that comes back carries on with the session (P67-003)', async () => {
+    const booth = server(visit({ expected_captures: 2 }))
+    renderCapture(booth.handler)
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    expect(screen.getByTestId('capture-progress')).toHaveTextContent('Photo 2 of 2')
+
+    // Unplugged while the booth waits for the next photo.
+    camera.alive = false
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(await screen.findByRole('alert')).toHaveTextContent('The camera was disconnected')
+
+    camera.alive = true
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    await oneShot()
+    expect(await screen.findByText('All photos taken')).toBeInTheDocument()
+  })
+
+  it('an unattended booth ends the visit and goes back to the start screen (P67-004)', async () => {
+    const booth = server(visit({ expected_captures: 6, inactivity_timeout_s: 20 }))
+    renderCapture(booth.handler)
+    await screen.findByTestId('capture-progress')
+    await oneShot() // somebody was there a moment ago
+
+    await act(async () => {
+      vi.advanceTimersByTime(21_000)
+    })
+    expect(await screen.findByText('the start screen')).toBeInTheDocument()
+    await waitFor(() => expect(booth.state().state).toBe('cancelled'))
+    expect(camera.stopped).toBeGreaterThan(0) // the camera light goes out
+  })
+
+  it('the camera stops and a way out remains once the photos are done (P67-005)', async () => {
+    const booth = server(visit({ expected_captures: 1, retake_mode: 'none' }))
+    renderCapture(booth.handler)
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    await userEvent.click(await screen.findByRole('button', { name: 'These are good' }))
+    await waitFor(() => expect(booth.state().state).toBe('reviewing'))
+    expect(camera.stopped).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /again/ })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Back to the start' }))
+    expect(await screen.findByText('the start screen')).toBeInTheDocument()
+  })
+
+  it('a second tap on a retake can not throw away the new photo (P67-006)', async () => {
+    const booth = server(visit({ expected_captures: 2, retake_mode: 'per_photo' }))
+    const asked: unknown[] = []
+    let release = () => {}
+    renderCapture(async (path, init) => {
+      if (path.endsWith('/retake')) {
+        asked.push(JSON.parse(String(init?.body)))
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+      }
+      return booth.handler(path, init)
+    })
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    await oneShot()
+    await screen.findByText('All photos taken')
+
+    const again = screen.getByRole('button', { name: 'Photo 2 again' })
+    await userEvent.click(again)
+    await userEvent.click(again) // the double tap
+    expect(asked).toHaveLength(1) // the second one never left the booth
+    expect(asked[0]).toMatchObject({ shot_index: 2, state_version: expect.any(Number) })
+    await act(async () => {
+      release()
+      await Promise.resolve()
+    })
+  })
+
+  it('lets the booth choose between the cameras of this machine (P67-009)', async () => {
+    camera.cameras = [
+      { id: 'built-in', label: 'Built-in camera' },
+      { id: 'usb', label: 'Event camera' },
+    ]
+    const booth = server(visit({ expected_captures: 2 }))
+    renderCapture(booth.handler)
+    await screen.findByTestId('capture-progress')
+    const picker = await screen.findByLabelText('Camera')
+    expect(camera.openedWith[0]).toBeUndefined() // the browser's own default at first
+
+    await userEvent.selectOptions(picker, 'usb')
+    await waitFor(() => expect(camera.openedWith.at(-1)).toBe('usb'))
+    expect(camera.stopped).toBeGreaterThan(0) // the previous camera was released
+    expect(localStorage.getItem('pb.booth.cameraDevice')).toBe('usb')
+    await oneShot()
+    expect(camera.photos).toBeGreaterThan(0)
   })
 })

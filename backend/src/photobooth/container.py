@@ -401,12 +401,15 @@ class Container:
             ),
         )
         self.profile_repository = SqlEventProfileRepository(self.engine)
+        self.session_repository = SqlSessionRepository(self.engine)
         self.frame_service = FrameService(
             SqlFrameRepository(self.engine),
             self.asset_service,
             PillowFrameValidator(),
             self.template_service,
             usage=_FrameUsage(self.profile_repository),
+            # A frame a guest is already using keeps its file until their visit is over.
+            visits=self.session_repository,
         )
         self.theme_service = ThemeService(
             _BackgroundImages(self.asset_service), PillowPaletteExtractor()
@@ -440,7 +443,7 @@ class Container:
         )
         self.registry.register(BoothService, self.booth_service)
         self.session_service = BoothSessionService(
-            SqlSessionRepository(self.engine),
+            self.session_repository,
             _SessionEvent(self.profile_service, self.frame_service, self.template_service),
             _CaptureImages(PillowImageInspector()),
             _CaptureFiles(self.storage),

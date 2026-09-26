@@ -418,12 +418,22 @@ class SessionRepository(ABC):
 
     @abstractmethod
     def close(
-        self, session_id: str, state: SessionState, at: datetime, code: str | None = None
-    ) -> BoothSession | None: ...
+        self,
+        session_id: str,
+        state: SessionState,
+        at: datetime,
+        code: str | None = None,
+        idle_since: datetime | None = None,
+    ) -> BoothSession | None:
+        """`idle_since` only closes a visit nobody has touched since that moment."""
 
     @abstractmethod
     def close_inactive(self, now: datetime) -> list[str]:
         """End every session whose own inactivity timeout has passed. Returns their ids."""
+
+    @abstractmethod
+    def pinned_frames(self) -> set[str]:
+        """Frames that visits in progress depend on; their files may not be replaced or removed."""
 
     @abstractmethod
     def unfinished_operations(self, boot_id: str) -> list[Operation]:

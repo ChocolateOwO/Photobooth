@@ -40,6 +40,11 @@ class RetakeBody(BaseModel):
     shot_index: int | None = Field(
         default=None, ge=1, le=64, description="Which photo to take again; all of them when null."
     )
+    state_version: int | None = Field(
+        default=None,
+        ge=1,
+        description="The version of the visit this answers; a later one refuses the retake.",
+    )
 
 
 class ShotResponse(BaseModel):
@@ -61,6 +66,7 @@ class BoothSessionResponse(BaseModel):
     countdown_seconds: int
     mirror: bool
     retake_mode: str
+    inactivity_timeout_s: int
     expected_captures: int
     taken: int
     template_key: str | None
@@ -80,6 +86,7 @@ class BoothSessionResponse(BaseModel):
             countdown_seconds=session.countdown_seconds,
             mirror=session.mirror,
             retake_mode=str(session.retake_mode),
+            inactivity_timeout_s=session.profile.inactivity_timeout_s,
             expected_captures=session.expected_capture_count,
             taken=session.successful_capture_count,
             template_key=selection.template_key if selection else None,

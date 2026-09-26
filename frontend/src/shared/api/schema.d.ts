@@ -786,6 +786,8 @@ export interface components {
             frame_id: string | null;
             /** Id */
             id: string;
+            /** Inactivity Timeout S */
+            inactivity_timeout_s: number;
             /** Layout Label */
             layout_label: string | null;
             /** Mirror */
@@ -1366,6 +1368,11 @@ export interface components {
              * @description Which photo to take again; all of them when null.
              */
             shot_index?: number | null;
+            /**
+             * State Version
+             * @description The version of the visit this answers; a later one refuses the retake.
+             */
+            state_version?: number | null;
         };
         /**
          * RetakeMode

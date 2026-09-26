@@ -145,6 +145,24 @@
   justify-content: center;
 }
 
+.cameraPicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ev-body);
+  font-weight: 600;
+}
+
+.select {
+  min-height: 48px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 2px solid var(--ev-input-border);
+  background-color: var(--ev-input-bg);
+  color: var(--ev-input-text);
+  font: inherit;
+}
+
 .plain {
   padding: 24px;
   color: var(--pb-color-text);

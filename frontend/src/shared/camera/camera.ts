@@ -223,6 +223,25 @@ export class TestCamera implements CameraSource {
 }
 
 export const TEST_CAMERA_SETTING = 'pb.booth.camera'
+export const CAMERA_DEVICE_SETTING = 'pb.booth.cameraDevice'
+
+/** The camera this booth was told to use (an operator's choice, kept for the next visits). */
+export function rememberedCamera(): string | null {
+  try {
+    return window.localStorage.getItem(CAMERA_DEVICE_SETTING)
+  } catch {
+    return null
+  }
+}
+
+export function rememberCamera(deviceId: string | null): void {
+  try {
+    if (deviceId) window.localStorage.setItem(CAMERA_DEVICE_SETTING, deviceId)
+    else window.localStorage.removeItem(CAMERA_DEVICE_SETTING)
+  } catch {
+    // Storage may be unavailable; the booth then uses the browser's own default camera.
+  }
+}
 
 /**
  * `?camera=test` is remembered as the page loads, because the booth screen that needs the camera

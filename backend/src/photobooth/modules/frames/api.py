@@ -15,6 +15,8 @@ from photobooth.core.admin_gate import require_admin
 from photobooth.core.uploads import UploadAdmission, multipart_openapi, read_upload
 from photobooth.core.web import provide, require_device
 from photobooth.modules.frames.domain import (
+    FrameError,
+    FrameInVisitError,
     FrameNotFoundError,
     FrameReadOnlyError,
     FrameValidationError,
@@ -49,7 +51,7 @@ UPLOAD_OPENAPI = multipart_openapi(
 REPLACE_OPENAPI = multipart_openapi({})
 
 
-def _read_only(exc: FrameReadOnlyError) -> HTTPException:
+def _read_only(exc: FrameError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
@@ -172,7 +174,7 @@ async def replace_frame(
         return FrameResponse.of(frame)
     except FrameNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except FrameReadOnlyError as exc:
+    except (FrameReadOnlyError, FrameInVisitError) as exc:
         raise _read_only(exc) from exc
     except FrameValidationError as exc:
         raise _invalid(exc) from exc
@@ -186,7 +188,7 @@ def rename_frame(frame_id: FrameId, body: RenameFrameBody, service: Service) -> 
         return FrameResponse.of(service.rename(frame_id, body.name))
     except FrameNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except FrameReadOnlyError as exc:
+    except (FrameReadOnlyError, FrameInVisitError) as exc:
         raise _read_only(exc) from exc
     except FrameValidationError as exc:
         raise _invalid(exc) from exc
@@ -198,5 +200,5 @@ def delete_frame(frame_id: FrameId, service: Service) -> None:
         service.delete(frame_id)
     except FrameNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except FrameReadOnlyError as exc:
+    except (FrameReadOnlyError, FrameInVisitError) as exc:
         raise _read_only(exc) from exc

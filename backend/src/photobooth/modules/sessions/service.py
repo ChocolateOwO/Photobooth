@@ -218,6 +218,10 @@ class BoothSessionService:
     ) -> CaptureOutcome:
         """Publish one photo. The same key twice returns the first answer and stores nothing."""
         with self._locks.held(session_id):
+            # The device that owns the visit is established before anything is looked up, so a
+            # second paired browser can not replay somebody else's photo or read their visit
+            # (P67-001).
+            self._owned(device_id, session_id)
             fingerprint = _fingerprint(
                 "capture", session_id, shot_index, attempt_no, hashlib.sha256(data).hexdigest()
             )
@@ -277,11 +281,21 @@ class BoothSessionService:
             return outcome
 
     def retake(
-        self, device_id: str, session_id: str, shots: Sequence[int] | None = None
+        self,
+        device_id: str,
+        session_id: str,
+        shots: Sequence[int] | None = None,
+        expected_version: int | None = None,
     ) -> BoothSession:
-        """Take a photo (or the whole set) again, as the event's retake setting allows."""
+        """Take a photo (or the whole set) again, as the event's retake setting allows.
+
+        The client says which version of the visit it is answering, so a second tap that arrives
+        after a new photo was taken is refused instead of throwing that photo away (P67-006).
+        """
         with self._locks.held(session_id):
             session = self._load(device_id, session_id)
+            if expected_version is not None and expected_version != session.state_version:
+                raise StaleSessionError()
             if session.state is not SessionState.CAPTURING:
                 raise TransitionRefusedError("this session is not taking photos")
             mode = session.retake_mode
@@ -335,6 +349,10 @@ class BoothSessionService:
     def close_inactive(self) -> list[str]:
         """End every session nobody has touched within its event's inactivity timeout."""
         return self._repository.close_inactive(self._clock.now())
+
+    def pinned_frames(self) -> set[str]:
+        """Frames a visit in progress depends on (its own and the ones its event offered)."""
+        return self._repository.pinned_frames()
 
     def recover(self) -> int:
         """After a restart: settle photos left half-published and delete files nobody wants."""
@@ -416,6 +434,13 @@ class BoothSessionService:
         if max(attempts, default=0) + 1 > MAX_ATTEMPTS_PER_SHOT:
             raise TooManyCapturesError(shot_index)
 
+    def _owned(self, device_id: str, session_id: str) -> BoothSession:
+        """The visit, if it belongs to this device. Nothing else may see it exists."""
+        session = self._repository.get(session_id)
+        if session is None or session.device_id != device_id:
+            raise SessionNotFoundError()
+        return session
+
     def _load(self, device_id: str, session_id: str, allow_closed: bool = False) -> BoothSession:
         session = self._repository.get(session_id)
         if session is None or session.device_id != device_id:
@@ -435,9 +460,14 @@ class BoothSessionService:
         idle = (self._clock.now() - session.last_activity_at).total_seconds()
         if idle < session.profile.inactivity_timeout_s:
             return session
+        # Closed only while nobody has touched the visit since it was read (P67-008).
         return (
             self._repository.close(
-                session.id, SessionState.ABANDONED, self._clock.now(), "inactivity"
+                session.id,
+                SessionState.ABANDONED,
+                self._clock.now(),
+                "inactivity",
+                idle_since=session.last_activity_at,
             )
             or session
         )

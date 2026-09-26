@@ -68,7 +68,12 @@ const RETAKE_LABELS = {
 /** The organizer changes the event the way an organizer does: in the profile editor. */
 async function settings(
   page: Page,
-  changes: { countdown?: number; mirror?: boolean; retake?: keyof typeof RETAKE_LABELS },
+  changes: {
+    countdown?: number
+    mirror?: boolean
+    retake?: keyof typeof RETAKE_LABELS
+    inactivity?: number
+  },
 ): Promise<void> {
   await page.goto('/admin')
   await profileRow(page, PROFILE).getByRole('link', { name: `Edit ${PROFILE}`, exact: true }).click()
@@ -85,6 +90,9 @@ async function settings(
   }
   if (changes.retake !== undefined) {
     await page.getByRole('radio', { name: RETAKE_LABELS[changes.retake] }).check()
+  }
+  if (changes.inactivity !== undefined) {
+    await page.getByLabel('Inactivity timeout (seconds)').fill(String(changes.inactivity))
   }
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page.getByRole('alertdialog', { name: 'Saved' })).toBeVisible()
@@ -366,6 +374,25 @@ test('the participant API keeps the visit to its own device', async ({ page, bro
     await stranger.close()
   }
   await page.getByRole('button', { name: 'Stop and start over' }).click()
+})
+
+test('an unattended booth ends the visit by itself and goes back to the start', async ({ page }) => {
+  test.setTimeout(120_000) // the booth waits out the event's own inactivity time
+  await pairAndSignIn(page)
+  // The shortest wait the profile allows, so the booth gives up quickly.
+  await settings(page, { inactivity: 30 }) // the shortest the profile allows
+  await openBooth(page)
+  await page.getByRole('tab', { name: '3×4' }).click()
+  await chooseFrame(page, 'Midnight')
+  await waitForPhotos(page, 1)
+  const left = await visit(page)
+
+  // Nobody touches the booth from here on.
+  await expect(page).toHaveURL(/\/booth$/, { timeout: 60_000 })
+  const ended = await page.request.get(`/api/booth/sessions/${left.id}`)
+  expect((await ended.json()).state).toBe('cancelled')
+  expect(await visit(page)).toBeNull()
+  await settings(page, { inactivity: 120 })
 })
 
 test('the event the later specs expect is active again', async ({ page }) => {

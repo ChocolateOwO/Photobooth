@@ -37,6 +37,15 @@ class FrameNotFoundError(FrameError):
         super().__init__(f"frame not found: {frame_id}")
 
 
+class FrameInVisitError(FrameError):
+    """A guest at the booth is in a visit that depends on this frame's file."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "a guest is using this frame right now; try again when their session has finished"
+        )
+
+
 class FrameReadOnlyError(FrameError):
     """Built-in frames ship with the app and can not be replaced, renamed or deleted."""
 

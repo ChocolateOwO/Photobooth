@@ -1,18 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 
-import type { BoothSessionState } from '../../shared/api/client'
-import { ApiError } from '../../shared/api/client'
+import { ApiError, type BoothSessionState } from '../../shared/api/client'
 import { useApiClient } from '../../shared/api/ApiClientContext'
 import {
   CameraError,
   cameraMessage,
   chooseCamera,
+  rememberCamera,
+  rememberedCamera,
+  type CameraDevice,
   type CameraProblem,
   type CameraSource,
   type CameraView,
 } from '../../shared/camera/camera'
-import { EventButton, EventHeading, EventMessage, EventScreen, EventText } from '../../shared/eventUi/EventUi'
+import {
+  EventButton,
+  EventHeading,
+  EventMessage,
+  EventScreen,
+  EventText,
+} from '../../shared/eventUi/EventUi'
 import { useBoothMenu } from './boothMenu'
 import styles from './CapturePage.module.css'
 
@@ -29,6 +37,15 @@ type Phase = 'starting' | 'ready' | 'counting' | 'flash' | 'sending' | 'between'
 
 const FLASH_MS = 220
 const BETWEEN_SHOTS_MS = 900
+/** How often the booth checks whether anybody is still there. */
+const IDLE_CHECK_MS = 1000
+
+interface PendingPhoto {
+  shot: number
+  attempt: number
+  key: string
+  photo: Blob
+}
 
 function newKey(): string {
   return crypto.randomUUID().replaceAll('-', '')
@@ -48,15 +65,19 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   const [session, setSession] = useState<BoothSessionState | null>(null)
   const [phase, setPhase] = useState<Phase>('starting')
   const [count, setCount] = useState(0)
+  const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<{ text: string; kind: CameraProblem | 'session' } | null>(
     null,
   )
   const videoRef = useRef<HTMLVideoElement>(null)
   const viewRef = useRef<CameraView | null>(null)
   const [live, setLive] = useState<CameraView | null>(null)
+  const [devices, setDevices] = useState<CameraDevice[]>([])
+  const [deviceId, setDeviceId] = useState<string | null>(() => rememberedCamera())
   const timers = useRef<number[]>([])
-  // One key per (photo, attempt): retrying a lost answer never takes a second photo.
-  const keys = useRef(new Map<string, string>())
+  // The photo waiting for its answer. A retry sends these very bytes again under the same key,
+  // so a lost answer never turns into a second (different) photo (P67-002).
+  const pending = useRef<PendingPhoto | null>(null)
   const camera = useMemo(() => given ?? chooseCamera(instance), [given, instance])
 
   const clearTimers = useCallback(() => {
@@ -66,10 +87,21 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   const later = useCallback((run: () => void, ms: number) => {
     timers.current.push(window.setTimeout(run, ms))
   }, [])
+  const stopCamera = useCallback(() => {
+    viewRef.current?.stop()
+    viewRef.current = null
+    setLive(null)
+  }, [])
+  // When somebody was last seen at the booth: a photo taken, or a touch, key or wheel.
+  const activity = useRef(0)
+  const seenSomebody = useCallback(() => {
+    activity.current = Date.now()
+  }, [])
 
   const next = useMemo(() => session?.shots.find((shot) => !shot.done) ?? null, [session])
   const taken = session?.taken ?? 0
   const total = session?.expected_captures ?? 0
+  const capturing = session?.state === 'capturing'
 
   // ---- the session ------------------------------------------------------------------------
   useEffect(() => {
@@ -94,9 +126,9 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   }, [api, navigate])
 
   // ---- the camera -------------------------------------------------------------------------
-  // Bumped by "Try again": the effect below opens the camera once per value.
+  // Bumped by "Try again" and by picking another camera: the effect opens it once per value.
   const [openings, setOpenings] = useState(0)
-  const openCamera = useCallback(() => setOpenings((count) => count + 1), [])
+  const openCamera = useCallback(() => setOpenings((round) => round + 1), [])
 
   // The picture is attached when both the camera and the video element are there, whichever
   // arrives last (the screen shows "Loading…" until the visit is known).
@@ -115,26 +147,38 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
     let alive = true
     void (async () => {
       try {
-        const view = await camera.open()
+        const view = await camera.open(deviceId ?? undefined)
         if (!alive) {
           view.stop()
           return
         }
+        viewRef.current?.stop() // never leave the previous camera running
         viewRef.current = view
         setLive(view)
         setProblem(null)
+        // Once a camera is open the browser names the others, so the booth can offer a choice.
+        const found = await camera.devices()
+        if (alive) setDevices(found)
       } catch (error) {
         if (!alive) return
-        const problem = error instanceof CameraError ? error.problem : 'failed'
-        setProblem({ text: cameraMessage(problem), kind: problem })
+        const trouble = error instanceof CameraError ? error.problem : 'failed'
+        setProblem({ text: cameraMessage(trouble), kind: trouble })
+        // Ready to try again as soon as a camera answers (P67-003).
+        setPhase((current) => (current === 'complete' ? current : 'ready'))
       }
     })()
     return () => {
       alive = false
+    }
+  }, [camera, deviceId, openings])
+
+  useEffect(
+    () => () => {
       viewRef.current?.stop()
       viewRef.current = null
-    }
-  }, [camera, openings])
+    },
+    [],
+  )
 
   useEffect(() => () => clearTimers(), [clearTimers])
 
@@ -143,31 +187,42 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
     const view = viewRef.current
     const shot = next
     if (!session || !shot) return
-    if (!view || !view.live()) {
-      setProblem({ text: cameraMessage('lost'), kind: 'lost' })
-      setPhase('ready')
-      return
+    let waiting = pending.current
+    if (waiting && (waiting.shot !== shot.shot_index || waiting.attempt !== shot.attempt_no)) {
+      waiting = null // it belonged to a photo the session has moved past
+      pending.current = null
     }
-    setPhase('flash')
-    let photo: Blob
-    try {
-      photo = await view.photo()
-    } catch (error) {
-      const problem = error instanceof CameraError ? error.problem : 'failed'
-      setProblem({ text: cameraMessage(problem), kind: problem })
-      setPhase('ready')
-      return
+    if (!waiting) {
+      if (!view || !view.live()) {
+        setProblem({ text: cameraMessage('lost'), kind: 'lost' })
+        setPhase('ready')
+        return
+      }
+      setPhase('flash')
+      try {
+        waiting = {
+          shot: shot.shot_index,
+          attempt: shot.attempt_no,
+          key: newKey(),
+          photo: await view.photo(),
+        }
+      } catch (error) {
+        const trouble = error instanceof CameraError ? error.problem : 'failed'
+        setProblem({ text: cameraMessage(trouble), kind: trouble })
+        setPhase('ready')
+        return
+      }
+      pending.current = waiting
     }
     setPhase('sending')
-    const slot = `${shot.shot_index}-${shot.attempt_no}`
-    const key = keys.current.get(slot) ?? newKey()
-    keys.current.set(slot, key)
     try {
-      const result = await api.sendCapture(session.id, photo, {
-        index: shot.shot_index,
-        attempt: shot.attempt_no,
-        idempotencyKey: key,
+      const result = await api.sendCapture(session.id, waiting.photo, {
+        index: waiting.shot,
+        attempt: waiting.attempt,
+        idempotencyKey: waiting.key,
       })
+      pending.current = null
+      seenSomebody() // a photo was taken: somebody is still at the booth
       setSession(result.session)
       if (result.session.taken >= result.session.expected_captures) {
         setPhase('complete')
@@ -176,13 +231,15 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
         later(() => setPhase('ready'), BETWEEN_SHOTS_MS)
       }
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        // The session moved on (a retake, a timeout, another photo): follow the server.
+      if (error instanceof ApiError && (error.status === 409 || error.status === 422)) {
+        // The visit moved on (a retake, a timeout, another photo): the participant did nothing
+        // wrong, so the booth follows the server and simply carries on with the next photo.
+        pending.current = null
         try {
           const fresh = await api.readSession(session.id)
           setSession(fresh)
           setPhase(fresh.state === 'capturing' ? 'ready' : 'complete')
-          if (fresh.state !== 'capturing') return
+          return
         } catch {
           navigate('/booth/frames', { replace: true })
           return
@@ -191,7 +248,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
       setProblem({ text: 'That photo did not reach the booth. Try again.', kind: 'session' })
       setPhase('ready')
     }
-  }, [api, later, navigate, next, session])
+  }, [api, later, navigate, next, seenSomebody, session])
 
   // ---- the countdown -----------------------------------------------------------------------
   const startCountdown = useCallback(() => {
@@ -228,46 +285,82 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   useEffect(() => {
     if (!live || problem) return undefined
     const watch = window.setInterval(() => {
-      if (!live.live()) setProblem({ text: cameraMessage('lost'), kind: 'lost' })
+      if (!live.live()) {
+        setProblem({ text: cameraMessage('lost'), kind: 'lost' })
+        setPhase((current) => (current === 'complete' ? current : 'ready'))
+      }
     }, 700)
     return () => window.clearInterval(watch)
   }, [live, problem])
 
   // ---- what the participant can do ---------------------------------------------------------
+  const leave = useCallback(
+    async (reason: 'gave-up' | 'timed-out') => {
+      clearTimers()
+      stopCamera()
+      pending.current = null
+      const current = session
+      if (current && current.state === 'capturing') {
+        try {
+          await api.giveUpSession(current.id)
+        } catch {
+          // Leaving always works for the participant; the visit also ends by itself.
+        }
+      }
+      navigate('/booth', { replace: reason === 'timed-out' })
+    },
+    [api, clearTimers, navigate, session, stopCamera],
+  )
+
+  // Nobody at the booth for the event's inactivity time: the visit ends and the booth goes back
+  // to its start screen, camera off, ready for the next guest (P67-004).
+  useEffect(() => {
+    const timeout = session?.inactivity_timeout_s
+    if (!timeout || !session) return undefined
+    const events: (keyof WindowEventMap)[] = ['pointerdown', 'keydown', 'touchstart', 'wheel']
+    for (const name of events) window.addEventListener(name, seenSomebody, { passive: true })
+    const watch = window.setInterval(() => {
+      if (!activity.current) seenSomebody() // the clock starts when this screen does
+      else if (Date.now() - activity.current >= timeout * 1000) void leave('timed-out')
+    }, IDLE_CHECK_MS)
+    return () => {
+      window.clearInterval(watch)
+      for (const name of events) window.removeEventListener(name, seenSomebody)
+    }
+  }, [leave, seenSomebody, session])
+
   const retake = async (shotIndex?: number) => {
-    if (!session) return
+    if (!session || busy) return
     clearTimers()
+    setBusy(true)
+    pending.current = null
     try {
-      const updated = await api.retakeCapture(session.id, shotIndex)
+      // The version says which state of the visit this answers, so a second tap that arrives
+      // after a new photo can not throw that photo away (P67-006).
+      const updated = await api.retakeCapture(session.id, shotIndex, session.state_version)
       setSession(updated)
       setPhase('ready')
     } catch {
       setProblem({ text: 'That photo could not be taken again.', kind: 'session' })
+    } finally {
+      setBusy(false)
     }
   }
 
   const finish = async () => {
-    if (!session) return
+    if (!session || busy) return
+    setBusy(true)
     try {
       const done = await api.finishCaptures(session.id)
+      clearTimers()
+      stopCamera() // the camera light goes out as soon as the photos are done
       setSession(done)
       setPhase('complete')
     } catch {
       setProblem({ text: 'The booth could not finish the session.', kind: 'session' })
+    } finally {
+      setBusy(false)
     }
-  }
-
-  const giveUp = async () => {
-    clearTimers()
-    viewRef.current?.stop()
-    if (session) {
-      try {
-        await api.giveUpSession(session.id)
-      } catch {
-        // Leaving always works for the participant; the server ends the visit by itself too.
-      }
-    }
-    navigate('/booth', { replace: true })
   }
 
   if (menu.isPending || !session) {
@@ -275,10 +368,9 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   }
 
   const tokens = menu.isSuccess ? menu.data.theme : {}
-  const mirrored = session.mirror
   const complete = session.taken >= session.expected_captures
-  const canRetakeOne = session.retake_mode === 'per_photo'
-  const canRetakeAll = session.retake_mode === 'all'
+  const canRetakeOne = capturing && session.retake_mode === 'per_photo'
+  const canRetakeAll = capturing && session.retake_mode === 'all'
 
   return (
     <EventScreen tokens={tokens} className={styles.screen} label="Photo session">
@@ -306,7 +398,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
         <video
           ref={videoRef}
           className={styles.preview}
-          data-mirrored={mirrored ? '' : undefined}
+          data-mirrored={session.mirror ? '' : undefined}
           playsInline
           muted
           autoPlay
@@ -340,7 +432,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
               >
                 Try again
               </EventButton>
-              <EventButton variant="secondary" onClick={() => void giveUp()}>
+              <EventButton variant="secondary" onClick={() => void leave('gave-up')}>
                 Start over
               </EventButton>
             </div>
@@ -349,11 +441,34 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
       </div>
 
       <div className={styles.actions}>
+        {devices.length > 1 && capturing && (
+          <label className={styles.cameraPicker}>
+            Camera
+            <select
+              className={styles.select}
+              value={deviceId ?? devices[0]?.id ?? ''}
+              onChange={(event) => {
+                rememberCamera(event.target.value)
+                setDeviceId(event.target.value)
+              }}
+            >
+              {devices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {complete ? (
           <>
-            <EventText>The photos are ready for the next step.</EventText>
+            <EventText>
+              {capturing
+                ? 'Happy with these?'
+                : 'The photos are ready for the next step.'}
+            </EventText>
             {canRetakeAll && (
-              <EventButton variant="secondary" onClick={() => void retake()}>
+              <EventButton variant="secondary" disabled={busy} onClick={() => void retake()}>
                 Take all the photos again
               </EventButton>
             )}
@@ -363,6 +478,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
                   <EventButton
                     key={shot.shot_index}
                     variant="secondary"
+                    disabled={busy}
                     onClick={() => void retake(shot.shot_index)}
                   >
                     Photo {shot.shot_index} again
@@ -370,14 +486,18 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
                 ))}
               </div>
             )}
-            {session.state === 'capturing' && (
-              <EventButton variant="primary" onClick={() => void finish()}>
+            {capturing ? (
+              <EventButton variant="primary" disabled={busy} onClick={() => void finish()}>
                 These are good
+              </EventButton>
+            ) : (
+              <EventButton variant="primary" onClick={() => void leave('gave-up')}>
+                Back to the start
               </EventButton>
             )}
           </>
         ) : (
-          <EventButton variant="secondary" onClick={() => void giveUp()}>
+          <EventButton variant="secondary" onClick={() => void leave('gave-up')}>
             Stop and start over
           </EventButton>
         )}

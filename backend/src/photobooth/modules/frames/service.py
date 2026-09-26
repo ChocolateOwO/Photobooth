@@ -11,6 +11,7 @@ from photobooth.modules.frames.builtin import BuiltinFrame, builtin_frames
 from photobooth.modules.frames.domain import (
     AssetStore,
     FrameAsset,
+    FrameInVisitError,
     FrameNotFoundError,
     FrameReadOnlyError,
     FrameRepository,
@@ -32,6 +33,12 @@ class FrameUsage(Protocol):
     def names_by_layout(self) -> dict[str, list[str]]: ...
 
 
+class VisitsInProgress(Protocol):
+    """Frames that booth visits already under way depend on (from the sessions module)."""
+
+    def pinned_frames(self) -> set[str]: ...
+
+
 class _AssetUsage:
     """Asset-level reference check: any frame row still pointing at the stored file."""
 
@@ -50,6 +57,7 @@ class FrameService:
         validator: FrameValidator,
         templates: TemplateLookup,
         usage: FrameUsage,
+        visits: VisitsInProgress | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
     ) -> None:
@@ -58,6 +66,7 @@ class FrameService:
         self._validator = validator
         self._templates = templates
         self._usage = usage
+        self._visits = visits
         self._clock = clock
         self._new_id = new_id
         self._asset_usage = _AssetUsage(repository)
@@ -115,6 +124,7 @@ class FrameService:
     def replace_file(self, frame_id: str, data: bytes) -> FrameAsset:
         """Swap in a corrected file. Profile selections keep working; old bytes stay untouched."""
         frame = self._custom(frame_id)
+        self._not_in_a_visit(frame_id)
         template = self._templates.get(frame.template_key, frame.template_version)
         report = self._validator.validate(data, template)
         asset = self._assets.upload("frame", data)
@@ -131,8 +141,14 @@ class FrameService:
     def delete(self, frame_id: str) -> None:
         """Remove an uploaded frame; it simply stops being offered (profiles choose sizes)."""
         frame = self._custom(frame_id)
+        self._not_in_a_visit(frame_id)
         self._repository.delete(frame_id)
         self._discard(frame.media_asset_id)
+
+    def _not_in_a_visit(self, frame_id: str) -> None:
+        """A visit keeps the frame it was offered: its file may not change or vanish underneath."""
+        if self._visits is not None and frame_id in self._visits.pinned_frames():
+            raise FrameInVisitError()
 
     def _custom(self, frame_id: str) -> FrameAsset:
         """The frame, when the admin may change it (built-in frames are read-only)."""

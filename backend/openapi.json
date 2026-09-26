@@ -63,6 +63,10 @@
             "title": "Id",
             "type": "string"
           },
+          "inactivity_timeout_s": {
+            "title": "Inactivity Timeout S",
+            "type": "integer"
+          },
           "layout_label": {
             "anyOf": [
               {
@@ -120,6 +124,7 @@
           "countdown_seconds",
           "mirror",
           "retake_mode",
+          "inactivity_timeout_s",
           "expected_captures",
           "taken",
           "template_key",
@@ -1352,6 +1357,19 @@
             ],
             "description": "Which photo to take again; all of them when null.",
             "title": "Shot Index"
+          },
+          "state_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The version of the visit this answers; a later one refuses the retake.",
+            "title": "State Version"
           }
         },
         "title": "RetakeBody",

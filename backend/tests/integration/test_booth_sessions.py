@@ -28,9 +28,12 @@ from photobooth.modules.sessions.domain import (
     CaptureStatus,
     Operation,
     OperationStatus,
+    SessionState,
 )
 from photobooth.modules.storage.domain import StorageKey
 from tests.integration.admin_support import ORIGIN, adopt_device, device_headers, login
+from tests.integration.test_frames_api import TEMPLATES, upload
+from tests.unit.test_frame_validator import frame_png
 
 PROFILES = "/api/admin/profiles"
 SESSIONS = "/api/booth/sessions"
@@ -262,8 +265,6 @@ def test_the_mirror_setting_travels_with_the_photo_and_the_file_is_untouched(
     capture = container.session_service._repository.captures(session["id"])[0]
     assert capture.mirrored is True  # the preview was mirrored: the render will match it
     assert capture.storage_key is not None
-    from photobooth.modules.storage.domain import StorageKey
-
     assert container.storage.get(StorageKey(capture.storage_key)) == sent  # stored as taken
 
 
@@ -584,3 +585,112 @@ def test_a_photo_left_half_published_by_a_crash_is_settled_at_the_next_start(
         assert counted.failed_capture_attempts == 1
     finally:
         second.close()
+
+
+def test_another_device_can_not_replay_this_visits_photo(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """P67-001: the device is checked before any recorded request is looked up."""
+    admin, device = booth(kiosk_client, container)
+    activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
+    session = choose(kiosk_client, device, start(kiosk_client, device)["id"], PRINT34)
+    picture = photo(1)
+    mine = send(kiosk_client, device, session["id"], 1, key="shared-key", data=picture)
+    assert mine.status_code == 200
+
+    second = TestClient(
+        create_kiosk_app(container.registry, KioskAppOptions()), base_url="http://127.0.0.1:18111"
+    )
+    with second:
+        other = device_headers(adopt_device(second, container))
+        # The very same key, photo, shot and attempt: still nothing but "no such visit".
+        replayed = send(second, other, session["id"], 1, key="shared-key", data=picture)
+        assert replayed.status_code == 404
+        assert session["id"] not in replayed.text
+    # The owner still gets its own answer back.
+    again = send(kiosk_client, device, session["id"], 1, key="shared-key", data=picture)
+    assert again.status_code == 200
+    assert again.json()["capture_id"] == mine.json()["capture_id"]
+
+
+def test_a_late_second_tap_on_retake_can_not_throw_away_the_new_photo(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """P67-006: a retake answers one version of the visit; a stale repeat is refused."""
+    admin, device = booth(kiosk_client, container)
+    activate(kiosk_client, admin, enabled_layouts=["print_3x4"], retake_mode="per_photo")
+    session = choose(kiosk_client, device, start(kiosk_client, device)["id"], PRINT34)
+    for shot in (1, 2):
+        assert send(kiosk_client, device, session["id"], shot).status_code == 200
+    current = kiosk_client.get(f"{SESSIONS}/{session['id']}", headers=device).json()
+
+    first = kiosk_client.post(
+        f"{SESSIONS}/{session['id']}/retake",
+        json={"shot_index": 2, "state_version": current["state_version"]},
+        headers=device,
+    )
+    assert first.status_code == 200, first.text
+    assert send(kiosk_client, device, session["id"], 2, attempt=2, key="fresh").status_code == 200
+
+    # The double tap arrives now, still answering the version from before the retake.
+    stale = kiosk_client.post(
+        f"{SESSIONS}/{session['id']}/retake",
+        json={"shot_index": 2, "state_version": current["state_version"]},
+        headers=device,
+    )
+    assert stale.status_code == 409
+    kept = kiosk_client.get(f"{SESSIONS}/{session['id']}", headers=device).json()
+    assert kept["taken"] == 2  # the new photo is still there
+    assert [shot["attempt_no"] for shot in kept["shots"]] == [1, 2]
+
+
+def test_a_frame_a_guest_is_using_keeps_its_file(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """P67-007: a visit pins the frames it was offered; their files may not change or vanish."""
+    admin, device = booth(kiosk_client, container)
+    _status, uploaded = upload(kiosk_client, admin, key="print_3x4", name="Party print")
+    activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
+    session = choose(kiosk_client, device, start(kiosk_client, device)["id"], uploaded["id"])
+    assert send(kiosk_client, device, session["id"], 1).status_code == 200
+
+    frames = f"/api/admin/frames/{uploaded['id']}"
+    refused = kiosk_client.delete(frames, headers=admin)
+    assert refused.status_code == 409 and "a guest is using this frame" in refused.json()["detail"]
+    replaced = kiosk_client.post(
+        f"{frames}/replace",
+        files={"file": ("f.png", frame_png(TEMPLATES["print_3x4"]), "image/png")},
+        headers=admin,
+    )
+    assert replaced.status_code == 409
+    assert kiosk_client.get(frames, headers=admin).status_code == 200  # untouched
+
+    # Once the visit is over, the frame is the organizer's again.
+    assert (
+        kiosk_client.post(f"{SESSIONS}/{session['id']}/give-up", headers=device).status_code == 200
+    )
+    assert kiosk_client.delete(frames, headers=admin).status_code == 204
+
+
+def test_a_visit_used_again_at_the_last_moment_is_not_ended_behind_the_guest(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """P67-008: expiry only closes a visit nobody has touched since it was read as idle."""
+    admin, device = booth(kiosk_client, container)
+    activate(kiosk_client, admin, enabled_layouts=["print_3x4"], inactivity_timeout_s=30)
+    session = choose(kiosk_client, device, start(kiosk_client, device)["id"], PRINT34)
+    repository = container.session_service._repository
+    long_ago = datetime.now(UTC) - timedelta(minutes=5)
+    repository.touch(session["id"], long_ago)
+
+    # The guest acts just as the sweep decides the visit looks idle.
+    repository.touch(session["id"], datetime.now(UTC))
+    closed = repository.close(
+        session["id"], SessionState.ABANDONED, datetime.now(UTC), "inactivity", idle_since=long_ago
+    )
+    assert closed is not None and not closed.closed  # still theirs
+    assert send(kiosk_client, device, session["id"], 1).status_code == 200
+
+    # A visit that really is idle still ends.
+    repository.touch(session["id"], long_ago)
+    assert session["id"] in repository.close_inactive(datetime.now(UTC))

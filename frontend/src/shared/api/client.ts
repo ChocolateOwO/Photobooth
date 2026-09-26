@@ -133,10 +133,14 @@ export function createApiClient(
         },
         photo,
       ),
-    /** Take one photo again, or the whole set when no photo is named. */
-    retakeCapture: (sessionId: string, shotIndex?: number) =>
+    /**
+     * Take one photo again, or the whole set when no photo is named. `stateVersion` says which
+     * state of the visit this answers, so a late second tap is refused rather than obeyed.
+     */
+    retakeCapture: (sessionId: string, shotIndex?: number, stateVersion?: number) =>
       postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/retake`, {
         ...(shotIndex === undefined ? {} : { shot_index: shotIndex }),
+        ...(stateVersion === undefined ? {} : { state_version: stateVersion }),
       }),
     finishCaptures: (sessionId: string) =>
       postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/finish`),
