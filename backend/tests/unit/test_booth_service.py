@@ -25,8 +25,12 @@ STRIP = LayoutFacts(2, 6, 6, 2, 3, ((1, 2, 3), (4, 5, 6)))
 class Event:
     def __init__(self, offer: EventOffer | None) -> None:
         self.value = offer
+        self.asked: list[str | None] = []
 
-    def offer(self) -> EventOffer | None:
+    def offer(self, profile_id: str | None = None) -> EventOffer | None:
+        # None: the event the booth is running. A profile id: a saved profile an organizer is
+        # trying from Admin, which this stub serves the same way.
+        self.asked.append(profile_id)
         return self.value
 
 
@@ -97,6 +101,15 @@ def test_offers_every_frame_of_the_sizes_and_skips_unknown_layouts() -> None:
     assert menu.allow_surprise_me is True
     assert menu.frames[0].plan.output_label == "2 strips"
     assert menu.frames[0].version == "ab" * 8
+
+
+def test_a_named_profile_is_read_instead_of_the_live_event() -> None:
+    # Admin "Test booth" asks for one saved profile; the live event is not consulted.
+    event = Event(EventOffer(["strip_2x6"], True, {"background": "#000000"}))
+    booth = BoothService(event, Frames({"a": "strip_2x6"}), Layouts(), Previews(), Images())
+    booth.menu()
+    booth.menu("11111111-1111-4111-8111-111111111111")
+    assert event.asked == [None, "11111111-1111-4111-8111-111111111111"]
 
 
 def test_surprise_needs_two_valid_frames() -> None:
