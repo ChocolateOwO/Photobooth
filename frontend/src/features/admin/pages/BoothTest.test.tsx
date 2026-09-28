@@ -101,7 +101,7 @@ describe('Admin "Test booth"', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Start booth test' }))
 
     // The booth's own start screen appears, for the profile being tried.
-    expect(await screen.findByTestId('booth-test-screen')).toBeInTheDocument()
+    expect(await screen.findByTestId('booth-shell')).toBeInTheDocument()
     expect(screen.getByTestId('test-banner')).toHaveTextContent('TEST')
     await waitFor(() => expect(server.boothTestMenus).toContain(draft.id))
     // Nothing was activated and nothing was written to the profile.
@@ -162,6 +162,80 @@ describe('Admin "Test booth"', () => {
     // Every camera track of the test is stopped, and its data is cleared away.
     await waitFor(() => expect(streams.every((stream) => stream.stopped > 0)).toBe(true))
     expect(server.boothTestCleanups).toBeGreaterThan(cleanupsBefore)
+  })
+
+  it('sets Admin aside while the test runs, and brings it back on Exit test', async () => {
+    const server = serverWithOneFrame()
+    renderAdmin('/admin/test', { server })
+    // Setting the test up is an ordinary Admin page.
+    expect(await screen.findByRole('navigation')).toBeInTheDocument()
+    expect(screen.getByText(/Signed in as/)).toBeInTheDocument()
+    expect(screen.getByTestId('dummy-badge')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Start booth test' }))
+    await screen.findByTestId('booth-shell')
+    // Running it is the participant's whole display: no header, no navigation, no badge.
+    expect(screen.queryByRole('navigation')).toBeNull()
+    expect(screen.queryByText(/Signed in as/)).toBeNull()
+    expect(screen.queryByTestId('dummy-badge')).toBeNull()
+    expect(document.documentElement).toHaveAttribute('data-booth-immersive')
+    // Only the mark and the way out stay on top.
+    expect(screen.getByTestId('test-banner')).toHaveTextContent('TEST')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Exit test' }))
+    expect(await screen.findByRole('button', { name: 'Start booth test' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation')).toBeInTheDocument()
+    expect(screen.getByTestId('dummy-badge')).toBeInTheDocument()
+    expect(document.documentElement).not.toHaveAttribute('data-booth-immersive')
+  })
+
+  it('asks the browser for the whole display, and runs anyway when it refuses', async () => {
+    const server = serverWithOneFrame()
+    const refuse = vi.fn().mockRejectedValue(new Error('denied'))
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable: true,
+      value: refuse,
+    })
+    try {
+      renderAdmin('/admin/test', { server })
+      await userEvent.click(await screen.findByRole('button', { name: 'Start booth test' }))
+      // Asked from the press itself, which is the only moment a browser grants it.
+      expect(refuse).toHaveBeenCalledTimes(1)
+      // Refused: the booth still takes the window and the test runs.
+      expect(await screen.findByTestId('booth-shell')).toBeInTheDocument()
+      expect(screen.queryByRole('navigation')).toBeNull()
+    } finally {
+      Reflect.deleteProperty(document.documentElement, 'requestFullscreen')
+    }
+  })
+
+  it('dresses the test in the event being tried, not in Admin colours', async () => {
+    const server = signedInServer({ builtins: false })
+    server.seedFrame('print_4x6', 'Gold print')
+    server.seedProfile(
+      { name: 'Live event', enabled_layouts: ['print_4x6'] },
+      { is_active: true },
+    )
+    const other = server.seedProfile({ name: 'Next week', enabled_layouts: ['print_4x6'] })
+    // The two events look nothing alike.
+    const draft = server.profiles.get(other.id)
+    if (draft) draft.settings.theme.tokens.primary_bg = '#AA3311'
+    renderAdmin('/admin/test', { server })
+
+    const events = await screen.findByLabelText('Event to try')
+    await waitFor(() => expect(within(events).getAllByRole('option')).toHaveLength(2))
+    await userEvent.selectOptions(events, other.id)
+    await userEvent.click(screen.getByRole('button', { name: 'Start booth test' }))
+    const screenEl = await screen.findByTestId('start-screen')
+    const themed = screenEl.closest('[data-event-theme]') as HTMLElement
+    // The participant surface wears the tried event's own tokens; nothing is an Admin colour.
+    expect(themed.style.getPropertyValue('--ev-primary-bg')).toBe('#AA3311')
+    expect(themed.style.getPropertyValue('--ev-background')).toBe(
+      draft?.settings.theme.tokens.background,
+    )
+    // Trying it changed nothing about it.
+    expect([...server.profiles.values()].find((p) => p.is_active)?.settings.name).toBe('Live event')
+    expect(server.profiles.get(other.id)?.revision).toBe(other.revision)
   })
 
   it('clears leftovers when the page is opened and when it is left', async () => {

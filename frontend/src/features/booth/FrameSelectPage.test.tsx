@@ -17,6 +17,7 @@ const PLAN_46 = {
   photos_per_output: 4,
   output_capture_groups: [[1, 2, 3, 4]],
   output_label: null,
+  photo_slot: { width: 555, height: 740 },
 }
 const PLAN_STRIP = {
   ...PLAN_46,
@@ -31,6 +32,7 @@ const PLAN_STRIP = {
     [4, 5, 6],
   ],
   output_label: '2 strips',
+  photo_slot: { width: 540, height: 405 },
 }
 
 function menu(frames: FrameMenu['frames'], surprise = false): FrameMenu {

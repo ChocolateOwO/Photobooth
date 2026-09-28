@@ -43,6 +43,53 @@ describe('event UI stylesheet', () => {
     expect(start).toContain('var(--ev-heading)')
   })
 
+  // Every screen a participant sees, wherever it is opened from.
+  const PARTICIPANT = [
+    '../../features/booth/CapturePage.module.css',
+    '../../features/booth/CapturedPhotos.module.css',
+    '../../features/booth/PhotoDialog.module.css',
+    '../../features/booth/FrameSelectPage.module.css',
+    '../../features/booth/BoothStartPage.module.css',
+  ] as const
+
+  it.each(PARTICIPANT)('%s wears the event theme and no Admin colour', (path) => {
+    const css = read(path).replace(/\/\*[\s\S]*?\*\//g, '')
+    // No grey (or any other) colour written into the booth, and no Admin token either: every
+    // colour a participant sees comes from the event's own theme.
+    expect(css.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g)).toBeNull()
+    expect(css.match(/--pb-color-[a-z-]+/g)).toBeNull()
+  })
+
+  it('the booth takes the whole display, from /booth and from the Admin test alike', () => {
+    const shell = read('../../features/booth/BoothShell.module.css')
+    expect(shell).toContain('position: fixed')
+    expect(shell).toContain('100dvh')
+    expect(shell).toContain('env(safe-area-inset-top)')
+    // One shell, used by all three booth screens and by nothing else.
+    for (const page of ['CapturePage', 'FrameSelectPage', 'BoothStartPage']) {
+      expect(read(`../../features/booth/${page}.tsx`), page).toContain(
+        "import { BoothShell } from './BoothShell'",
+      )
+    }
+    // The Admin test runs those same screens; it has no booth layout of its own.
+    const admin = read('../../features/admin/pages/BoothTestPage.tsx')
+    expect(admin).toContain("from '../../booth/CapturePage'")
+    expect(admin).toContain("from '../../booth/FrameSelectPage'")
+    expect(admin).toContain("from '../../booth/BoothStartPage'")
+    expect(read('../../features/admin/pages/BoothTestPage.module.css')).not.toContain('100dvh')
+  })
+
+  it('the camera is framed by the chosen frame, never by a ratio invented here', () => {
+    const capture = read('../../features/booth/CapturePage.module.css')
+    expect(capture).toContain('aspect-ratio: var(--pb-slot-w) / var(--pb-slot-h)')
+    expect(capture).toContain('object-fit: cover') // exactly the slot's own crop, never stretched
+    expect(capture).not.toMatch(/object-fit:\s*fill/)
+    // The numbers come from the template through the booth API, not from this code.
+    const page = read('../../features/booth/CapturePage.tsx')
+    expect(page).toContain('plan.photo_slot')
+    expect(page).not.toMatch(/\b810\b|\b555\b|\b540\b|\b740\b|\b405\b/)
+  })
+
   it('the admin preview and the real booth draw the same StartScreen component', () => {
     const shared = "from '../../../shared/eventUi/StartScreen'"
     expect(read('../../features/admin/components/EventPreview.tsx')).toContain(`import { StartScreen } ${shared}`)

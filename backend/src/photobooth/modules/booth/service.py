@@ -96,6 +96,7 @@ class BoothService:
                 outputs=facts.outputs,
                 photos_per_output=facts.photos_per_output,
                 output_capture_groups=facts.output_capture_groups,
+                photo_slot=facts.photo_slot,
             )
             frames.append(BoothFrame(frame.frame_id, frame.name, frame.sha256[:16], plan))
         return FrameMenu(

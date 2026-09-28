@@ -42,8 +42,7 @@
   font: inherit;
 }
 
-.start,
-.exit {
+.start {
   min-height: var(--pb-touch-target);
   padding: 12px 24px;
   border-radius: 999px;
@@ -60,49 +59,44 @@
   cursor: default;
 }
 
-.runner {
+/* The running test: only a small mark and the way out, over the booth, in the event's colours. */
+.chrome {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 10px);
+  right: calc(env(safe-area-inset-right) + 10px);
+  z-index: 60;
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: calc(100vh - 140px);
-  min-height: 420px;
-}
-
-.bar {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
+  opacity: 0.92;
 }
 
+/* The event's own colours; the Admin ones show only for the instant before its theme arrives. */
 .badge {
   margin: 0;
-  padding: 8px 16px;
+  padding: 6px 14px;
   border-radius: 999px;
-  background-color: var(--pb-color-dummy);
-  color: #1a1204;
+  background-color: var(--ev-warning-bg, var(--pb-color-surface));
+  color: var(--ev-warning-text, var(--pb-color-text));
+  font-size: 14px;
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
 }
 
 .exit {
-  background-color: var(--pb-color-surface);
-  color: var(--pb-color-text);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  min-height: 48px;
+  padding: 8px 18px;
+  border-radius: 999px;
+  border: 2px solid var(--ev-input-border, var(--pb-color-muted));
+  background-color: var(--ev-surface, var(--pb-color-surface));
+  color: var(--ev-body, var(--pb-color-text));
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
-/* The booth's own screens, drawn at the size they have here. */
-.screen {
-  flex: 1 1 auto;
-  min-height: 0;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  container-type: inline-size;
-}
-
-.screen > * {
-  width: 100%;
-  height: 100%;
+.exit:focus-visible {
+  outline: 4px solid var(--ev-focus-ring, var(--pb-color-dummy));
+  outline-offset: 3px;
 }

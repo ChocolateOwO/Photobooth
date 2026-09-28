@@ -42,6 +42,7 @@ from photobooth.modules.booth.domain import (
     EventOffer,
     LayoutFacts,
     OfferedFrame,
+    PhotoSlot,
     PreviewBusyError,
     PreviewFailedError,
     StartImageKind,
@@ -219,6 +220,8 @@ class _BoothLayouts:
             template = self._templates.get(template_key, version)
         except TemplateNotFoundError:
             return None
+        # Every slot of a template has the same shape, so the first one describes them all.
+        slot = template.slots[0].rect
         return LayoutFacts(
             width_in=template.width_in,
             height_in=template.height_in,
@@ -226,6 +229,7 @@ class _BoothLayouts:
             outputs=template.outputs_per_session,
             photos_per_output=template.photos_per_output,
             output_capture_groups=template.output_capture_groups,
+            photo_slot=PhotoSlot(width=slot.w, height=slot.h),
         )
 
 

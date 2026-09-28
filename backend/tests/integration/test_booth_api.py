@@ -105,9 +105,12 @@ def test_menu_lists_only_offered_frames_in_order_with_their_plan(
         "photos_per_output": 3,
         "output_capture_groups": [[1, 2, 3], [4, 5, 6]],
         "output_label": "2 strips",
+        # One photo of the strip, not the whole strip: the booth frames the camera like this.
+        "photo_slot": {"width": 540, "height": 405},
     }
     assert (plans["print_3x4"]["layout_label"], plans["print_3x4"]["captures"]) == ("3×4", 2)
     assert plans["print_3x4"]["output_label"] is None
+    assert plans["print_3x4"]["photo_slot"] == {"width": 810, "height": 540}
     assert "print_4x6" not in plans
 
     # Nothing about files, storage or where a frame came from reaches participants.
@@ -157,6 +160,7 @@ def test_the_menu_carries_the_plan_of_every_offered_frame(
         "photos_per_output": 4,
         "output_capture_groups": [[1, 2, 3, 4]],
         "output_label": None,
+        "photo_slot": {"width": 555, "height": 740},  # a 4x6 photo stands upright
     }
     assert GOLD34 not in [frame["id"] for frame in menu["frames"]]  # its size is not offered
 

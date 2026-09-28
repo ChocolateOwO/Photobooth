@@ -1,7 +1,6 @@
 .screen {
-  /* A definite height: the carousel fills whatever is left below the filters. */
-  height: 100vh;
-  height: 100dvh;
+  /* A definite height (the shell owns the viewport): the carousel fills what the filters leave. */
+  height: 100%;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -23,7 +22,7 @@
 
 .plain {
   padding: 24px;
-  color: var(--pb-color-text);
+  color: inherit;
 }
 
 .retry {

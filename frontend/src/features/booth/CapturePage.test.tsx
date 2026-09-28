@@ -51,24 +51,30 @@ function visit(overrides: Partial<BoothSessionState> = {}): BoothSessionState {
   return { ...base, ...overrides }
 }
 
+/** The three photo sizes and the shape each of them keeps of one photo. */
+const LAYOUTS = [
+  { id: 'f34', key: 'print_3x4', label: '3×4', captures: 2, slot: { width: 810, height: 540 } },
+  { id: 'f46', key: 'print_4x6', label: '4×6', captures: 4, slot: { width: 555, height: 740 } },
+  { id: 'fs', key: 'strip_2x6', label: '2×6', captures: 6, slot: { width: 540, height: 405 } },
+] as const
+
 const MENU: FrameMenu = {
-  frames: [
-    {
-      id: 'f34',
-      name: 'Gold frame',
-      preview_url: '/api/booth/frames/f34/preview.jpg?v=1',
-      plan: {
-        frame_id: 'f34',
-        template_key: 'print_3x4',
-        layout_label: '3×4',
-        captures: 2,
-        outputs: 1,
-        photos_per_output: 2,
-        output_capture_groups: [[1, 2]],
-        output_label: null,
-      },
+  frames: LAYOUTS.map((layout) => ({
+    id: layout.id,
+    name: layout.id === 'f34' ? 'Gold frame' : `Frame ${layout.label}`,
+    preview_url: `/api/booth/frames/${layout.id}/preview.jpg?v=1`,
+    plan: {
+      frame_id: layout.id,
+      template_key: layout.key,
+      layout_label: layout.label,
+      captures: layout.captures,
+      outputs: 1,
+      photos_per_output: layout.captures,
+      output_capture_groups: [[1, 2]],
+      output_label: null,
+      photo_slot: { ...layout.slot },
     },
-  ],
+  })),
   layouts: [],
   allow_surprise_me: false,
   theme: { background: '#101418', heading: '#FFFFFF', primary_bg: '#2255CC', primary_text: '#FFFFFF' },
@@ -225,6 +231,11 @@ function server(session: BoothSessionState = visit()) {
     return json({ detail: 'nope' }, 404)
   }
   return { handler, state: () => current }
+}
+
+/** The small pictures beside the camera, one place per shot (not the big review picture). */
+function thumbnails(): HTMLElement[] {
+  return within(screen.getByTestId('captured-photos')).queryAllByRole('img')
 }
 
 /** Let the booth run through one countdown and the photo that follows it. */
@@ -577,24 +588,49 @@ describe('CapturePage (booth)', () => {
     })
   })
 
-  it('lets the booth choose between the cameras of this machine (P67-009)', async () => {
+  it('uses the camera the booth was told to use, and offers no picker of its own', async () => {
     camera.cameras = [
       { id: 'built-in', label: 'Built-in camera' },
       { id: 'usb', label: 'Event camera' },
     ]
+    localStorage.setItem('pb.booth.cameraDevice', 'usb')
     const booth = server(visit({ expected_captures: 2 }))
     renderCapture(booth.handler)
     await screen.findByTestId('capture-progress')
-    const picker = await screen.findByLabelText('Camera')
-    expect(camera.openedWith[0]).toBeUndefined() // the browser's own default at first
-
-    await userEvent.selectOptions(picker, 'usb')
+    // Which camera to use is settled on the Admin test page; this screen only takes photos.
     await waitFor(() => expect(camera.openedWith.at(-1)).toBe('usb'))
-    expect(camera.stopped).toBeGreaterThan(0) // the previous camera was released
-    expect(localStorage.getItem('pb.booth.cameraDevice')).toBe('usb')
+    expect(screen.queryByLabelText('Camera')).toBeNull()
     await oneShot()
     expect(camera.photos).toBeGreaterThan(0)
+    await oneShot()
+    await screen.findByText('All photos taken')
+    expect(screen.queryByLabelText('Camera')).toBeNull() // nor on the review screen
   })
+
+  it.each(LAYOUTS)(
+    'shows the camera in the shape $label keeps of one photo',
+    async (layout) => {
+      const booth = server(
+        visit({
+          expected_captures: layout.captures,
+          frame_id: layout.id,
+          template_key: layout.key,
+          layout_label: layout.label,
+        }),
+      )
+      renderCapture(booth.handler)
+      const frame = await screen.findByTestId('photo-frame')
+      // Each size keeps a different shape of each photo; the booth frames the participant in it.
+      expect(frame.style.getPropertyValue('--pb-slot-w')).toBe(String(layout.slot.width))
+      expect(frame.style.getPropertyValue('--pb-slot-h')).toBe(String(layout.slot.height))
+      expect(within(frame).getByLabelText('Camera preview')).toBeInTheDocument()
+      // The countdown is drawn over that same picture, not beside it.
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      expect(within(frame).getByTestId('countdown')).toBeInTheDocument()
+    },
+  )
 
   it('shows every photo it has taken, each under its own number', async () => {
     const booth = server(visit({ expected_captures: 4 }))
@@ -622,7 +658,7 @@ describe('CapturePage (booth)', () => {
   })
 
   it('opens the photo of the thumbnail that was pressed, and closes without touching the camera', async () => {
-    const booth = server(visit({ expected_captures: 2 }))
+    const booth = server(visit({ expected_captures: 4 }))
     renderCapture(booth.handler)
     await screen.findByTestId('capture-progress')
     await oneShot()
@@ -653,16 +689,14 @@ describe('CapturePage (booth)', () => {
     await screen.findByTestId('capture-progress')
     await oneShot()
     await oneShot()
-    const before = screen
-      .getAllByRole('img')
-      .map((img) => img.getAttribute('src'))
+    const before = thumbnails().map((img) => img.getAttribute('src'))
     expect(before).toHaveLength(2)
 
     await userEvent.click(screen.getByRole('button', { name: 'Photo 2 again' }))
-    await waitFor(() => expect(screen.getAllByRole('img')).toHaveLength(1)) // photo 2 is gone
-    expect(screen.getAllByRole('img')[0]).toHaveAttribute('src', before[0] as string)
+    await waitFor(() => expect(thumbnails()).toHaveLength(1)) // photo 2 is gone
+    expect(thumbnails()[0]).toHaveAttribute('src', before[0] as string)
     await oneShot()
-    const after = screen.getAllByRole('img').map((img) => img.getAttribute('src'))
+    const after = thumbnails().map((img) => img.getAttribute('src'))
     expect(after[0]).toBe(before[0]) // photo 1 untouched
     expect(after[1]).not.toBe(before[1]) // photo 2 is the new one
     expect(after[1]).toContain('capture-2-2')
@@ -676,14 +710,52 @@ describe('CapturePage (booth)', () => {
     await oneShot()
     await screen.findByText('All photos taken')
     expect(screen.getByText('Gold frame · 3×4 · 2 photos')).toBeInTheDocument()
-    const photos = screen.getAllByRole('img')
-    expect(photos.map((img) => img.getAttribute('alt'))).toEqual(['Photo 1', 'Photo 2'])
+    expect(thumbnails().map((img) => img.getAttribute('alt'))).toEqual(['Photo 1', 'Photo 2'])
     expect(screen.queryByRole('button', { name: /again/ })).toBeNull() // this event allows none
+  })
+
+  it('the review shows a photo that was taken, never the live camera', async () => {
+    const booth = server(visit({ expected_captures: 2, retake_mode: 'none' }))
+    renderCapture(booth.handler)
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    await oneShot()
+    await screen.findByText('All photos taken')
+
+    // The picture in the photo's own shape is a stored capture; the camera is not on screen.
+    const frame = screen.getByTestId('photo-frame')
+    expect(within(frame).queryByLabelText('Camera preview')).toBeNull()
+    const big = within(frame).getByTestId('review-photo')
+    expect(big).toHaveAttribute('src', expect.stringContaining('capture-1-1'))
+    expect(frame.style.getPropertyValue('--pb-slot-w')).toBe('810')
+
+    // Pressing a place shows that photo, and pressing the big one opens the full dialog.
+    await userEvent.click(screen.getByRole('button', { name: 'Show photo 2' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('review-photo')).toHaveAttribute(
+        'src',
+        expect.stringContaining('capture-2-1'),
+      ),
+    )
+    expect(screen.getByRole('button', { name: 'Show photo 2' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Photo 2, see it bigger' }))
+    expect(within(screen.getByRole('dialog')).getByRole('heading', { name: 'Photo 2' })).toBeInTheDocument()
   })
 
   it('the booth screens say nothing about tests when a guest is using them', async () => {
     renderCapture(server(visit({ expected_captures: 2 })).handler)
     await screen.findByTestId('capture-progress')
-    expect(screen.queryByTestId('test-badge')).toBeNull()
+    expect(screen.queryByText(/TEST/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Exit test' })).toBeNull()
+  })
+
+  it('takes the whole display, like the booth it is', async () => {
+    renderCapture(server(visit({ expected_captures: 2 })).handler)
+    await screen.findByTestId('capture-progress')
+    expect(screen.getByTestId('booth-shell')).toBeInTheDocument()
+    expect(document.documentElement).toHaveAttribute('data-booth-immersive')
   })
 })

@@ -78,6 +78,16 @@
   margin: 0 auto;
 }
 
+/* A booth test running inside Admin gets the display to itself: no padding, no page frame. */
+.layout[data-immersive] {
+  min-height: 0;
+}
+
+.layout[data-immersive] .main {
+  padding: 0;
+  max-width: none;
+}
+
 .logoutAlert {
   padding: var(--pb-space);
   border-radius: var(--pb-radius);

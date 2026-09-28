@@ -6,6 +6,7 @@ import { useApiClient } from '../../shared/api/ApiClientContext'
 import { FrameCarousel } from '../../shared/eventUi/FrameCarousel'
 import { type GalleryFrame } from '../../shared/eventUi/framePlan'
 import { BoothLoadState } from './BoothLoadState'
+import { BoothShell } from './BoothShell'
 import { useBoothMenu } from './boothMenu'
 import styles from './FrameSelectPage.module.css'
 
@@ -50,10 +51,18 @@ export function FrameSelectPage() {
   }, [])
 
   if (menu.isPending) {
-    return <p className={styles.plain}>Loading…</p>
+    return (
+      <BoothShell>
+        <p className={styles.plain}>Loading…</p>
+      </BoothShell>
+    )
   }
   if (menu.isError) {
-    return <BoothLoadState error={menu.error} onRetry={() => void menu.refetch()} />
+    return (
+      <BoothShell>
+        <BoothLoadState error={menu.error} onRetry={() => void menu.refetch()} />
+      </BoothShell>
+    )
   }
 
   const frames: GalleryFrame[] = menu.data.frames.map((frame) => ({
@@ -64,44 +73,46 @@ export function FrameSelectPage() {
   }))
 
   return (
-    <EventScreen tokens={menu.data.theme} className={styles.screen} label="Frame selection">
-      {frames.length === 0 ? (
-        <EventMessage kind="info">No frames are available for this event.</EventMessage>
-      ) : (
-        <FrameCarousel
-          frames={frames}
-          allowSurprise={menu.data.allow_surprise_me}
-          startAtId={lastChosen}
-          busy={busy}
-          // Only "Start with this frame" in the pop-up gets here: the visit begins, the frame is
-          // pinned to it (with its photo count) and the camera step opens. Until then nothing is
-          // chosen and nothing is stored.
-          onStart={async (frame) => {
-            confirmation.current += 1
-            const mine = confirmation.current
-            setBusy(true)
-            setProblem(null)
-            try {
-              // A guest starts a visit on the active event; the organizer's test starts one on
-              // the profile being tried. From here both take the same path.
-              const session = await booth.startVisit(startKey.current)
-              await api.chooseSessionFrame(session.id, frame.id)
-              if (confirmation.current !== mine) return // superseded meanwhile
-              setLastChosen(frame.id)
-              remember(frame.id)
-              booth.go('capture')
-            } catch {
-              if (confirmation.current !== mine) return
-              setProblem('That frame could not be chosen. Please pick again.')
-              startKey.current = newKey() // the next try starts its own visit
-              void menu.refetch()
-            } finally {
-              if (confirmation.current === mine) setBusy(false)
-            }
-          }}
-        />
-      )}
-      {problem && <EventMessage kind="error">{problem}</EventMessage>}
-    </EventScreen>
+    <BoothShell>
+      <EventScreen tokens={menu.data.theme} className={styles.screen} label="Frame selection">
+        {frames.length === 0 ? (
+          <EventMessage kind="info">No frames are available for this event.</EventMessage>
+        ) : (
+          <FrameCarousel
+            frames={frames}
+            allowSurprise={menu.data.allow_surprise_me}
+            startAtId={lastChosen}
+            busy={busy}
+            // Only "Start with this frame" in the pop-up gets here: the visit begins, the frame
+            // is pinned to it (with its photo count) and the camera step opens. Until then
+            // nothing is chosen and nothing is stored.
+            onStart={async (frame) => {
+              confirmation.current += 1
+              const mine = confirmation.current
+              setBusy(true)
+              setProblem(null)
+              try {
+                // A guest starts a visit on the active event; the organizer's test starts one on
+                // the profile being tried. From here both take the same path.
+                const session = await booth.startVisit(startKey.current)
+                await api.chooseSessionFrame(session.id, frame.id)
+                if (confirmation.current !== mine) return // superseded meanwhile
+                setLastChosen(frame.id)
+                remember(frame.id)
+                booth.go('capture')
+              } catch {
+                if (confirmation.current !== mine) return
+                setProblem('That frame could not be chosen. Please pick again.')
+                startKey.current = newKey() // the next try starts its own visit
+                void menu.refetch()
+              } finally {
+                if (confirmation.current === mine) setBusy(false)
+              }
+            }}
+          />
+        )}
+        {problem && <EventMessage kind="error">{problem}</EventMessage>}
+      </EventScreen>
+    </BoothShell>
   )
 }

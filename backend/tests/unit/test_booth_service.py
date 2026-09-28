@@ -14,12 +14,13 @@ from photobooth.modules.booth.domain import (
     LayoutFacts,
     NoActiveEventError,
     OfferedFrame,
+    PhotoSlot,
     StartImageKind,
     layout_label,
 )
 from photobooth.modules.booth.service import BoothService
 
-STRIP = LayoutFacts(2, 6, 6, 2, 3, ((1, 2, 3), (4, 5, 6)))
+STRIP = LayoutFacts(2, 6, 6, 2, 3, ((1, 2, 3), (4, 5, 6)), PhotoSlot(540, 405))
 
 
 class Event:
@@ -101,6 +102,11 @@ def test_offers_every_frame_of_the_sizes_and_skips_unknown_layouts() -> None:
     assert menu.allow_surprise_me is True
     assert menu.frames[0].plan.output_label == "2 strips"
     assert menu.frames[0].version == "ab" * 8
+    # The booth shows the camera in the shape of one photo, not of the whole strip.
+    assert (menu.frames[0].plan.photo_slot.width, menu.frames[0].plan.photo_slot.height) == (
+        540,
+        405,
+    )
 
 
 def test_a_named_profile_is_read_instead_of_the_live_event() -> None:

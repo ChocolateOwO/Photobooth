@@ -21,6 +21,7 @@ const PLAN = {
   photos_per_output: 4,
   output_capture_groups: [[1, 2, 3, 4]],
   output_label: null,
+  photo_slot: { width: 555, height: 740 },
 }
 
 function menu(start: FrameMenu['start_screen']): FrameMenu {
@@ -104,6 +105,13 @@ describe('BoothStartPage (the real participant start screen)', () => {
     await userEvent.click(await screen.findByRole('button', { name: "Let's go" }))
     expect(router.state.location.pathname).toBe('/booth/frames')
     expect(await screen.findByRole('heading', { name: 'Choose your frame' })).toBeInTheDocument()
+  })
+
+  it('takes the whole display, exactly as the organizer test does', async () => {
+    renderBooth(() => json(FULL))
+    // The same shell the Admin "Test booth" runs; a guest's booth has no app frame around it.
+    expect(await screen.findByTestId('booth-shell')).toBeInTheDocument()
+    expect(document.documentElement).toHaveAttribute('data-booth-immersive')
   })
 
   it('explains when no event is active', async () => {

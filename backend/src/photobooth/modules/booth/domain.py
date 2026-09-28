@@ -43,6 +43,18 @@ class FrameNotOfferedError(BoothError):
 
 
 @dataclass(frozen=True)
+class PhotoSlot:
+    """The shape of one photo in the finished output, in template pixels.
+
+    The booth screen shows the camera in exactly this shape, so a participant sees the picture
+    that will be kept rather than a wider view that is cropped away later.
+    """
+
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
 class FramePlan:
     """What choosing this frame means for the session: captures and outputs."""
 
@@ -53,6 +65,7 @@ class FramePlan:
     outputs: int
     photos_per_output: int
     output_capture_groups: tuple[tuple[int, ...], ...]
+    photo_slot: PhotoSlot
 
     @property
     def output_label(self) -> str | None:
@@ -133,6 +146,7 @@ class LayoutFacts:
     outputs: int
     photos_per_output: int
     output_capture_groups: tuple[tuple[int, ...], ...]
+    photo_slot: PhotoSlot
 
 
 @dataclass(frozen=True)

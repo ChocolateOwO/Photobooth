@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import { ApiError, type BoothSessionState, type ShotState } from '../../shared/api/client'
 import { useApiClient } from '../../shared/api/ApiClientContext'
@@ -6,9 +6,7 @@ import {
   CameraError,
   cameraMessage,
   chooseCamera,
-  rememberCamera,
   rememberedCamera,
-  type CameraDevice,
   type CameraProblem,
   type CameraSource,
   type CameraView,
@@ -20,9 +18,11 @@ import {
   EventScreen,
   EventText,
 } from '../../shared/eventUi/EventUi'
+import { BoothShell } from './BoothShell'
 import { useBoothMenu } from './boothMenu'
 import { useBoothServices } from './boothServices'
 import { CapturedPhotos } from './CapturedPhotos'
+import { PhotoDialog } from './PhotoDialog'
 import styles from './CapturePage.module.css'
 
 /**
@@ -72,8 +72,12 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const viewRef = useRef<CameraView | null>(null)
   const [live, setLive] = useState<CameraView | null>(null)
-  const [devices, setDevices] = useState<CameraDevice[]>([])
-  const [deviceId, setDeviceId] = useState<string | null>(() => rememberedCamera())
+  // The camera is chosen once, on the Admin test page; the booth simply uses it.
+  const [deviceId] = useState<string | null>(() => rememberedCamera())
+  // The photo the review is showing large, and the one open in the dialog.
+  const [picked, setPicked] = useState<number | null>(null)
+  const [looking, setLooking] = useState<number | null>(null)
+  const openerRef = useRef<HTMLElement | null>(null)
   const timers = useRef<number[]>([])
   // The photo waiting for its answer. A retry sends these very bytes again under the same key,
   // so a lost answer never turns into a second (different) photo (P67-002).
@@ -164,9 +168,6 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
         viewRef.current = view
         setLive(view)
         setProblem(null)
-        // Once a camera is open the browser names the others, so the booth can offer a choice.
-        const found = await camera.devices()
-        if (alive) setDevices(found)
       } catch (error) {
         if (!alive) return
         const trouble = error instanceof CameraError ? error.problem : 'failed'
@@ -372,153 +373,208 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   }
 
   if (menu.isPending || !session) {
-    return <p className={styles.plain}>Loading…</p>
+    return (
+      <BoothShell>
+        <p className={styles.plain}>Loading…</p>
+      </BoothShell>
+    )
   }
 
   const tokens = menu.isSuccess ? menu.data.theme : {}
   const complete = session.taken >= session.expected_captures
-  const frameName = menu.isSuccess
-    ? (menu.data.frames.find((frame) => frame.id === session.frame_id)?.name ?? null)
+  const frame = menu.isSuccess
+    ? (menu.data.frames.find((one) => one.id === session.frame_id) ?? null)
     : null
+  const frameName = frame?.name ?? null
+  // The camera is shown in the shape of one photo of this frame, so what the participant sees is
+  // what the print keeps. The shape comes from the template itself, never from a guess here.
+  const slot = frame?.plan.photo_slot ?? null
+  const shape = slot
+    ? ({ '--pb-slot-w': String(slot.width), '--pb-slot-h': String(slot.height) } as CSSProperties)
+    : undefined
   const canRetakeOne = capturing && session.retake_mode === 'per_photo'
   const canRetakeAll = capturing && session.retake_mode === 'all'
 
-  return (
-    <EventScreen tokens={tokens} className={styles.screen} label="Photo session">
-      <div className={styles.header}>
-        <EventHeading level={1}>{complete ? 'All photos taken' : 'Look at the camera'}</EventHeading>
-        <p className={styles.progress} data-testid="capture-progress" role="status">
-          {complete
-            ? `${session.taken} of ${total} photos`
-            : `Photo ${Math.min(taken + 1, total)} of ${total}`}
-        </p>
-        {booth.isTest && (
-          <p className={styles.testBadge} data-testid="test-badge">
-            TEST — nothing here is kept
-          </p>
-        )}
-      </div>
+  // The review shows one photo big; until somebody picks another it is the first one taken.
+  const withPhoto = session.shots.filter((shot) => photoUrl(shot) !== null)
+  const shown = withPhoto.find((shot) => shot.shot_index === picked) ?? withPhoto[0] ?? null
+  const shownUrl = shown ? photoUrl(shown) : null
+  const open = session.shots.find((shot) => shot.shot_index === looking) ?? null
+  const openUrl = open ? photoUrl(open) : null
 
-      <div className={styles.stage}>
-        <video
-          ref={videoRef}
-          className={styles.preview}
-          data-mirrored={session.mirror ? '' : undefined}
-          playsInline
-          muted
-          autoPlay
-          aria-label="Camera preview"
-        />
-        {phase === 'counting' && (
-          <p className={styles.countdown} data-testid="countdown" aria-live="assertive">
-            {count > 0 ? count : 'Smile!'}
+  const pick = (shot: ShotState, opener: HTMLButtonElement) => {
+    if (complete) {
+      setPicked(shot.shot_index) // the big picture follows the place that was pressed
+      return
+    }
+    openerRef.current = opener
+    setLooking(shot.shot_index)
+  }
+
+  return (
+    <BoothShell>
+      <EventScreen tokens={tokens} className={styles.screen} label="Photo session">
+        <div className={styles.header}>
+          <EventHeading level={1}>
+            {complete ? 'All photos taken' : 'Look at the camera'}
+          </EventHeading>
+          <p className={styles.progress} data-testid="capture-progress" role="status">
+            {complete
+              ? `${session.taken} of ${total} photos`
+              : `Photo ${Math.min(taken + 1, total)} of ${total}`}
           </p>
-        )}
-        {phase === 'flash' && <div className={styles.flash} data-testid="flash" aria-hidden="true" />}
-        {phase === 'sending' && (
-          <p className={styles.working} role="status">
-            Keeping that one…
-          </p>
-        )}
-        {problem && (
-          <div className={styles.problem} role="alert">
-            <EventMessage kind="error">{problem.text}</EventMessage>
-            <div className={styles.problemActions}>
-              <EventButton
-                variant="primary"
-                onClick={() => {
-                  if (problem.kind === 'session') {
-                    setProblem(null)
-                    setPhase('ready')
-                  } else {
-                    openCamera() // opens it again, and clears this message when it works
-                  }
+        </div>
+
+        <div className={styles.stage}>
+          {/* One photo's shape, as large as this screen allows: the camera while the photos are
+              being taken, and the chosen photo itself once they are all there. */}
+          <div className={styles.frame} style={shape} data-testid="photo-frame">
+            {complete && shownUrl && shown ? (
+              <button
+                type="button"
+                className={styles.bigButton}
+                aria-label={`Photo ${shown.shot_index}, see it bigger`}
+                onClick={(event) => {
+                  openerRef.current = event.currentTarget
+                  setLooking(shown.shot_index)
                 }}
               >
-                Try again
-              </EventButton>
-              <EventButton variant="secondary" onClick={() => void leave('gave-up')}>
-                Start over
-              </EventButton>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Every shot has its place here, in order: a photo only ever appears under its own number. */}
-      <CapturedPhotos
-        shots={session.shots}
-        photoUrl={photoUrl}
-        large={complete}
-        busy={busy}
-        {...(canRetakeOne ? { onRetake: (shot: number) => void retake(shot) } : {})}
-      />
-
-      <div className={styles.actions}>
-        {devices.length > 1 && capturing && (
-          <label className={styles.cameraPicker}>
-            Camera
-            <select
-              className={styles.select}
-              value={deviceId ?? devices[0]?.id ?? ''}
-              onChange={(event) => {
-                rememberCamera(event.target.value)
-                setDeviceId(event.target.value)
-              }}
-            >
-              {devices.map((device) => (
-                <option key={device.id} value={device.id}>
-                  {device.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {complete ? (
-          <>
-            <EventText>
-              {frameName && session.layout_label
-                ? `${frameName} · ${session.layout_label} · ${session.taken} photos`
-                : `${session.taken} photos`}
-            </EventText>
-            <EventText>
-              {capturing ? 'Happy with these?' : 'The photos are ready for the next step.'}
-            </EventText>
-            {canRetakeAll && (
-              <EventButton variant="secondary" disabled={busy} onClick={() => void retake()}>
-                Take all the photos again
-              </EventButton>
+                <img
+                  src={shownUrl}
+                  alt={`Photo ${shown.shot_index}`}
+                  className={styles.big}
+                  data-testid="review-photo"
+                />
+              </button>
+            ) : (
+              <video
+                ref={videoRef}
+                className={styles.preview}
+                data-mirrored={session.mirror ? '' : undefined}
+                playsInline
+                muted
+                autoPlay
+                aria-label="Camera preview"
+              />
             )}
-            {canRetakeOne && (
-              <div className={styles.retakes} role="group" aria-label="Take one photo again">
-                {session.shots.map((shot) => (
+            {phase === 'counting' && (
+              <p className={styles.countdown} data-testid="countdown" aria-live="assertive">
+                {count > 0 ? count : 'Smile!'}
+              </p>
+            )}
+            {phase === 'flash' && (
+              <div className={styles.flash} data-testid="flash" aria-hidden="true" />
+            )}
+            {phase === 'sending' && (
+              <p className={styles.working} role="status">
+                Keeping that one…
+              </p>
+            )}
+            {problem && (
+              <div className={styles.problem} role="alert">
+                <EventMessage kind="error">{problem.text}</EventMessage>
+                <div className={styles.problemActions}>
                   <EventButton
-                    key={shot.shot_index}
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() => void retake(shot.shot_index)}
+                    variant="primary"
+                    onClick={() => {
+                      if (problem.kind === 'session') {
+                        setProblem(null)
+                        setPhase('ready')
+                      } else {
+                        openCamera() // opens it again, and clears this message when it works
+                      }
+                    }}
                   >
-                    Photo {shot.shot_index} again
+                    Try again
                   </EventButton>
-                ))}
+                  <EventButton variant="secondary" onClick={() => void leave('gave-up')}>
+                    Start over
+                  </EventButton>
+                </div>
               </div>
             )}
-            {capturing ? (
-              <EventButton variant="primary" disabled={busy} onClick={() => void finish()}>
-                These are good
-              </EventButton>
-            ) : (
-              <EventButton variant="primary" onClick={() => void leave('gave-up')}>
-                Back to the start
-              </EventButton>
-            )}
-          </>
-        ) : (
-          <EventButton variant="secondary" onClick={() => void leave('gave-up')}>
-            Stop and start over
-          </EventButton>
+          </div>
+        </div>
+
+        {/* Every shot has its place here, in order: a photo only ever appears under its own
+            number. Pressing one opens it large, or chooses it on the review screen. */}
+        <CapturedPhotos
+          shots={session.shots}
+          photoUrl={photoUrl}
+          onPick={pick}
+          select={complete}
+          {...(shown ? { selected: shown.shot_index } : {})}
+        />
+
+        <div className={styles.actions}>
+          {complete ? (
+            <>
+              <EventText>
+                {frameName && session.layout_label
+                  ? `${frameName} · ${session.layout_label} · ${session.taken} photos`
+                  : `${session.taken} photos`}
+              </EventText>
+              <EventText>
+                {capturing ? 'Happy with these?' : 'The photos are ready for the next step.'}
+              </EventText>
+              {canRetakeAll && (
+                <EventButton variant="secondary" disabled={busy} onClick={() => void retake()}>
+                  Take all the photos again
+                </EventButton>
+              )}
+              {canRetakeOne && (
+                <div className={styles.retakes} role="group" aria-label="Take one photo again">
+                  {session.shots.map((shot) => (
+                    <EventButton
+                      key={shot.shot_index}
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => void retake(shot.shot_index)}
+                    >
+                      Photo {shot.shot_index} again
+                    </EventButton>
+                  ))}
+                </div>
+              )}
+              {capturing ? (
+                <EventButton variant="primary" disabled={busy} onClick={() => void finish()}>
+                  These are good
+                </EventButton>
+              ) : (
+                <EventButton variant="primary" onClick={() => void leave('gave-up')}>
+                  Back to the start
+                </EventButton>
+              )}
+            </>
+          ) : (
+            <EventButton variant="secondary" onClick={() => void leave('gave-up')}>
+              Stop and start over
+            </EventButton>
+          )}
+        </div>
+
+        {open && openUrl && (
+          <PhotoDialog
+            shotIndex={open.shot_index}
+            url={openUrl}
+            busy={busy}
+            onClose={() => {
+              setLooking(null)
+              openerRef.current?.focus()
+            }}
+            {...(canRetakeOne
+              ? {
+                  onRetake: () => {
+                    const shot = open.shot_index
+                    setLooking(null)
+                    openerRef.current?.focus()
+                    void retake(shot)
+                  },
+                }
+              : {})}
+          />
         )}
-      </div>
-    </EventScreen>
+      </EventScreen>
+    </BoothShell>
   )
 }

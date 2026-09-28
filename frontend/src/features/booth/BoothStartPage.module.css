@@ -1,12 +1,7 @@
-/* The start screen fills the whole booth display. */
-.page {
-  width: 100%;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
-}
+/* The start screen fills the booth display; the shell around it owns the viewport. */
 
 .loading {
+  margin: 0;
   padding: 24px;
-  color: var(--pb-color-text);
+  color: inherit;
 }

@@ -1,0 +1,25 @@
+/* The booth display: the whole viewport, nothing of the app around it, and no page scrolling. */
+
+.shell {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 50;
+  overflow: hidden;
+  box-sizing: border-box;
+  /* Notches and rounded corners: the booth keeps its controls out of them. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  /* Neutral ground for the instant before the event's own theme is known. */
+  background-color: var(--pb-color-bg);
+  color: var(--pb-color-text);
+}
+
+/* Whatever screen is inside fills it exactly, and brings its own event theme. */
+.shell > * {
+  width: 100%;
+  height: 100%;
+}

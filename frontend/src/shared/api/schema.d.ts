@@ -1048,6 +1048,7 @@ export interface components {
              * @description Prints/strips made from them
              */
             outputs: number;
+            photo_slot: components["schemas"]["PhotoSlotResponse"];
             /** Photos Per Output */
             photos_per_output: number;
             /** Template Key */
@@ -1219,6 +1220,24 @@ export interface components {
             /** Sha256 */
             sha256: string;
             /** Width */
+            width: number;
+        };
+        /**
+         * PhotoSlotResponse
+         * @description The shape of one photo in the finished output, so the booth can show that exact frame.
+         */
+        PhotoSlotResponse: {
+            /**
+             * Height
+             * @description Slot height in template pixels
+             * @example 540
+             */
+            height: number;
+            /**
+             * Width
+             * @description Slot width in template pixels
+             * @example 810
+             */
             width: number;
         };
         /** PingResponse */

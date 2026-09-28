@@ -6,11 +6,28 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from photobooth.modules.booth.domain import BoothFrame, FrameMenu, FramePlan, StartScreen
+from photobooth.modules.booth.domain import (
+    BoothFrame,
+    FrameMenu,
+    FramePlan,
+    PhotoSlot,
+    StartScreen,
+)
 
 FrameIdField = Annotated[
     str, Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 ]
+
+
+class PhotoSlotResponse(BaseModel):
+    """The shape of one photo in the finished output, so the booth can show that exact frame."""
+
+    width: int = Field(description="Slot width in template pixels", examples=[810])
+    height: int = Field(description="Slot height in template pixels", examples=[540])
+
+    @classmethod
+    def of(cls, slot: PhotoSlot) -> PhotoSlotResponse:
+        return cls(width=slot.width, height=slot.height)
 
 
 class FramePlanResponse(BaseModel):
@@ -22,6 +39,7 @@ class FramePlanResponse(BaseModel):
     photos_per_output: int
     output_capture_groups: list[list[int]]
     output_label: str | None = Field(description="e.g. '2 strips'; null for a single output")
+    photo_slot: PhotoSlotResponse
 
     @classmethod
     def of(cls, plan: FramePlan) -> FramePlanResponse:
@@ -34,6 +52,7 @@ class FramePlanResponse(BaseModel):
             photos_per_output=plan.photos_per_output,
             output_capture_groups=[list(group) for group in plan.output_capture_groups],
             output_label=plan.output_label,
+            photo_slot=PhotoSlotResponse.of(plan.photo_slot),
         )
 
 

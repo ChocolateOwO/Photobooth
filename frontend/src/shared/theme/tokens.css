@@ -36,3 +36,10 @@ body,
   outline: 4px solid var(--pb-color-dummy);
   outline-offset: 4px;
 }
+
+/* A booth screen owns the whole display: the page behind it does not scroll. */
+html[data-booth-immersive],
+html[data-booth-immersive] body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}

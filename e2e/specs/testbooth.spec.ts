@@ -49,7 +49,7 @@ async function runTest(page: Page, eventName: string, frame = 'Midnight'): Promi
   await page.getByLabel('Event to try').selectOption({ label: eventName })
   await page.getByRole('button', { name: 'Start booth test' }).click()
   await expect(page.getByTestId('test-banner')).toContainText('TEST')
-  const booth = page.getByTestId('booth-test-screen')
+  const booth = page.getByTestId('booth-shell')
   // The booth's own start screen, with this event's own Start text.
   await booth.getByTestId('start-screen').getByRole('button').click()
   const slide = booth.getByTestId('frame-slide').filter({ hasText: frame }).first()
@@ -103,10 +103,10 @@ test('trying a saved event takes real photos and leaves the event exactly as it 
   const running = await visit(page)
   expect(running?.is_test).toBe(true)
 
-  const booth = page.getByTestId('booth-test-screen')
+  const booth = page.getByTestId('booth-shell')
   await expect(booth.getByRole('heading', { name: 'All photos taken' })).toBeVisible()
   await expect(booth.getByTestId('captured-photo')).toHaveCount(2)
-  await expect(booth.getByRole('img', { name: 'Photo 1' })).toBeVisible()
+  await expect(booth.getByRole('img', { name: 'Photo 1' }).first()).toBeVisible()
   await expect(booth.getByRole('img', { name: 'Photo 2' })).toBeVisible()
   await expect(booth.getByText('Midnight · 3×4 · 2 photos')).toBeVisible()
 
@@ -126,7 +126,7 @@ test('each photo is shown under its own number and opens large without touching 
   await runTest(page, TRIED)
   await expect.poll(async () => (await visit(page))?.taken ?? 0, { timeout: 30_000 }).toBe(2)
 
-  const booth = page.getByTestId('booth-test-screen')
+  const booth = page.getByTestId('booth-shell')
   const slots = booth.getByTestId('captured-photo')
   await expect(slots.nth(0)).toContainText('Photo 1')
   await expect(slots.nth(1)).toContainText('Photo 2')
@@ -134,14 +134,72 @@ test('each photo is shown under its own number and opens large without touching 
   const second = await slots.nth(1).getByRole('img').getAttribute('src')
   expect(first).not.toBe(second) // two shots, two photos, never the same picture twice
 
+  // The review shows a stored photo, not the camera, and pressing a place changes which one.
+  await expect(booth.getByLabel('Camera preview')).toHaveCount(0)
+  await expect(booth.getByTestId('review-photo')).toHaveAttribute('src', String(first))
+  await booth.getByRole('button', { name: 'Show photo 2' }).click()
+  await expect(booth.getByTestId('review-photo')).toHaveAttribute('src', String(second))
+
   await booth.getByRole('button', { name: 'Photo 2, see it bigger' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: 'Photo 2' })).toBeVisible()
   await expect(dialog.getByTestId('photo-large')).toHaveAttribute('src', String(second))
-  // Looking at a photo opens no second camera: the one preview is still the only one.
-  await expect(booth.getByLabel('Camera preview')).toHaveCount(1)
+  // Looking at a photo opens no camera at all on the review screen.
+  await expect(booth.getByLabel('Camera preview')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('Admin steps aside while the test runs and comes back when it is left', async ({ page }) => {
+  await pairAndSignIn(page)
+  await openTestBooth(page)
+  // Setting the test up is an ordinary Admin page.
+  await expect(page.getByRole('navigation')).toBeVisible()
+  await expect(page.getByText('Signed in as admin')).toBeVisible()
+  await expect(page.getByTestId('dummy-badge')).toBeVisible()
+
+  await runTest(page, TRIED)
+  // Running it, the booth is the whole display: no header, no navigation, no badge, no scrolling.
+  await expect(page.getByRole('navigation')).toHaveCount(0)
+  await expect(page.getByText('Signed in as admin')).toHaveCount(0)
+  await expect(page.getByTestId('dummy-badge')).toHaveCount(0)
+  await expect(page.locator('html')).toHaveAttribute('data-booth-immersive', '')
+  const shell = (await page.getByTestId('booth-shell').boundingBox()) as {
+    width: number
+    height: number
+  }
+  const view = page.viewportSize() as { width: number; height: number }
+  expect(Math.round(shell.width)).toBe(view.width)
+  expect(Math.round(shell.height)).toBe(view.height)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    view.width,
+  )
+  // Only the mark and the way out stay on top of it.
+  await expect(page.getByTestId('test-banner')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Exit test' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Exit test' }).click()
+  await expect(page.getByRole('button', { name: 'Start booth test' })).toBeVisible()
+  await expect(page.getByRole('navigation')).toBeVisible()
+  await expect(page.getByTestId('dummy-badge')).toBeVisible()
+  await expect(page.locator('html')).not.toHaveAttribute('data-booth-immersive', '')
+})
+
+test('the organizer test and the guest booth are one and the same screen', async ({ page }) => {
+  await pairAndSignIn(page)
+  // A guest's booth: the same shell, with no Admin chrome anywhere near it.
+  await page.goto('/booth')
+  await expect(page.getByTestId('booth-shell')).toBeVisible()
+  await expect(page.locator('html')).toHaveAttribute('data-booth-immersive', '')
+  await expect(page.getByRole('navigation')).toHaveCount(0)
+  const guest = (await page.getByTestId('booth-shell').boundingBox()) as { width: number }
+  const view = page.viewportSize() as { width: number }
+  expect(Math.round(guest.width)).toBe(view.width)
+
+  // And leaving the booth address gives the app back.
+  await page.goto('/admin')
+  await expect(page.locator('html')).not.toHaveAttribute('data-booth-immersive', '')
+  await expect(page.getByTestId('dummy-badge')).toBeVisible()
 })
 
 test('leaving the test takes its data with it, however often it is run', async ({ page }) => {

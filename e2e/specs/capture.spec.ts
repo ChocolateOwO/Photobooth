@@ -14,11 +14,32 @@ import { PERSISTED, pairAndSignIn, profileRow } from './support/admin'
 test.describe.configure({ mode: 'serial' })
 
 const PROFILE = 'E2E Capture'
+/** `slot` is what the template keeps of one photo: the shape the booth frames the guest in. */
 const LAYOUTS = [
-  { pill: '3×4', key: 'print_3x4', photos: 2 },
-  { pill: '4×6', key: 'print_4x6', photos: 4 },
-  { pill: '2×6', key: 'strip_2x6', photos: 6 },
+  { pill: '3×4', key: 'print_3x4', photos: 2, slot: { width: 810, height: 540 } },
+  { pill: '4×6', key: 'print_4x6', photos: 4, slot: { width: 555, height: 740 } },
+  { pill: '2×6', key: 'strip_2x6', photos: 6, slot: { width: 540, height: 405 } },
 ] as const
+
+/**
+ * The picture on screen has the slot's shape, is as large as the screen allows, and nothing is
+ * stretched. A few pixels of rounding are allowed; a wrong shape is not.
+ */
+async function expectSlotShape(page: Page, slot: { width: number; height: number }): Promise<void> {
+  const frame = page.getByTestId('photo-frame')
+  const box = (await frame.boundingBox()) as { width: number; height: number }
+  expect(box.width).toBeGreaterThan(80)
+  expect(box.height).toBeGreaterThan(80)
+  expect(box.width / box.height).toBeCloseTo(slot.width / slot.height, 1)
+  // It fills the room it is given in at least one direction.
+  const stage = (await page.getByTestId('photo-frame').evaluate((node) => {
+    const parent = node.parentElement as HTMLElement
+    const rect = parent.getBoundingClientRect()
+    return { width: rect.width, height: rect.height }
+  })) as { width: number; height: number }
+  const fills = box.width >= stage.width - 2 || box.height >= stage.height - 2
+  expect(fills, `${box.width}x${box.height} inside ${stage.width}x${stage.height}`).toBe(true)
+}
 
 function sizePill(page: Page, label: string) {
   return page
@@ -127,6 +148,14 @@ for (const layout of LAYOUTS) {
     // The countdown itself is watched where it is slow enough to see (its own test below).
     const progress = page.getByTestId('capture-progress')
     await expect(progress).toHaveText(new RegExp(`Photo \\d of ${layout.photos}`))
+
+    // The guest sees themselves in the shape this size keeps, as big as the screen allows, and
+    // the booth owns the whole display with no picker of its own on it.
+    await expect(page.getByTestId('booth-shell')).toBeVisible()
+    await expect(page.getByLabel('Camera preview')).toBeVisible()
+    await expectSlotShape(page, layout.slot)
+    await expect(page.getByLabel('Camera', { exact: true })).toHaveCount(0)
+
     await waitForPhotos(page, layout.photos)
 
     const finished = await visit(page)
@@ -149,12 +178,22 @@ for (const layout of LAYOUTS) {
       page.getByText(`Midnight · ${layout.pill} · ${layout.photos} photos`),
     ).toBeVisible()
 
-    // A guest can look at any one of them, big, without disturbing the camera.
-    await page.getByRole('button', { name: 'Photo 1, see it bigger' }).click()
+    // The review shows a photo that was taken, in the photo's own shape; the camera is off screen
+    // and its picker was never here.
+    const big = page.getByTestId('review-photo')
+    await expect(big).toBeVisible()
+    await expect(page.getByLabel('Camera preview')).toHaveCount(0)
+    await expect(page.getByLabel('Camera', { exact: true })).toHaveCount(0)
+    expect(await big.getAttribute('src')).toBe([...sources][0])
+    await expectSlotShape(page, layout.slot)
+
+    // Pressing a place shows that photo; pressing the big one opens it whole.
+    await page.getByRole('button', { name: `Show photo ${layout.photos}` }).click()
+    await expect(big).toHaveAttribute('src', [...sources][layout.photos - 1] as string)
+    await page.getByRole('button', { name: `Photo ${layout.photos}, see it bigger` }).click()
     const dialog = page.getByRole('dialog')
-    await expect(dialog.getByRole('heading', { name: 'Photo 1' })).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: `Photo ${layout.photos}` })).toBeVisible()
     await expect(dialog.getByTestId('photo-large')).toBeVisible()
-    await expect(page.getByLabel('Camera preview')).toHaveCount(1)
     await dialog.getByRole('button', { name: 'Close' }).click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
 
@@ -163,6 +202,94 @@ for (const layout of LAYOUTS) {
     await expect.poll(async () => (await visit(page))?.state).toBe('reviewing')
   })
 }
+
+/** Every screen this booth has to run on. */
+const SIZES = [
+  { name: '1920x1080', width: 1920, height: 1080 },
+  { name: '1366x768', width: 1366, height: 768 },
+  { name: '1080x1920 kiosk', width: 1080, height: 1920 },
+  { name: '390x844 phone', width: 390, height: 844 },
+  { name: '640x360 short', width: 640, height: 360 },
+] as const
+
+test('the booth fits every screen it has to run on, and the picture stays useful', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await pairAndSignIn(page)
+  await settings(page, { countdown: 10 }) // long enough to measure between photos
+  await openBooth(page)
+  await page.getByRole('tab', { name: '4×6' }).click()
+  await chooseFrame(page, 'Midnight')
+  await expect(page.getByLabel('Camera preview')).toBeVisible()
+
+  const measured: Record<string, { width: number; height: number; overflow: number }> = {}
+  for (const size of SIZES) {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    const frame = page.getByTestId('photo-frame')
+    await expect(frame).toBeVisible()
+    const box = (await frame.boundingBox()) as { width: number; height: number }
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    measured[size.name] = { ...box, overflow }
+
+    expect(overflow, size.name).toBeLessThanOrEqual(1) // nothing pushes the page sideways
+    expect(box.width, size.name).toBeLessThanOrEqual(size.width)
+    expect(box.height, size.name).toBeLessThanOrEqual(size.height)
+    expect(box.width, size.name).toBeGreaterThan(100) // never a few pixels of picture
+    expect(box.height, size.name).toBeGreaterThan(100)
+    // 4×6 keeps an upright 555 × 740 of each photo, whatever the screen is shaped like.
+    expect(box.width / box.height, size.name).toBeCloseTo(555 / 740, 1)
+    // The way out is still there, and the booth has no Admin chrome on it.
+    await expect(page.getByRole('button', { name: 'Stop and start over' })).toBeVisible()
+    await expect(page.getByRole('navigation')).toHaveCount(0)
+  }
+  console.log(`preview measurements: ${JSON.stringify(measured)}`)
+
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.getByRole('button', { name: 'Stop and start over' }).click()
+  await settings(page, { countdown: 1 })
+})
+
+test('the review fits a phone and a short screen, with the photo the biggest thing on it', async ({
+  page,
+}) => {
+  await pairAndSignIn(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openBooth(page)
+  await page.getByRole('tab', { name: '3×4' }).click()
+  await chooseFrame(page, 'Midnight')
+  await waitForPhotos(page, 2)
+  await expect(page.getByRole('heading', { name: 'All photos taken' })).toBeVisible()
+
+  for (const size of [
+    { width: 390, height: 844 },
+    { width: 640, height: 360 },
+  ]) {
+    await page.setViewportSize(size)
+    const big = (await page.getByTestId('photo-frame').boundingBox()) as {
+      width: number
+      height: number
+    }
+    expect(big.width).toBeGreaterThan(100)
+    expect(big.height).toBeGreaterThan(100)
+    expect(big.width / big.height).toBeCloseTo(810 / 540, 1)
+    // The thumbnails are a strip, not the screen: each one is far smaller than the big picture.
+    const thumb = (await page.getByTestId('captured-photo').first().boundingBox()) as {
+      height: number
+    }
+    expect(thumb.height).toBeLessThan(big.height)
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(1)
+    await expect(page.getByRole('button', { name: 'These are good' })).toBeVisible()
+  }
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.getByRole('button', { name: 'These are good' }).click()
+})
 
 test('the countdown shown is the one the event asks for', async ({ page }) => {
   await pairAndSignIn(page)

@@ -1,9 +1,12 @@
 import type { InstanceName } from '../config/instance'
+import { useImmersive } from './immersive'
 import styles from './DummyBadge.module.css'
 
 /** Always-visible marker so a Dummy screen can never be mistaken for Main. */
 export function DummyBadge({ instance }: { instance: InstanceName }) {
-  if (instance !== 'dummy') {
+  // A booth screen is the participant's whole display; the badge comes back the moment it ends.
+  const immersive = useImmersive()
+  if (instance !== 'dummy' || immersive) {
     return null
   }
   return (

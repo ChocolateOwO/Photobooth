@@ -506,6 +506,9 @@
             "title": "Outputs",
             "type": "integer"
           },
+          "photo_slot": {
+            "$ref": "#/components/schemas/PhotoSlotResponse"
+          },
           "photos_per_output": {
             "title": "Photos Per Output",
             "type": "integer"
@@ -523,7 +526,8 @@
           "outputs",
           "photos_per_output",
           "output_capture_groups",
-          "output_label"
+          "output_label",
+          "photo_slot"
         ],
         "title": "FramePlanResponse",
         "type": "object"
@@ -881,6 +885,33 @@
           "created_at"
         ],
         "title": "MediaAssetResponse",
+        "type": "object"
+      },
+      "PhotoSlotResponse": {
+        "description": "The shape of one photo in the finished output, so the booth can show that exact frame.",
+        "properties": {
+          "height": {
+            "description": "Slot height in template pixels",
+            "examples": [
+              540
+            ],
+            "title": "Height",
+            "type": "integer"
+          },
+          "width": {
+            "description": "Slot width in template pixels",
+            "examples": [
+              810
+            ],
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "height"
+        ],
+        "title": "PhotoSlotResponse",
         "type": "object"
       },
       "PingResponse": {

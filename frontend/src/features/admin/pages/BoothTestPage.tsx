@@ -7,6 +7,9 @@ import {
   rememberedCamera,
   type CameraDevice,
 } from '../../../shared/camera/camera'
+import { themeStyle } from '../../../shared/eventTheme/theme'
+import { useEnterImmersive } from '../../../shared/ui/immersive'
+import { useBoothMenu } from '../../booth/boothMenu'
 import {
   BoothServicesContext,
   useProfileTestBooth,
@@ -21,22 +24,67 @@ import styles from './BoothTestPage.module.css'
 /**
  * "Test booth": the organizer tries the booth on this machine, with the real camera.
  *
- * The screens below are the booth's own — the same start screen, frame carousel, confirmation
- * pop-up, countdown, photos and review a guest sees — running inside this page rather than at
- * the booth address. The profile under test is only read: it is never activated or changed, and
- * everything the test takes is scratch data that goes when the test does.
+ * Setting it up is an ordinary Admin page. Once the test starts, the booth's own screens — the
+ * same start screen, frame carousel, confirmation pop-up, countdown, photos and review a guest
+ * sees — take the whole display: the Admin header, navigation and page frame step aside, the
+ * browser is asked for fullscreen, and only a small TEST mark and Exit test stay on top, in the
+ * event's own colours. The profile under test is only read: never activated, never changed, and
+ * everything the test takes goes when the test does.
  */
 
-function TestBooth({ profileId }: { profileId: string }) {
+/**
+ * Ask for the whole display. A browser that refuses, or has no Fullscreen API at all, changes
+ * nothing: the booth still fills the window and the test runs exactly the same. Leaving
+ * fullscreen with Escape is the browser's business and never touches the visit.
+ */
+function askForFullscreen(): void {
+  const page = document.documentElement
+  if (document.fullscreenElement || typeof page.requestFullscreen !== 'function') return
+  try {
+    void page.requestFullscreen().catch(() => undefined)
+  } catch {
+    // Refused outright; the booth is immersive either way.
+  }
+}
+
+function leaveFullscreen(): void {
+  if (!document.fullscreenElement || typeof document.exitFullscreen !== 'function') return
+  try {
+    void document.exitFullscreen().catch(() => undefined)
+  } catch {
+    // Already out of fullscreen, or the browser will not say; nothing depends on it.
+  }
+}
+
+/** The mark and the way out, over the booth, wearing the event's theme. */
+function TestChrome({ onExit }: { onExit: () => void }) {
+  const menu = useBoothMenu()
+  const tokens = menu.isSuccess ? menu.data.theme : {}
+  return (
+    <div className={styles.chrome} style={themeStyle(tokens)}>
+      <p className={styles.badge} data-testid="test-banner">
+        TEST
+      </p>
+      <button type="button" className={styles.exit} onClick={onExit}>
+        Exit test
+      </button>
+    </div>
+  )
+}
+
+function TestBooth({ profileId, onExit }: { profileId: string; onExit: () => void }) {
   // The booth's own screens, in the booth's own order, without leaving the Admin page.
   const [step, setStep] = useState<BoothStep>('start')
   const go = useCallback((next: BoothStep) => setStep(next), [])
   const booth = useProfileTestBooth(profileId, go)
+  // Immersive from the first frame of the test, whatever the booth screen is still loading.
+  useEnterImmersive()
   return (
     <BoothServicesContext.Provider value={booth}>
       {step === 'start' && <BoothStartPage />}
       {step === 'frames' && <FrameSelectPage />}
       {step === 'capture' && <CapturePage />}
+      <TestChrome onExit={onExit} />
     </BoothServicesContext.Provider>
   )
 }
@@ -78,25 +126,12 @@ export function BoothTestPage() {
   const stop = () => {
     setRunning(false)
     setRound((count) => count + 1) // a fresh booth next time, with nothing of this one left
+    leaveFullscreen()
     void admin.clearBoothTests().catch(() => undefined)
   }
 
   if (running && chosen) {
-    return (
-      <section className={styles.runner} aria-label="Booth test">
-        <div className={styles.bar}>
-          <p className={styles.badge} data-testid="test-banner">
-            TEST — this is not a guest session, and nothing is kept
-          </p>
-          <button type="button" className={styles.exit} onClick={stop}>
-            Exit test
-          </button>
-        </div>
-        <div className={styles.screen} data-testid="booth-test-screen">
-          <TestBooth key={`${chosen}-${round}`} profileId={chosen} />
-        </div>
-      </section>
-    )
+    return <TestBooth key={`${chosen}-${round}`} profileId={chosen} onExit={stop} />
   }
 
   return (
@@ -156,7 +191,11 @@ export function BoothTestPage() {
         type="button"
         className={styles.start}
         disabled={!chosen}
-        onClick={() => setRunning(true)}
+        onClick={() => {
+          // Fullscreen is only granted from a gesture like this one; a refusal changes nothing.
+          askForFullscreen()
+          setRunning(true)
+        }}
       >
         Start booth test
       </button>

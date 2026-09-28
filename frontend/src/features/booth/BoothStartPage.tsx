@@ -1,6 +1,7 @@
 
 import { StartScreen } from '../../shared/eventUi/StartScreen'
 import { BoothLoadState } from './BoothLoadState'
+import { BoothShell } from './BoothShell'
 import { useBoothMenu } from './boothMenu'
 import { useBoothServices } from './boothServices'
 import styles from './BoothStartPage.module.css'
@@ -14,15 +15,23 @@ export function BoothStartPage() {
   const booth = useBoothServices()
 
   if (menu.isPending) {
-    return <p className={styles.loading}>Loading…</p>
+    return (
+      <BoothShell>
+        <p className={styles.loading}>Loading…</p>
+      </BoothShell>
+    )
   }
   if (menu.isError) {
-    return <BoothLoadState error={menu.error} onRetry={() => void menu.refetch()} />
+    return (
+      <BoothShell>
+        <BoothLoadState error={menu.error} onRetry={() => void menu.refetch()} />
+      </BoothShell>
+    )
   }
 
   const screen = menu.data.start_screen
   return (
-    <div className={styles.page}>
+    <BoothShell>
       <StartScreen
         tokens={menu.data.theme}
         backgroundImageUrl={screen.background_url}
@@ -30,6 +39,6 @@ export function BoothStartPage() {
         startText={screen.start_button_text}
         onStart={() => booth.go('frames')}
       />
-    </div>
+    </BoothShell>
   )
 }
