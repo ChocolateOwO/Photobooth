@@ -94,6 +94,6 @@ Write-Host ''
 Write-Host "PHOTOBOOTH DUMMY running  (node $nodeVersion, commit $commit)"
 Write-Host "  UI:        http://127.0.0.1:$uiPort/"
 Write-Host "  Kiosk API: http://127.0.0.1:$kioskPort/api/health"
-Write-Host "  Delivery:  port $deliveryPort (LAN), /d/_alive only"
+Write-Host "  Delivery:  port $deliveryPort (LAN), /d/... guest links only"
 Write-Host "  PIDs:      backend $($script:backend.Id), vite $($script:vite.Id)"
 Write-Host '  Stop:      scripts\stop-dummy.ps1'

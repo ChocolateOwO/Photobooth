@@ -393,8 +393,12 @@ def test_the_link_opens_the_guests_own_photos_on_the_delivery_listener(
     issued = link(kiosk_client, device, body["id"])
     token = token_of(issued["url"])
     assert issued["url"] == f"http://127.0.0.1:18113/d/{token}"
-    # The QR code is exactly that link.
-    assert issued["qr_svg"] == segno.make(issued["url"], error="m", micro=False).svg_inline(
+    # The QR code is exactly that link, as a standalone SVG document a browser can show as an
+    # image (without the SVG namespace it would not be an SVG to a browser at all).
+    expected = io.BytesIO()
+    segno.make(issued["url"], error="m", micro=False).save(
+        expected,
+        kind="svg",
         scale=1,
         border=4,
         dark="#000000",
@@ -402,7 +406,12 @@ def test_the_link_opens_the_guests_own_photos_on_the_delivery_listener(
         omitsize=True,
         svgclass="qr",
         title="QR code",
+        xmldecl=False,
+        svgns=True,
+        nl=False,
     )
+    assert issued["qr_svg"] == expected.getvalue().decode()
+    assert issued["qr_svg"].startswith('<svg xmlns="http://www.w3.org/2000/svg"')
     assert datetime.fromisoformat(issued["expires_at"]) > datetime.now(UTC) + timedelta(days=6)
 
     page = guests.get(f"/d/{token}")

@@ -43,7 +43,8 @@ function wait(ms: number): Promise<void> {
 
 function until(iso: string): string {
   const moment = new Date(iso)
-  return moment.toLocaleString(undefined, {
+  // The booth speaks English everywhere, whatever language the machine is set to.
+  return moment.toLocaleString('en-GB', {
     day: 'numeric',
     month: 'long',
     hour: '2-digit',

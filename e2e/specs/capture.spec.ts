@@ -204,6 +204,9 @@ for (const layout of LAYOUTS) {
       layout.key === 'strip_2x6' ? 2 : 1,
     )
     await expect(page.getByTestId('delivery-qr')).toBeVisible()
+    await expect
+      .poll(() => page.getByTestId('delivery-qr').evaluate((img: HTMLImageElement) => img.naturalWidth))
+      .toBeGreaterThan(0)
     await expect.poll(async () => (await visit(page))?.state).toBe('delivered')
   })
 }

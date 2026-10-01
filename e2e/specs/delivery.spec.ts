@@ -65,6 +65,11 @@ test('a guest takes two strips home with a phone: the page, one photo and all of
   const url = (await page.getByTestId('delivery-url').textContent())?.trim() ?? ''
   expect(url).toMatch(/^http:\/\/127\.0\.0\.1:8114\/d\/[A-Za-z0-9_-]{43}$/)
   await expect(page.getByText(/same Wi-Fi as the booth/)).toBeVisible()
+  // The QR code really is a picture (an image the browser could not decode is still "visible").
+  await expect
+    .poll(() => page.getByTestId('delivery-qr').evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBeGreaterThan(0)
+  await expect(page.getByText(/The link works until \d+ [A-Z][a-z]+ at \d\d:\d\d/)).toBeVisible()
 
   // A reload of the booth screen shows the very same link (the booth remembers it).
   await page.reload()
