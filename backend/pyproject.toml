@@ -17,6 +17,7 @@ dependencies = [
     "pillow>=11",
     "argon2-cffi>=23.1",
     "python-multipart>=0.0.18",
+    "segno>=1.6",
 ]
 
 [project.optional-dependencies]
@@ -101,6 +102,7 @@ containers = [
     "photobooth.modules.frames",
     "photobooth.modules.themes",
     "photobooth.modules.booth",
+    "photobooth.modules.delivery",
 ]
 layers = ["api", "service", "domain"]
 exhaustive = false
@@ -128,6 +130,8 @@ source_modules = [
     "photobooth.modules.booth.api",
     "photobooth.modules.booth.service",
     "photobooth.modules.rendering.service",
+    "photobooth.modules.delivery.api",
+    "photobooth.modules.delivery.service",
 ]
 forbidden_modules = [
     "photobooth.modules.system.repository",
@@ -146,6 +150,9 @@ forbidden_modules = [
     "photobooth.modules.frames.repository",
     "photobooth.modules.frames.validator",
     "photobooth.modules.themes.extractor",
+    "photobooth.modules.delivery.repository",
+    "photobooth.modules.delivery.qr",
+    "segno",
     "PIL",
     "argon2",
     "sqlalchemy",
@@ -166,6 +173,7 @@ source_modules = [
     "photobooth.modules.frames.domain",
     "photobooth.modules.themes.domain",
     "photobooth.modules.booth.domain",
+    "photobooth.modules.delivery.domain",
 ]
 forbidden_modules = [
     "fastapi",
@@ -276,6 +284,7 @@ forbidden_modules = [
     "photobooth.modules.assets",
     "photobooth.modules.auth",
     "photobooth.modules.booth",
+    "photobooth.modules.delivery",
     "photobooth.modules.eligibility",
     "photobooth.modules.event_profiles",
     "photobooth.modules.frames",
@@ -306,5 +315,24 @@ forbidden_modules = [
     "photobooth.modules.event_profiles",
     "photobooth.modules.frames",
     "photobooth.modules.storage",
+    "photobooth.modules.themes",
+]
+
+[[tool.importlinter.contracts]]
+name = "Delivery talks to other modules only through ports"
+type = "forbidden"
+source_modules = ["photobooth.modules.delivery"]
+forbidden_modules = [
+    "photobooth.modules.sessions",
+    "photobooth.modules.booth",
+    "photobooth.modules.rendering",
+    "photobooth.modules.frames",
+    "photobooth.modules.assets",
+    "photobooth.modules.storage",
+    "photobooth.modules.event_profiles",
+    "photobooth.modules.auth",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.system",
+    "photobooth.modules.templates",
     "photobooth.modules.themes",
 ]

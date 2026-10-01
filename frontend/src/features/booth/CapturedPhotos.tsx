@@ -20,6 +20,8 @@ interface CapturedPhotosProps {
   selected?: number | undefined
   /** Review: pressing a place chooses it rather than opening it. */
   select?: boolean
+  /** Show the photos the way the print will have them (the event's mirror setting). */
+  mirror?: boolean
 }
 
 export function CapturedPhotos({
@@ -28,6 +30,7 @@ export function CapturedPhotos({
   onPick,
   selected,
   select = false,
+  mirror = false,
 }: CapturedPhotosProps) {
   return (
     <ul className={styles.strip} aria-label="Photos taken" data-testid="captured-photos">
@@ -47,7 +50,12 @@ export function CapturedPhotos({
                 }
                 onClick={(event) => onPick(shot, event.currentTarget)}
               >
-                <img src={url} alt={`Photo ${shot.shot_index}`} className={styles.photo} />
+                <img
+                  src={url}
+                  alt={`Photo ${shot.shot_index}`}
+                  className={styles.photo}
+                  data-mirrored={mirror ? '' : undefined}
+                />
               </button>
             ) : (
               // Nothing here yet: an empty place, never another shot's picture.

@@ -46,6 +46,10 @@
   object-fit: cover;
 }
 
+.photo[data-mirrored] {
+  transform: scaleX(-1);
+}
+
 .empty {
   border: 2px dashed var(--ev-input-border);
   border-radius: 10px;

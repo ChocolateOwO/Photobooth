@@ -6,8 +6,11 @@
 - POST /api/booth/sessions/{id}/frame            confirm the frame; the photo count follows it
 - POST /api/booth/sessions/{id}/captures         send one photo (idempotent per key)
 - POST /api/booth/sessions/{id}/retake           take a photo (or the set) again
-- POST /api/booth/sessions/{id}/finish           every photo is in
-- POST /api/booth/sessions/{id}/give-up          the participant leaves
+- POST /api/booth/sessions/{id}/finish           every photo is in; the guest reviews them
+- POST /api/booth/sessions/{id}/render           make the finished photos (idempotent per key)
+- GET  /api/booth/sessions/{id}/outputs/{o}.jpg  one finished photo, for this booth screen
+- POST /api/booth/sessions/{id}/delivery         the take-home link and its QR code
+- POST /api/booth/sessions/{id}/give-up          the participant leaves (or is done)
 
 Every answer describes only the visit: no profile name, asset id, storage key or file path.
 """
@@ -31,6 +34,9 @@ from photobooth.modules.sessions.domain import (
     IdempotencyReuseError,
     NoActiveEventError,
     OperationFailedError,
+    OutputNotFoundError,
+    RenderBusyError,
+    RenderFailedError,
     SessionClosedError,
     SessionNotFoundError,
     StaleAttemptError,
@@ -42,6 +48,8 @@ from photobooth.modules.sessions.schemas import (
     BoothSessionResponse,
     CaptureResponse,
     ChooseFrameBody,
+    DeliveryLinkResponse,
+    RenderBody,
     RetakeBody,
     StartSessionBody,
 )
@@ -82,7 +90,15 @@ def _refused(exc: Exception) -> HTTPException:
 
 def _view(service: BoothSessionService, session: BoothSession) -> BoothSessionResponse:
     shots = service.progress(session.id) if session.expected_capture_count else []
-    return BoothSessionResponse.of(session, shots)
+    return BoothSessionResponse.of(session, shots, service.finished_outputs(session.id))
+
+
+_IMAGE_HEADERS = {
+    "Content-Disposition": "inline",
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; sandbox",
+}
 
 
 @router.post("", response_model=BoothSessionResponse, status_code=status.HTTP_201_CREATED)
@@ -202,12 +218,75 @@ def retake(
 
 @router.post("/{session_id}/finish", response_model=BoothSessionResponse)
 def finish(session_id: SessionId, service: Service, device: Device) -> BoothSessionResponse:
-    """Every photo is in; the camera step is over (the review screen comes in a later phase)."""
+    """Every photo is in; the camera step is over and the finished photos come next."""
     try:
         return _view(service, service.finish_capturing(device, session_id))
     except SessionNotFoundError as exc:
         raise _not_found(exc) from exc
     except (SessionClosedError, StaleSessionError, TransitionRefusedError) as exc:
+        raise _conflict(exc) from exc
+
+
+@router.post(
+    "/{session_id}/render",
+    response_model=BoothSessionResponse,
+    responses={503: {"description": "The render worker is busy; retry with the same key."}},
+)
+async def render(
+    session_id: SessionId, body: RenderBody, service: Service, device: Device
+) -> BoothSessionResponse:
+    """Make the finished photos (300 DPI sRGB JPEG) from this visit's own photos and frame."""
+    try:
+        outcome = await run_in_threadpool(service.render, device, session_id, body.idempotency_key)
+    except SessionNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except RenderBusyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+            headers={"Retry-After": "2"},
+        ) from exc
+    except (
+        SessionClosedError,
+        StaleSessionError,
+        TransitionRefusedError,
+        RenderFailedError,
+        OperationFailedError,
+    ) as exc:
+        raise _conflict(exc) from exc
+    except IdempotencyReuseError as exc:
+        raise _refused(exc) from exc
+    return _view(service, outcome.session)
+
+
+@router.get(
+    "/{session_id}/outputs/{output_id}.jpg",
+    response_class=Response,
+    responses={200: {"content": {"image/jpeg": {}}}},
+)
+def output_photo(
+    session_id: SessionId, output_id: SessionId, service: Service, device: Device
+) -> Response:
+    """A finished photo of this visit, shown on the booth screen that made it."""
+    try:
+        data = service.output_photo(device, session_id, output_id)
+    except (SessionNotFoundError, OutputNotFoundError) as exc:
+        raise _not_found(exc) from exc
+    return Response(content=data, media_type="image/jpeg", headers=_IMAGE_HEADERS)
+
+
+@router.post("/{session_id}/delivery", response_model=DeliveryLinkResponse)
+def delivery_link(
+    session_id: SessionId, service: Service, device: Device, response: Response
+) -> DeliveryLinkResponse:
+    """The guest's take-home link and QR code. A reload shows the same code while it is
+    remembered; after a restart a new code replaces the old one."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return DeliveryLinkResponse.of(service.delivery_link(device, session_id))
+    except SessionNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except (SessionClosedError, TransitionRefusedError) as exc:
         raise _conflict(exc) from exc
 
 
@@ -224,16 +303,7 @@ def capture_photo(
         data = service.photo(device, session_id, capture_id)
     except (SessionNotFoundError, CaptureNotFoundError) as exc:
         raise _not_found(exc) from exc
-    return Response(
-        content=data,
-        media_type="image/jpeg",
-        headers={
-            "Content-Disposition": "inline",
-            "Cache-Control": "private, no-store",
-            "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "default-src 'none'; sandbox",
-        },
-    )
+    return Response(content=data, media_type="image/jpeg", headers=_IMAGE_HEADERS)
 
 
 @router.post("/{session_id}/give-up", response_model=BoothSessionResponse)

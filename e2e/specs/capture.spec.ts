@@ -198,8 +198,13 @@ for (const layout of LAYOUTS) {
     await expect(page.getByRole('dialog')).toHaveCount(0)
 
     await page.getByRole('button', { name: 'These are good' }).click()
-    // The visit leaves the camera behind and waits for the review step of a later phase.
-    await expect.poll(async () => (await visit(page))?.state).toBe('reviewing')
+    // The camera step is over: the finished photos are made and offered to take home.
+    await expect(page).toHaveURL(/\/booth\/done$/)
+    await expect(page.getByTestId('finished-photos').getByRole('img')).toHaveCount(
+      layout.key === 'strip_2x6' ? 2 : 1,
+    )
+    await expect(page.getByTestId('delivery-qr')).toBeVisible()
+    await expect.poll(async () => (await visit(page))?.state).toBe('delivered')
   })
 }
 

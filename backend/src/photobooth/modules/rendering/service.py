@@ -68,6 +68,21 @@ class RenderService:
             )
         return outputs
 
+    def submit_session(
+        self,
+        template: PhotoTemplate,
+        captures: Sequence[CaptureRef],
+        source: CaptureSource,
+        frame_png: bytes | None = None,
+        mirror: bool = False,
+    ) -> Future[list[RenderedOutput]]:
+        """A guest's finished photos, rendered on the single render worker (never beside another
+        render). Raises RenderBusyError at once when the worker is full; nothing has started."""
+        plan_outputs(template, captures)  # refuse a wrong capture set before queueing anything
+        return self._scheduler.submit(
+            lambda: self.render_session(template, captures, source, frame_png, mirror)
+        )
+
     def render_sample(
         self, key: str, output_index: int, version: int | None = None
     ) -> Future[RenderedOutput]:

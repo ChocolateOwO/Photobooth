@@ -50,6 +50,7 @@ describe('event UI stylesheet', () => {
     '../../features/booth/PhotoDialog.module.css',
     '../../features/booth/FrameSelectPage.module.css',
     '../../features/booth/BoothStartPage.module.css',
+    '../../features/booth/DeliveryPage.module.css',
   ] as const
 
   it.each(PARTICIPANT)('%s wears the event theme and no Admin colour', (path) => {
@@ -66,7 +67,7 @@ describe('event UI stylesheet', () => {
     expect(shell).toContain('100dvh')
     expect(shell).toContain('env(safe-area-inset-top)')
     // One shell, used by all three booth screens and by nothing else.
-    for (const page of ['CapturePage', 'FrameSelectPage', 'BoothStartPage']) {
+    for (const page of ['CapturePage', 'FrameSelectPage', 'BoothStartPage', 'DeliveryPage']) {
       expect(read(`../../features/booth/${page}.tsx`), page).toContain(
         "import { BoothShell } from './BoothShell'",
       )

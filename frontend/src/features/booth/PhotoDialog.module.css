@@ -41,6 +41,10 @@
   border-radius: 10px;
 }
 
+.photo[data-mirrored] {
+  transform: scaleX(-1);
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

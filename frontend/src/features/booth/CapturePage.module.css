@@ -75,8 +75,9 @@
   background-color: var(--ev-surface);
 }
 
-/* Only the live picture is mirrored: the photo is kept exactly as the camera took it. */
-.preview[data-mirrored] {
+/* The stored photo is never flipped; what is shown follows the print's mirror setting. */
+.preview[data-mirrored],
+.big[data-mirrored] {
   transform: scaleX(-1);
 }
 

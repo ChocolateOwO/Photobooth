@@ -155,6 +155,7 @@ function renderCapture(
           <Routes>
             <Route path="/booth/capture" element={<CapturePage camera={camera} />} />
             <Route path="/booth/frames" element={<p>the frame screen</p>} />
+            <Route path="/booth/done" element={<p>the finished photos screen</p>} />
             <Route path="/booth" element={<p>the start screen</p>} />
           </Routes>
         </MemoryRouter>
@@ -462,14 +463,21 @@ describe('CapturePage (booth)', () => {
     expect(camera.stopped).toBeGreaterThan(0) // the camera light goes out
   })
 
-  it('finishing hands the photos to the next step', async () => {
+  it('finishing hands the photos to the finished photos screen', async () => {
     const booth = server(visit({ expected_captures: 1 }))
     renderCapture(booth.handler)
     await screen.findByTestId('capture-progress')
     await oneShot()
     await userEvent.click(await screen.findByRole('button', { name: 'These are good' }))
     await waitFor(() => expect(booth.state().state).toBe('reviewing'))
-    expect(screen.getByText('The photos are ready for the next step.')).toBeInTheDocument()
+    expect(await screen.findByText('the finished photos screen')).toBeInTheDocument()
+  })
+
+  it('a reload after the photos were taken goes straight to the finished photos', async () => {
+    const booth = server(visit({ expected_captures: 2, taken: 2, state: 'reviewing' }))
+    renderCapture(booth.handler)
+    expect(await screen.findByText('the finished photos screen')).toBeInTheDocument()
+    expect(camera.opened).toBeLessThanOrEqual(1)
   })
 
   it('a lost answer is retried with the very same photo, never a new one (P67-002)', async () => {
@@ -551,12 +559,11 @@ describe('CapturePage (booth)', () => {
     renderCapture(booth.handler)
     await screen.findByTestId('capture-progress')
     await oneShot()
+    expect(screen.queryByRole('button', { name: /again/ })).toBeNull() // this event allows none
     await userEvent.click(await screen.findByRole('button', { name: 'These are good' }))
     await waitFor(() => expect(booth.state().state).toBe('reviewing'))
-    expect(camera.stopped).toBeGreaterThan(0)
-    expect(screen.queryByRole('button', { name: /again/ })).toBeNull()
-    await userEvent.click(screen.getByRole('button', { name: 'Back to the start' }))
-    expect(await screen.findByText('the start screen')).toBeInTheDocument()
+    expect(camera.stopped).toBeGreaterThan(0) // the camera light goes out with the last photo
+    expect(await screen.findByText('the finished photos screen')).toBeInTheDocument()
   })
 
   it('a second tap on a retake can not throw away the new photo (P67-006)', async () => {

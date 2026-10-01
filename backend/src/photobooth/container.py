@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import socket
 import threading
 import time
 from collections.abc import Sequence
@@ -49,6 +50,15 @@ from photobooth.modules.booth.domain import (
     layout_label,
 )
 from photobooth.modules.booth.service import BoothService
+from photobooth.modules.delivery.api import DeliveryBudgets
+from photobooth.modules.delivery.domain import (
+    DeliverableFile,
+    DeliveryNotFoundError,
+    DeliveryUnavailableError,
+)
+from photobooth.modules.delivery.qr import SegnoQrEncoder
+from photobooth.modules.delivery.repository import SqlDeliveryTokenRepository
+from photobooth.modules.delivery.service import DeliveryService, RequestBudget
 from photobooth.modules.eligibility.service import AllowAllEligibility
 from photobooth.modules.event_profiles.repository import SqlEventProfileRepository
 from photobooth.modules.event_profiles.service import EventProfileService
@@ -57,7 +67,7 @@ from photobooth.modules.frames.repository import SqlFrameRepository
 from photobooth.modules.frames.service import FrameService
 from photobooth.modules.frames.validator import PillowFrameValidator
 from photobooth.modules.kiosk.service import KioskPairingService
-from photobooth.modules.rendering.domain import RenderBusyError, RenderError
+from photobooth.modules.rendering.domain import CaptureRef, RenderBusyError, RenderError
 from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
 from photobooth.modules.rendering.service import RenderService
@@ -67,10 +77,17 @@ from photobooth.modules.sessions.domain import (
     MIN_CAPTURE_SIDE,
     CaptureFacts,
     CaptureRefusedError,
+    DeliveryLink,
     EligibilityDecision,
     LayoutOffer,
+    OutputStatus,
+    RenderedFile,
+    RenderFailedError,
+    RenderRequest,
+    TransitionRefusedError,
 )
 from photobooth.modules.sessions.domain import ProfileSnapshot as SessionProfileSnapshot
+from photobooth.modules.sessions.domain import RenderBusyError as SessionRenderBusyError
 from photobooth.modules.sessions.domain import RetakeMode as SessionRetakeMode
 from photobooth.modules.sessions.repository import SqlSessionRepository
 from photobooth.modules.sessions.service import BoothSessionService
@@ -339,6 +356,151 @@ class _Eligibility:
         )
 
 
+class _SessionRenderer:
+    """Adapter: a visit's finished photos, rendered on the single render worker."""
+
+    def __init__(self, renderer: RenderService, templates: TemplateSpecService) -> None:
+        self._renderer = renderer
+        self._templates = templates
+
+    def render(self, request: RenderRequest) -> list[RenderedFile]:
+        try:
+            template = self._templates.get(request.template_key, request.template_version)
+        except TemplateNotFoundError as exc:
+            raise RenderFailedError("template_missing") from exc
+        photos = {photo.capture_id: photo.data for photo in request.photos}
+        captures = [
+            CaptureRef(capture_id=photo.capture_id, shot_index=photo.shot_index)
+            for photo in request.photos
+        ]
+        try:
+            future = self._renderer.submit_session(
+                template, captures, _PhotoSource(photos), request.frame_png, request.mirror
+            )
+            rendered = future.result()
+        except RenderBusyError as exc:
+            raise SessionRenderBusyError() from exc
+        except RenderError as exc:
+            raise RenderFailedError("render_failed") from exc
+        return [
+            RenderedFile(
+                output_index=output.output_index,
+                data=output.data,
+                width=output.width,
+                height=output.height,
+                capture_ids=output.capture_ids,
+            )
+            for output in rendered
+        ]
+
+
+class _PhotoSource:
+    def __init__(self, photos: dict[str, bytes]) -> None:
+        self._photos = photos
+
+    def read(self, capture_id: str) -> bytes:
+        return self._photos[capture_id]
+
+
+class _SessionFrames:
+    """Adapter: the frame file a visit pinned when its guest confirmed the frame."""
+
+    def __init__(self, frames: FrameService) -> None:
+        self._frames = frames
+
+    def frame_png(self, frame_id: str) -> bytes:
+        try:
+            _frame, data = self._frames.content(frame_id)
+        except (FrameError, AssetNotFoundError) as exc:
+            raise RenderFailedError("frame_missing") from exc
+        return data
+
+
+class _DeliveredOutputs:
+    """Adapter: the finished photos of a visit, for the delivery module (nothing about storage)."""
+
+    def __init__(self, sessions: SqlSessionRepository, storage: LocalStorageProvider) -> None:
+        self._sessions = sessions
+        self._storage = storage
+
+    def files(self, session_id: str) -> list[DeliverableFile]:
+        return [
+            DeliverableFile(
+                output_id=output.id,
+                output_index=output.output_index,
+                width=output.width,
+                height=output.height,
+                byte_size=output.byte_size,
+                sha256=output.sha256 or "",
+                rendered_at=output.rendered_at,
+            )
+            for output in self._sessions.outputs(session_id)
+            if output.status is OutputStatus.OK and output.storage_key
+        ]
+
+    def read(self, session_id: str, output_id: str) -> bytes:
+        output = self._sessions.output(output_id)
+        if (
+            output is None
+            or output.session_id != session_id
+            or output.status is not OutputStatus.OK
+            or output.storage_key is None
+        ):
+            raise DeliveryNotFoundError()
+        return self._storage.get(StorageKey(output.storage_key))
+
+
+class _LinkAddress:
+    """Adapter: the address guests' phones reach the delivery listener on.
+
+    An explicit public host wins; a listener bound to one address uses it; a listener on all
+    interfaces uses this machine's own LAN address (found without sending anything).
+    """
+
+    def __init__(self, settings: AppSettings) -> None:
+        self._settings = settings
+
+    def base_url(self) -> str:
+        host = self._settings.delivery_public_host or self._settings.delivery_host
+        if host in {"0.0.0.0", "::", ""}:  # noqa: S104 - reading the bind address, not binding
+            host = _lan_ipv4()
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return f"http://{host}:{self._settings.delivery_port}"
+
+
+def _lan_ipv4() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("192.0.2.1", 9))  # TEST-NET-1: a UDP connect sends no packet
+            address = str(probe.getsockname()[0])
+        if not address.startswith("127.") and address != "0.0.0.0":  # noqa: S104
+            return address
+    except OSError:
+        pass
+    try:
+        address = socket.gethostbyname(socket.gethostname())
+        if not address.startswith("127."):
+            return address
+    except OSError:
+        pass
+    return "127.0.0.1"
+
+
+class _SessionLinks:
+    """Adapter: the delivery module's link, in the shape the sessions module shows."""
+
+    def __init__(self, delivery: DeliveryService) -> None:
+        self._delivery = delivery
+
+    def ensure(self, session_id: str) -> DeliveryLink:
+        try:
+            issued = self._delivery.ensure(session_id)
+        except DeliveryUnavailableError as exc:
+            raise TransitionRefusedError("the finished photos are not ready yet") from exc
+        return DeliveryLink(url=issued.url, expires_at=issued.expires_at, qr_svg=issued.qr_svg)
+
+
 class _CaptureFiles:
     """Adapter: photos are written through the StorageProvider, under server-made keys only."""
 
@@ -455,6 +617,17 @@ class Container:
             _BoothImages(self.asset_service),
         )
         self.registry.register(BoothService, self.booth_service)
+        self.delivery_service = DeliveryService(
+            SqlDeliveryTokenRepository(self.engine),
+            _DeliveredOutputs(self.session_repository, self.storage),
+            _LinkAddress(settings),
+            SegnoQrEncoder(),
+        )
+        self.registry.register(DeliveryService, self.delivery_service)
+        self.registry.register(
+            DeliveryBudgets,
+            DeliveryBudgets(requests=RequestBudget(limit=120), archives=RequestBudget(limit=10)),
+        )
         self.session_service = BoothSessionService(
             self.session_repository,
             _SessionEvent(self.profile_service, self.frame_service, self.template_service),
@@ -462,6 +635,9 @@ class Container:
             _CaptureFiles(self.storage),
             _Eligibility(AllowAllEligibility()),
             boot_id=self.boot_id,
+            renderer=_SessionRenderer(self.render_service, self.template_service),
+            frames=_SessionFrames(self.frame_service),
+            links=_SessionLinks(self.delivery_service),
         )
         self.registry.register(BoothSessionService, self.session_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))
@@ -476,6 +652,10 @@ class Container:
     def restore_builtin_files(self) -> int:
         """Write the packaged built-in frame files into storage when missing (after migrations)."""
         return self.frame_service.ensure_builtin_files()
+
+    def maintain(self) -> None:
+        """Periodic upkeep while serving (every step is idempotent and safe to repeat)."""
+        self.session_service.maintain()
 
     def close(self) -> None:
         self.pairing.shutdown()

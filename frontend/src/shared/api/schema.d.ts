@@ -581,6 +581,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/booth/sessions/{session_id}/delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delivery Link
+         * @description The guest's take-home link and QR code. A reload shows the same code while it is
+         *     remembered; after a restart a new code replaces the old one.
+         */
+        post: operations["delivery_link_api_booth_sessions__session_id__delivery_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/booth/sessions/{session_id}/finish": {
         parameters: {
             query?: never;
@@ -592,7 +613,7 @@ export interface paths {
         put?: never;
         /**
          * Finish
-         * @description Every photo is in; the camera step is over (the review screen comes in a later phase).
+         * @description Every photo is in; the camera step is over and the finished photos come next.
          */
         post: operations["finish_api_booth_sessions__session_id__finish_post"];
         delete?: never;
@@ -635,6 +656,46 @@ export interface paths {
          * @description The participant leaves the booth: the visit ends and takes no more photos.
          */
         post: operations["give_up_api_booth_sessions__session_id__give_up_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/{session_id}/outputs/{output_id}.jpg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Output Photo
+         * @description A finished photo of this visit, shown on the booth screen that made it.
+         */
+        get: operations["output_photo_api_booth_sessions__session_id__outputs__output_id__jpg_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/{session_id}/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Render
+         * @description Make the finished photos (300 DPI sRGB JPEG) from this visit's own photos and frame.
+         */
+        post: operations["render_api_booth_sessions__session_id__render_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -877,6 +938,11 @@ export interface components {
             layout_label: string | null;
             /** Mirror */
             mirror: boolean;
+            /**
+             * Outputs
+             * @description The finished photos, once they are made.
+             */
+            outputs?: components["schemas"]["OutputResponse"][];
             /** Retake Mode */
             retake_mode: string;
             /** Shots */
@@ -917,6 +983,24 @@ export interface components {
             minimum: number;
             /** What */
             what: string;
+        };
+        /**
+         * DeliveryLinkResponse
+         * @description The take-home link. Shown on the booth screen only; it is the guest's key to the photos.
+         */
+        DeliveryLinkResponse: {
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Qr Svg
+             * @description The link as a QR code (SVG, dark on light).
+             */
+            qr_svg: string;
+            /** Url */
+            url: string;
         };
         /**
          * DeliveryMode
@@ -1223,6 +1307,25 @@ export interface components {
             width: number;
         };
         /**
+         * OutputResponse
+         * @description One finished photo (a print, or one strip of a 2x6).
+         */
+        OutputResponse: {
+            /** Height */
+            height: number;
+            /** Id */
+            id: string;
+            /** Output Index */
+            output_index: number;
+            /**
+             * Version
+             * @description Changes when the photo does.
+             */
+            version: string;
+            /** Width */
+            width: number;
+        };
+        /**
          * PhotoSlotResponse
          * @description The shape of one photo in the finished output, so the booth can show that exact frame.
          */
@@ -1464,6 +1567,14 @@ export interface components {
         RenameFrameBody: {
             /** Name */
             name: string;
+        };
+        /** RenderBody */
+        RenderBody: {
+            /**
+             * Idempotency Key
+             * @description Repeat the same key to retry safely; the photos are made once.
+             */
+            idempotency_key: string;
         };
         /** RetakeBody */
         RetakeBody: {
@@ -2935,6 +3046,37 @@ export interface operations {
             };
         };
     };
+    delivery_link_api_booth_sessions__session_id__delivery_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryLinkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     finish_api_booth_sessions__session_id__finish_post: {
         parameters: {
             query?: never;
@@ -3029,6 +3171,80 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    output_photo_api_booth_sessions__session_id__outputs__output_id__jpg_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                output_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    render_api_booth_sessions__session_id__render_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenderBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoothSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The render worker is busy; retry with the same key. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

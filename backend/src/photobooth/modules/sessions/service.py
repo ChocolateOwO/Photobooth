@@ -28,6 +28,8 @@ from photobooth.modules.sessions.domain import (
     CaptureRefusedError,
     CaptureStatus,
     Clock,
+    DeliveryLink,
+    DeliveryLinks,
     DeviceOperation,
     EligibilityProvider,
     EligibilityRefusedError,
@@ -36,9 +38,18 @@ from photobooth.modules.sessions.domain import (
     Operation,
     OperationFailedError,
     OperationStatus,
+    OutputAsset,
+    OutputNotFoundError,
+    OutputRenderer,
+    OutputStatus,
+    RenderFailedError,
+    RenderOutcome,
+    RenderPhoto,
+    RenderRequest,
     RetakeMode,
     Selection,
     SessionClosedError,
+    SessionFrames,
     SessionNotFoundError,
     SessionRepository,
     SessionState,
@@ -49,6 +60,7 @@ from photobooth.modules.sessions.domain import (
     TransitionRefusedError,
     capture_key,
     may_move,
+    output_key,
 )
 
 
@@ -79,6 +91,22 @@ def _fingerprint(*parts: object) -> str:
     return hashlib.sha256("|".join(str(part) for part in parts).encode()).hexdigest()
 
 
+def render_fingerprint(
+    selection: Selection, captures: Sequence[CaptureAsset], mirror: bool, decoration: str | None
+) -> str:
+    """Everything a finished photo is made from. Same inputs, same photo; any change, a new one."""
+    return _fingerprint(
+        "render",
+        selection.template_key,
+        selection.template_version,
+        selection.frame_id,
+        selection.frame_sha256,
+        ",".join(f"{c.shot_index}:{c.id}:{c.sha256}" for c in captures),
+        mirror,
+        hashlib.sha256((decoration or "").encode()).hexdigest(),
+    )
+
+
 class BoothSessionService:
     """Everything the participant screens may do with a session."""
 
@@ -90,6 +118,10 @@ class BoothSessionService:
         files: CaptureFiles,
         eligibility: EligibilityProvider,
         boot_id: str,
+        *,
+        renderer: OutputRenderer,
+        frames: SessionFrames,
+        links: DeliveryLinks,
         clock: Clock | None = None,
     ) -> None:
         self._repository = repository
@@ -98,6 +130,9 @@ class BoothSessionService:
         self._files = files
         self._eligibility = eligibility
         self._boot_id = boot_id
+        self._renderer = renderer
+        self._frames = frames
+        self._links = links
         self._clock = clock or SystemClock()
         self._locks = SessionLocks()
         self._device_locks = SessionLocks()
@@ -364,7 +399,13 @@ class BoothSessionService:
             if session.closed:
                 self._clear_test(session)
                 return session
-            closed = self._repository.close(session_id, SessionState.CANCELLED, self._clock.now())
+            # Leaving after the photos were delivered is simply the end of the visit.
+            ending = (
+                SessionState.COMPLETED
+                if session.state is SessionState.DELIVERED
+                else SessionState.CANCELLED
+            )
+            closed = self._repository.close(session_id, ending, self._clock.now())
             settled = closed or session
             self._clear_test(settled)
             return settled
@@ -385,6 +426,157 @@ class BoothSessionService:
                 return self._files.read(capture.storage_key)
             except Exception as exc:  # a stored photo that vanished is not a 500 for the booth
                 raise CaptureNotFoundError() from exc
+
+    # ---- finished photos and delivery ---------------------------------------------------------
+
+    def render(
+        self,
+        device_id: str,
+        session_id: str,
+        idempotency_key: str,
+        decoration: str | None = None,
+    ) -> RenderOutcome:
+        """Make the finished photos from the visit's own photos and its pinned frame.
+
+        Exactly once: the same key replays the first answer, and a second request with another
+        key (a double tap, a reload) finds the photos already made. Rendering runs on the single
+        render worker; when it is full nothing is recorded and the same request may be retried.
+        """
+        with self._locks.held(session_id):
+            self._owned(device_id, session_id)
+            request_fingerprint = _fingerprint(
+                "render-request",
+                session_id,
+                hashlib.sha256((decoration or "").encode()).hexdigest(),
+            )
+            replay = self._replay_render(session_id, idempotency_key, request_fingerprint)
+            if replay is not None:
+                return replay
+
+            session = self._load(device_id, session_id)
+            if session.state is SessionState.DELIVERED:
+                return self._delivered(session)
+            if session.state is not SessionState.REVIEWING or session.selection is None:
+                raise TransitionRefusedError("this session is not ready for its finished photos")
+            selection = session.selection
+            captures = self._counted_captures(session)
+            fingerprint = render_fingerprint(selection, captures, session.mirror, decoration)
+
+            try:
+                frame_png = self._frames.frame_png(selection.frame_id)
+                if hashlib.sha256(frame_png).hexdigest() != selection.frame_sha256:
+                    raise RenderFailedError("frame_changed")
+                photos = tuple(
+                    RenderPhoto(
+                        capture_id=capture.id,
+                        shot_index=capture.shot_index,
+                        data=self._files.read(capture.storage_key or ""),
+                    )
+                    for capture in captures
+                )
+                files = self._renderer.render(
+                    RenderRequest(
+                        template_key=selection.template_key,
+                        template_version=selection.template_version,
+                        frame_png=frame_png,
+                        mirror=session.mirror,
+                        photos=photos,
+                        decoration=decoration,
+                    )
+                )
+            except RenderFailedError as exc:
+                # Nothing about this visit can be made: it ends, and the booth starts over.
+                self._repository.close(session_id, SessionState.ERROR, self._clock.now(), exc.code)
+                raise
+            except (FileNotFoundError, OSError) as exc:
+                self._repository.close(
+                    session_id, SessionState.ERROR, self._clock.now(), "photo_missing"
+                )
+                raise RenderFailedError("photo_missing") from exc
+
+            now = self._clock.now()
+            operation = Operation(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                idempotency_key=idempotency_key,
+                kind="render",
+                fingerprint=request_fingerprint,
+                status=OperationStatus.PENDING,
+                owner_boot_id=self._boot_id,
+            )
+            outputs: list[OutputAsset] = []
+            for file in files:
+                output_id = str(uuid.uuid4())
+                outputs.append(
+                    OutputAsset(
+                        id=output_id,
+                        session_id=session_id,
+                        operation_id=operation.id,
+                        output_index=file.output_index,
+                        status=OutputStatus.PENDING,
+                        render_fingerprint=fingerprint,
+                        template_key=selection.template_key,
+                        template_version=selection.template_version,
+                        frame_id=selection.frame_id,
+                        frame_sha256=selection.frame_sha256,
+                        capture_ids=file.capture_ids,
+                        storage_key=output_key(session_id, output_id),
+                        sha256=hashlib.sha256(file.data).hexdigest(),
+                        width=file.width,
+                        height=file.height,
+                        byte_size=len(file.data),
+                        rendered_at=now,
+                        decoration=decoration,
+                    )
+                )
+            self._repository.start_render(operation, outputs, now)
+            try:
+                for output, file in zip(outputs, files, strict=True):
+                    self._files.put(output.storage_key or "", file.data)
+            except Exception:
+                self._repository.fail_render(operation.id, "file_not_stored")
+                self._collect_files()
+                raise
+            outcome = self._repository.finalize_render(operation.id, fingerprint)
+            if any(output.status is not OutputStatus.OK for output in outcome.outputs):
+                self._collect_files()
+            return outcome
+
+    def finished_outputs(self, session_id: str) -> list[OutputAsset]:
+        """The finished photos that count for a visit, in output order."""
+        return [
+            output
+            for output in self._repository.outputs(session_id)
+            if output.status is OutputStatus.OK
+        ]
+
+    def output_photo(self, device_id: str, session_id: str, output_id: str) -> bytes:
+        """One finished photo, for the booth screen of the visit that made it."""
+        with self._locks.held(session_id):
+            self._owned(device_id, session_id)
+            output = self._repository.output(output_id)
+            if (
+                output is None
+                or output.session_id != session_id
+                or output.status is not OutputStatus.OK
+                or output.storage_key is None
+            ):
+                raise OutputNotFoundError()
+            try:
+                return self._files.read(output.storage_key)
+            except Exception as exc:  # a stored photo that vanished is not a 500 for the booth
+                raise OutputNotFoundError() from exc
+
+    def delivery_link(self, device_id: str, session_id: str) -> DeliveryLink:
+        """The take-home link and QR code for a delivered visit.
+
+        Issued while the session is locked, so a double tap or a reload never makes two links.
+        """
+        with self._locks.held(session_id):
+            session = self._load(device_id, session_id)
+            if session.state is not SessionState.DELIVERED:
+                raise TransitionRefusedError("the finished photos are not ready yet")
+            return self._links.ensure(session_id)
 
     def clear_old_tests(self, keep_for_seconds: int = 3600) -> int:
         """Clear away the organizer's finished or forgotten test visits. Never a guest's."""
@@ -415,36 +607,115 @@ class BoothSessionService:
         return self._repository.pinned_frames()
 
     def recover(self) -> int:
-        """After a restart: settle photos left half-published and delete files nobody wants."""
+        """After a restart: settle photos and finished photos left half-published, and delete
+        files nobody wants."""
         settled = 0
         for operation in self._repository.unfinished_operations(self._boot_id):
             with self._locks.held(operation.session_id):
-                capture = self._repository.capture(operation.result_ref or "")
-                stored = capture.storage_key if capture else None
-                if (
-                    capture is not None
-                    and stored is not None
-                    and capture.sha256 is not None
-                    and self._files.exists(stored)
-                ):
-                    facts = self._facts_of(capture)
-                    self._repository.finalize_capture(operation.id, facts)
+                if operation.kind == "render":
+                    self._settle_render(operation)
                 else:
-                    self._repository.fail_capture(operation.id, "file_not_stored")
+                    self._settle_capture(operation)
                 settled += 1
         self._collect_files()
         return settled
+
+    def maintain(self) -> None:
+        """Periodic upkeep while the booth runs: end visits nobody came back to, sweep stale
+        organizer tests, settle anything a dead process left behind and work off the deletion
+        ledger. Every step is idempotent."""
+        self.close_inactive()
+        self.clear_old_tests()
+        self.recover()
 
     # ---- internals ---------------------------------------------------------------------------
 
     def _facts_of(self, capture: CaptureAsset) -> CaptureFacts:
         return CaptureFacts(width=capture.width, height=capture.height, sha256=capture.sha256 or "")
 
+    def _settle_capture(self, operation: Operation) -> None:
+        capture = self._repository.capture(operation.result_ref or "")
+        stored = capture.storage_key if capture else None
+        if (
+            capture is not None
+            and stored is not None
+            and capture.sha256 is not None
+            and self._files.exists(stored)
+        ):
+            self._repository.finalize_capture(operation.id, self._facts_of(capture))
+        else:
+            self._repository.fail_capture(operation.id, "file_not_stored")
+
+    def _settle_render(self, operation: Operation) -> None:
+        """Finish a render whose publisher is gone: it counts only if every file is there, intact,
+        and made from what the visit still holds."""
+        session = self._repository.get(operation.session_id)
+        mine = [
+            output
+            for output in self._repository.outputs(operation.session_id)
+            if output.operation_id == operation.id
+        ]
+        intact = bool(mine) and all(self._intact(output) for output in mine)
+        if session is None or session.selection is None or not intact:
+            self._repository.fail_render(operation.id, "file_not_stored")
+            return
+        current = render_fingerprint(
+            session.selection,
+            self._counted_captures(session),
+            session.mirror,
+            mine[0].decoration,
+        )
+        self._repository.finalize_render(operation.id, current)
+
+    def _intact(self, output: OutputAsset) -> bool:
+        if output.storage_key is None or output.sha256 is None:
+            return False
+        try:
+            data = self._files.read(output.storage_key)
+        except Exception:
+            return False
+        return hashlib.sha256(data).hexdigest() == output.sha256
+
+    def _counted_captures(self, session: BoothSession) -> list[CaptureAsset]:
+        """The photo that counts for each shot, in shot order."""
+        return sorted(
+            (
+                capture
+                for capture in self._repository.captures(session.id)
+                if capture.status is CaptureStatus.OK
+            ),
+            key=lambda capture: capture.shot_index,
+        )
+
+    def _delivered(self, session: BoothSession) -> RenderOutcome:
+        return RenderOutcome(session=session, outputs=tuple(self.finished_outputs(session.id)))
+
+    def _replay_render(self, session_id: str, key: str, fingerprint: str) -> RenderOutcome | None:
+        recorded = self._repository.operation(session_id, key)
+        if recorded is None:
+            return None
+        if recorded.fingerprint != fingerprint or recorded.kind != "render":
+            raise IdempotencyReuseError()
+        if recorded.status is OperationStatus.PENDING:
+            # Its publisher is gone (this process holds the lock): settle it before answering.
+            self._settle_render(recorded)
+            self._collect_files()
+            recorded = self._repository.operation(session_id, key) or recorded
+        if recorded.status is OperationStatus.FAILED:
+            raise OperationFailedError(recorded.failure_code or "render_failed")
+        session = self._repository.get(session_id)
+        if session is None:
+            raise SessionNotFoundError()
+        return self._delivered(session)
+
     def _collect_files(self) -> None:
         """Delete the files of photos that never counted (idempotent; a missing file is fine)."""
         for capture_id, key in self._repository.files_to_delete():
             self._files.delete(key)
             self._repository.mark_file_deleted(capture_id, self._clock.now())
+        for output_id, key in self._repository.output_files_to_delete():
+            self._files.delete(key)
+            self._repository.mark_output_file_deleted(output_id, self._clock.now())
 
     def _replay(self, session_id: str, key: str, fingerprint: str) -> CaptureOutcome | None:
         recorded = self._repository.operation(session_id, key)

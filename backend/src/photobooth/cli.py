@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import getpass
 import json
 import logging
@@ -12,6 +13,8 @@ import sqlite3
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+
+import uvicorn
 
 from photobooth.container import Container
 from photobooth.core.config import AppSettings
@@ -80,7 +83,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
             )
             servers = [
                 build_server(kiosk_app, kiosk_spec),
-                build_server(create_delivery_app(), delivery_spec),
+                build_server(create_delivery_app(container.registry), delivery_spec),
             ]
             log.info(
                 "starting instance=%s profile=%s kiosk=%s:%s delivery=%s:%s boot=%s",
@@ -93,12 +96,34 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 container.boot_id,
             )
             try:
-                asyncio.run(serve_together(servers))
+                asyncio.run(_serve_with_upkeep(servers, container))
             except KeyboardInterrupt:
                 log.info("stopped by operator")
         finally:
             container.close()
     return 0
+
+
+# How often the running booth ends idle visits, settles leftovers and deletes unwanted files.
+UPKEEP_SECONDS = 60.0
+
+
+async def _serve_with_upkeep(servers: list[uvicorn.Server], container: Container) -> None:
+    async def upkeep() -> None:
+        while True:
+            await asyncio.sleep(UPKEEP_SECONDS)
+            try:
+                await asyncio.to_thread(container.maintain)
+            except Exception:  # never take the booth down; the next round tries again
+                log.exception("periodic upkeep failed")
+
+    task = asyncio.create_task(upkeep())
+    try:
+        await serve_together(servers)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 def read_existing_stamp(db_path: Path) -> str | None:

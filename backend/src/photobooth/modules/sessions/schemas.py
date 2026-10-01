@@ -4,6 +4,7 @@ no profile name, no asset ids, no storage keys, no file paths, no frame provenan
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from photobooth.modules.sessions.domain import (
     BoothSession,
     CaptureOutcome,
+    DeliveryLink,
+    OutputAsset,
     ShotProgress,
 )
 
@@ -53,6 +56,46 @@ class RetakeBody(BaseModel):
     )
 
 
+class RenderBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: IdempotencyKey = Field(
+        description="Repeat the same key to retry safely; the photos are made once."
+    )
+
+
+class OutputResponse(BaseModel):
+    """One finished photo (a print, or one strip of a 2x6)."""
+
+    id: str
+    output_index: int
+    width: int
+    height: int
+    version: str = Field(description="Changes when the photo does.")
+
+    @classmethod
+    def of(cls, output: OutputAsset) -> OutputResponse:
+        return cls(
+            id=output.id,
+            output_index=output.output_index,
+            width=output.width,
+            height=output.height,
+            version=(output.sha256 or "")[:16],
+        )
+
+
+class DeliveryLinkResponse(BaseModel):
+    """The take-home link. Shown on the booth screen only; it is the guest's key to the photos."""
+
+    url: str
+    expires_at: datetime
+    qr_svg: str = Field(description="The link as a QR code (SVG, dark on light).")
+
+    @classmethod
+    def of(cls, link: DeliveryLink) -> DeliveryLinkResponse:
+        return cls(url=link.url, expires_at=link.expires_at, qr_svg=link.qr_svg)
+
+
 class ShotResponse(BaseModel):
     shot_index: int
     attempt_no: int
@@ -90,10 +133,16 @@ class BoothSessionResponse(BaseModel):
     layout_label: str | None
     frame_id: str | None
     shots: list[ShotResponse]
+    outputs: list[OutputResponse] = Field(
+        default_factory=list, description="The finished photos, once they are made."
+    )
 
     @classmethod
     def of(
-        cls, session: BoothSession, shots: list[ShotProgress] | None = None
+        cls,
+        session: BoothSession,
+        shots: list[ShotProgress] | None = None,
+        outputs: list[OutputAsset] | None = None,
     ) -> BoothSessionResponse:
         selection = session.selection
         return cls(
@@ -111,6 +160,7 @@ class BoothSessionResponse(BaseModel):
             layout_label=selection.layout_label if selection else None,
             frame_id=selection.frame_id if selection else None,
             shots=[ShotResponse.of(shot) for shot in shots or []],
+            outputs=[OutputResponse.of(output) for output in outputs or []],
         )
 
 

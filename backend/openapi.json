@@ -87,6 +87,14 @@
             "title": "Mirror",
             "type": "boolean"
           },
+          "outputs": {
+            "description": "The finished photos, once they are made.",
+            "items": {
+              "$ref": "#/components/schemas/OutputResponse"
+            },
+            "title": "Outputs",
+            "type": "array"
+          },
           "retake_mode": {
             "title": "Retake Mode",
             "type": "string"
@@ -214,6 +222,32 @@
           "what"
         ],
         "title": "ContrastRuleInfo",
+        "type": "object"
+      },
+      "DeliveryLinkResponse": {
+        "description": "The take-home link. Shown on the booth screen only; it is the guest's key to the photos.",
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "qr_svg": {
+            "description": "The link as a QR code (SVG, dark on light).",
+            "title": "Qr Svg",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_at",
+          "qr_svg"
+        ],
+        "title": "DeliveryLinkResponse",
         "type": "object"
       },
       "DeliveryMode": {
@@ -887,6 +921,41 @@
         "title": "MediaAssetResponse",
         "type": "object"
       },
+      "OutputResponse": {
+        "description": "One finished photo (a print, or one strip of a 2x6).",
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "output_index": {
+            "title": "Output Index",
+            "type": "integer"
+          },
+          "version": {
+            "description": "Changes when the photo does.",
+            "title": "Version",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "output_index",
+          "width",
+          "height",
+          "version"
+        ],
+        "title": "OutputResponse",
+        "type": "object"
+      },
       "PhotoSlotResponse": {
         "description": "The shape of one photo in the finished output, so the booth can show that exact frame.",
         "properties": {
@@ -1376,6 +1445,22 @@
           "name"
         ],
         "title": "RenameFrameBody",
+        "type": "object"
+      },
+      "RenderBody": {
+        "additionalProperties": false,
+        "properties": {
+          "idempotency_key": {
+            "description": "Repeat the same key to retry safely; the photos are made once.",
+            "pattern": "^[A-Za-z0-9_-]{8,64}$",
+            "title": "Idempotency Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idempotency_key"
+        ],
+        "title": "RenderBody",
         "type": "object"
       },
       "RetakeBody": {
@@ -3690,9 +3775,53 @@
         ]
       }
     },
+    "/api/booth/sessions/{session_id}/delivery": {
+      "post": {
+        "description": "The guest's take-home link and QR code. A reload shows the same code while it is\nremembered; after a restart a new code replaces the old one.",
+        "operationId": "delivery_link_api_booth_sessions__session_id__delivery_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryLinkResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delivery Link",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
     "/api/booth/sessions/{session_id}/finish": {
       "post": {
-        "description": "Every photo is in; the camera step is over (the review screen comes in a later phase).",
+        "description": "Every photo is in; the camera step is over and the finished photos come next.",
         "operationId": "finish_api_booth_sessions__session_id__finish_post",
         "parameters": [
           {
@@ -3827,6 +3956,113 @@
           }
         },
         "summary": "Give Up",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}/outputs/{output_id}.jpg": {
+      "get": {
+        "description": "A finished photo of this visit, shown on the booth screen that made it.",
+        "operationId": "output_photo_api_booth_sessions__session_id__outputs__output_id__jpg_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "output_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Output Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Output Photo",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}/render": {
+      "post": {
+        "description": "Make the finished photos (300 DPI sRGB JPEG) from this visit's own photos and frame.",
+        "operationId": "render_api_booth_sessions__session_id__render_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenderBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoothSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "The render worker is busy; retry with the same key."
+          }
+        },
+        "summary": "Render",
         "tags": [
           "booth"
         ]

@@ -11,6 +11,8 @@ export type FramePlan = components['schemas']['FramePlanResponse']
 export type BoothSessionState = components['schemas']['BoothSessionResponse']
 export type CaptureResult = components['schemas']['CaptureResponse']
 export type ShotState = components['schemas']['ShotResponse']
+export type OutputState = components['schemas']['OutputResponse']
+export type DeliveryLink = components['schemas']['DeliveryLinkResponse']
 
 export class ApiError extends Error {
   readonly status: number
@@ -147,6 +149,17 @@ export function createApiClient(
       }),
     finishCaptures: (sessionId: string) =>
       postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/finish`),
+    /** Make the finished photos. The same key never makes them twice (safe to retry). */
+    renderOutputs: (sessionId: string, idempotencyKey: string) =>
+      postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/render`, {
+        idempotency_key: idempotencyKey,
+      }),
+    /** One finished photo of this visit, for the booth screen (a same-origin <img> source). */
+    outputImageUrl: (sessionId: string, outputId: string, version?: string) =>
+      `/api/booth/sessions/${sessionId}/outputs/${outputId}.jpg${version ? `?v=${version}` : ''}`,
+    /** The guest's take-home link and QR code (the same while the booth remembers it). */
+    deliveryLink: (sessionId: string) =>
+      postJson<DeliveryLink>(`/api/booth/sessions/${sessionId}/delivery`),
     /** The participant leaves: the visit ends and takes no more photos. */
     giveUpSession: (sessionId: string) =>
       postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/give-up`),

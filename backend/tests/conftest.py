@@ -74,6 +74,7 @@ def kiosk_client(container: Container) -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def delivery_client() -> Iterator[TestClient]:
-    with TestClient(create_delivery_app(), base_url="http://192.168.1.50:18113") as client:
+def delivery_client(container: Container) -> Iterator[TestClient]:
+    app = create_delivery_app(container.registry)
+    with TestClient(app, base_url="http://192.168.1.50:18113") as client:
         yield client

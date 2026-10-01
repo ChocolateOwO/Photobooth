@@ -20,7 +20,7 @@ def test_version_contract(kiosk_client: TestClient) -> None:
     assert body["app_version"] == "0.1.0"
     assert body["api_version"] == 1
     assert body["instance"] == "dummy"
-    assert body["schema_revision"] == "0008_test_sessions"
+    assert body["schema_revision"] == "0009_outputs_delivery"
 
 
 def test_health_reports_database_error(container: Container) -> None:
@@ -86,4 +86,7 @@ def test_openapi_lists_only_expected_public_paths(kiosk_client: TestClient) -> N
         "/api/booth/sessions/{session_id}/frame",
         "/api/booth/sessions/{session_id}/give-up",
         "/api/booth/sessions/{session_id}/retake",
+        "/api/booth/sessions/{session_id}/render",
+        "/api/booth/sessions/{session_id}/outputs/{output_id}.jpg",
+        "/api/booth/sessions/{session_id}/delivery",
     }

@@ -130,7 +130,7 @@ def test_real_sockets_kiosk_bound_to_loopback_only(container: Container) -> None
     )
     kiosk_spec, delivery_spec = listener_specs(settings)
     kiosk = build_server(create_kiosk_app(container.registry, KioskAppOptions()), kiosk_spec)
-    delivery = build_server(create_delivery_app(), delivery_spec)
+    delivery = build_server(create_delivery_app(container.registry), delivery_spec)
 
     with _running([kiosk, delivery]):
         bound = [sock.getsockname() for srv in kiosk.servers for sock in srv.sockets]

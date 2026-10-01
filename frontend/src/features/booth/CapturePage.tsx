@@ -126,6 +126,10 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
           booth.go('frames', { replace: true }) // no frame chosen yet
           return
         }
+        if (current.state === 'reviewing' || current.state === 'delivered') {
+          booth.go('done', { replace: true }) // the photos are taken: the finished ones are next
+          return
+        }
         setSession(current)
         setPhase(current.state === 'capturing' ? 'ready' : 'complete')
       } catch {
@@ -360,11 +364,10 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
     if (!session || busy) return
     setBusy(true)
     try {
-      const done = await api.finishCaptures(session.id)
+      await api.finishCaptures(session.id)
       clearTimers()
       stopCamera() // the camera light goes out as soon as the photos are done
-      setSession(done)
-      setPhase('complete')
+      booth.go('done') // the finished photos and the take-home link come next
     } catch {
       setProblem({ text: 'The booth could not finish the session.', kind: 'session' })
     } finally {
@@ -443,6 +446,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
                   src={shownUrl}
                   alt={`Photo ${shown.shot_index}`}
                   className={styles.big}
+                  data-mirrored={session.mirror ? '' : undefined}
                   data-testid="review-photo"
                 />
               </button>
@@ -502,6 +506,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
           shots={session.shots}
           photoUrl={photoUrl}
           onPick={pick}
+          mirror={session.mirror}
           select={complete}
           {...(shown ? { selected: shown.shot_index } : {})}
         />
@@ -557,6 +562,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
           <PhotoDialog
             shotIndex={open.shot_index}
             url={openUrl}
+            mirror={session.mirror}
             busy={busy}
             onClose={() => {
               setLooking(null)

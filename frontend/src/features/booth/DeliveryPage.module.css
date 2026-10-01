@@ -1,0 +1,157 @@
+/* The end of a visit: the finished photos beside the take-home QR code. Event colours only. */
+
+.screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 1.6vh, 18px);
+  padding: clamp(10px, 2vh, 24px) clamp(10px, 2.4vw, 28px);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.header {
+  flex: 0 0 auto;
+  text-align: center;
+}
+
+.header h1,
+.making h1 {
+  font-size: clamp(20px, 3.8vh, 40px);
+}
+
+.making {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
+}
+
+.spinner {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 6px solid var(--ev-surface);
+  border-top-color: var(--ev-primary-bg);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+/* Side by side on a wide screen, stacked on a tall one; the photos get the most room. */
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(220px, 2fr);
+  gap: clamp(12px, 2.4vw, 32px);
+  align-items: center;
+}
+
+@media (orientation: portrait) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 3fr) auto;
+  }
+}
+
+.outputs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(8px, 1.6vw, 20px);
+}
+
+.output {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The whole print, in its own proportions. */
+.photo {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--ev-overlay) 40%, transparent);
+}
+
+.take {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: clamp(12px, 2vh, 24px);
+  border-radius: 20px;
+  background-color: var(--ev-surface);
+  text-align: center;
+}
+
+.takeTitle {
+  margin: 0;
+  color: var(--ev-heading);
+  font-size: clamp(18px, 2.8vh, 30px);
+}
+
+/* The QR image brings its own light square and quiet zone, so any phone reads it. */
+.qr {
+  display: block;
+  width: min(100%, clamp(160px, 32vh, 360px));
+  height: auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+}
+
+.url {
+  margin: 0;
+  max-width: 100%;
+  color: var(--ev-body);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: clamp(11px, 1.5vh, 14px);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+}
+
+.actions button {
+  min-height: 64px;
+  min-width: 200px;
+}
+
+@media (max-height: 560px) {
+  .actions button {
+    min-height: 48px;
+  }
+
+  .take {
+    gap: 6px;
+  }
+}

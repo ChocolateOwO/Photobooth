@@ -46,6 +46,8 @@ class AppSettings(BaseSettings):
     ui_port: int | None = Field(default=None, ge=1, le=65535)
     delivery_host: str = "0.0.0.0"  # noqa: S104 - delivery listener is intentionally LAN-facing
     delivery_port: int = Field(ge=1, le=65535)
+    # The address guests' phones use in the QR link. Unset: the booth's own LAN address.
+    delivery_public_host: str | None = None
 
     frontend_dist: Path | None = None
     git_commit: str | None = None

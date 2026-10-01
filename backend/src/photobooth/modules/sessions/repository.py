@@ -45,7 +45,10 @@ from photobooth.modules.sessions.domain import (
     LayoutOffer,
     Operation,
     OperationStatus,
+    OutputAsset,
+    OutputStatus,
     ProfileSnapshot,
+    RenderOutcome,
     RetakeMode,
     Selection,
     SessionNotFoundError,
@@ -53,6 +56,7 @@ from photobooth.modules.sessions.domain import (
     SessionState,
     StaleSessionError,
     TransitionRefusedError,
+    closing_state,
 )
 
 
@@ -136,6 +140,53 @@ class CaptureAssetRow(Base):
     height: Mapped[int] = mapped_column(Integer, nullable=False)
     mirrored: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     captured_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    failure_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    file_delete_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    file_deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+
+class OutputAssetRow(Base):
+    __tablename__ = "output_assets"
+    __table_args__ = (
+        CheckConstraint("output_index >= 1", name="ck_output_assets_index"),
+        # One finished photo per output of a visit counts, however often it is requested.
+        Index(
+            "uq_output_assets_index_ok",
+            "session_id",
+            "output_index",
+            unique=True,
+            sqlite_where=text("status = 'ok'"),
+        ),
+        Index("ix_output_assets_session", "session_id"),
+        Index("ix_output_assets_operation", "operation_id"),
+        Index(
+            "ix_output_assets_delete_pending",
+            "file_delete_pending",
+            sqlite_where=text("file_delete_pending = 1"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("booth_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    operation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    output_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    render_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # No foreign key: a finished photo outlives its frame; the checksum says which file it was.
+    frame_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    frame_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    capture_ids: Mapped[str] = mapped_column(Text, nullable=False)
+    decoration: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    rendered_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
     failure_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     file_delete_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     file_deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
@@ -305,6 +356,30 @@ def _capture_of(row: CaptureAssetRow) -> CaptureAsset:
     )
 
 
+def _output_of(row: OutputAssetRow) -> OutputAsset:
+    return OutputAsset(
+        id=row.id,
+        session_id=row.session_id,
+        operation_id=row.operation_id,
+        output_index=row.output_index,
+        status=OutputStatus(row.status),
+        render_fingerprint=row.render_fingerprint,
+        template_key=row.template_key,
+        template_version=row.template_version,
+        frame_id=row.frame_id,
+        frame_sha256=row.frame_sha256,
+        capture_ids=tuple(json.loads(row.capture_ids)),
+        storage_key=row.storage_key,
+        sha256=row.sha256,
+        width=row.width,
+        height=row.height,
+        byte_size=row.byte_size,
+        rendered_at=row.rendered_at,
+        decoration=row.decoration,
+        failure_reason=row.failure_reason,
+    )
+
+
 def _operation_of(row: OperationRow) -> Operation:
     return Operation(
         id=row.id,
@@ -390,7 +465,22 @@ class SqlSessionRepository(SessionRepository):
 
     def create(self, session: BoothSession, operation: DeviceOperation) -> BoothSession:
         with self._sessions() as db, db.begin():
-            # One visit per device: whatever that device left unfinished ends here.
+            # One visit per device: whatever that device left unfinished ends here. A visit whose
+            # photos were already delivered is complete (its guest's link keeps working); any
+            # other is abandoned.
+            db.execute(
+                update(BoothSessionRow)
+                .where(
+                    BoothSessionRow.device_id == session.device_id,
+                    BoothSessionRow.state == str(SessionState.DELIVERED),
+                )
+                .values(
+                    state=str(SessionState.COMPLETED),
+                    state_version=BoothSessionRow.state_version + 1,
+                    completed_at=session.started_at,
+                    error_code="next_guest",
+                )
+            )
             db.execute(
                 update(BoothSessionRow)
                 .where(
@@ -627,6 +717,9 @@ class SqlSessionRepository(SessionRepository):
                 return _session_of(row)
             if idle_since is not None and row.last_activity_at > idle_since:
                 return _session_of(row)  # somebody is at the booth after all
+            if state is SessionState.ABANDONED:
+                # A visit whose photos were delivered was not abandoned: it is complete.
+                state = closing_state(SessionState(row.state))
             row.state = str(state)
             row.state_version += 1
             row.completed_at = at
@@ -641,6 +734,16 @@ class SqlSessionRepository(SessionRepository):
                 capture.status = str(CaptureStatus.FAILED)
                 capture.failure_reason = "session_closed"
                 capture.file_delete_pending = True
+            # Finished photos still being made when the visit ended will never be delivered.
+            for output in db.scalars(
+                select(OutputAssetRow).where(
+                    OutputAssetRow.session_id == session_id,
+                    OutputAssetRow.status == str(OutputStatus.PENDING),
+                )
+            ).all():
+                output.status = str(OutputStatus.FAILED)
+                output.failure_reason = "session_closed"
+                output.file_delete_pending = output.storage_key is not None
             db.flush()
             return _session_of(row)
 
@@ -686,13 +789,24 @@ class SqlSessionRepository(SessionRepository):
             row = db.get(BoothSessionRow, session_id)
             if row is None or not row.is_test:
                 return []  # never a real booth visit
-            keys = db.scalars(
-                select(CaptureAssetRow.storage_key).where(CaptureAssetRow.session_id == session_id)
-            ).all()
-            # Plain DELETEs, children first: the session's own foreign keys cascade anyway, so
-            # deleting each child through the identity map would only look for rows already gone.
+            keys = [
+                *db.scalars(
+                    select(CaptureAssetRow.storage_key).where(
+                        CaptureAssetRow.session_id == session_id
+                    )
+                ).all(),
+                *db.scalars(
+                    select(OutputAssetRow.storage_key).where(
+                        OutputAssetRow.session_id == session_id
+                    )
+                ).all(),
+            ]
+            # Plain DELETEs, children first: the session's own foreign keys cascade anyway (the
+            # delivery module's link rows included), so deleting each child through the identity
+            # map would only look for rows already gone.
             db.execute(delete(OperationRow).where(OperationRow.session_id == session_id))
             db.execute(delete(CaptureAssetRow).where(CaptureAssetRow.session_id == session_id))
+            db.execute(delete(OutputAssetRow).where(OutputAssetRow.session_id == session_id))
             db.execute(delete(BoothSessionRow).where(BoothSessionRow.id == session_id))
             return [key for key in keys if key]
 
@@ -741,7 +855,167 @@ class SqlSessionRepository(SessionRepository):
             row.file_delete_pending = False
             row.file_deleted_at = at
 
+    # ---- finished photos ---------------------------------------------------------------------
+
+    def output(self, output_id: str) -> OutputAsset | None:
+        with self._sessions() as db:
+            row = db.get(OutputAssetRow, output_id)
+            return _output_of(row) if row else None
+
+    def outputs(self, session_id: str) -> list[OutputAsset]:
+        with self._sessions() as db:
+            rows = db.scalars(
+                select(OutputAssetRow)
+                .where(OutputAssetRow.session_id == session_id)
+                .order_by(OutputAssetRow.output_index, OutputAssetRow.rendered_at)
+            ).all()
+            return [_output_of(row) for row in rows]
+
+    def start_render(
+        self, operation: Operation, outputs: Sequence[OutputAsset], at: datetime
+    ) -> None:
+        with self._sessions() as db, db.begin():
+            db.add(
+                OperationRow(
+                    id=operation.id,
+                    session_id=operation.session_id,
+                    idempotency_key=operation.idempotency_key,
+                    kind=operation.kind,
+                    fingerprint=operation.fingerprint,
+                    status=str(OperationStatus.PENDING),
+                    owner_boot_id=operation.owner_boot_id,
+                    result_ref=None,
+                    created_at=at,
+                )
+            )
+            for output in outputs:
+                db.add(
+                    OutputAssetRow(
+                        id=output.id,
+                        session_id=output.session_id,
+                        operation_id=output.operation_id,
+                        output_index=output.output_index,
+                        status=str(OutputStatus.PENDING),
+                        render_fingerprint=output.render_fingerprint,
+                        template_key=output.template_key,
+                        template_version=output.template_version,
+                        frame_id=output.frame_id,
+                        frame_sha256=output.frame_sha256,
+                        capture_ids=json.dumps(list(output.capture_ids)),
+                        decoration=output.decoration,
+                        storage_key=output.storage_key,
+                        sha256=output.sha256,
+                        width=output.width,
+                        height=output.height,
+                        byte_size=output.byte_size,
+                        rendered_at=output.rendered_at,
+                    )
+                )
+
+    def finalize_render(self, operation_id: str, fingerprint: str) -> RenderOutcome:
+        with self._sessions() as db, db.begin():
+            operation = db.get(OperationRow, operation_id)
+            if operation is None:
+                raise SessionNotFoundError()
+            row = self._locked(db, operation.session_id)
+            mine = self._operation_outputs(db, operation_id)
+            if operation.status != str(OperationStatus.PENDING):
+                # Somebody already settled this one: answer with what was recorded.
+                return RenderOutcome(
+                    session=_session_of(row), outputs=tuple(_output_of(o) for o in mine)
+                )
+            usable = (
+                row.state == str(SessionState.REVIEWING)
+                and bool(mine)
+                and all(o.render_fingerprint == fingerprint and o.sha256 for o in mine)
+            )
+            if not usable:
+                return self._fail_render(db, row, operation, mine, "superseded")
+            for output in mine:
+                # A finished photo made earlier from other inputs stops counting.
+                for older in db.scalars(
+                    select(OutputAssetRow).where(
+                        OutputAssetRow.session_id == row.id,
+                        OutputAssetRow.output_index == output.output_index,
+                        OutputAssetRow.status == str(OutputStatus.OK),
+                        OutputAssetRow.id != output.id,
+                    )
+                ).all():
+                    older.status = str(OutputStatus.SUPERSEDED)
+                    older.file_delete_pending = older.storage_key is not None
+                db.flush()
+                output.status = str(OutputStatus.OK)
+            operation.status = str(OperationStatus.DONE)
+            operation.finished_at = mine[0].rendered_at
+            row.state = str(SessionState.DELIVERED)
+            row.state_version += 1
+            row.last_activity_at = mine[0].rendered_at
+            db.flush()
+            return RenderOutcome(
+                session=_session_of(row), outputs=tuple(_output_of(o) for o in mine)
+            )
+
+    def fail_render(self, operation_id: str, code: str) -> RenderOutcome:
+        with self._sessions() as db, db.begin():
+            operation = db.get(OperationRow, operation_id)
+            if operation is None:
+                raise SessionNotFoundError()
+            row = self._locked(db, operation.session_id)
+            mine = self._operation_outputs(db, operation_id)
+            if operation.status != str(OperationStatus.PENDING):
+                return RenderOutcome(
+                    session=_session_of(row), outputs=tuple(_output_of(o) for o in mine)
+                )
+            return self._fail_render(db, row, operation, mine, code)
+
+    def output_files_to_delete(self) -> list[tuple[str, str]]:
+        with self._sessions() as db:
+            rows = db.scalars(
+                select(OutputAssetRow).where(
+                    OutputAssetRow.file_delete_pending.is_(True),
+                    OutputAssetRow.storage_key.is_not(None),
+                )
+            ).all()
+            return [(row.id, row.storage_key or "") for row in rows]
+
+    def mark_output_file_deleted(self, output_id: str, at: datetime) -> None:
+        with self._sessions() as db, db.begin():
+            row = db.get(OutputAssetRow, output_id)
+            if row is None:
+                return
+            row.file_delete_pending = False
+            row.file_deleted_at = at
+
     # ---- helpers ---------------------------------------------------------------------------
+
+    def _operation_outputs(self, db: Session, operation_id: str) -> list[OutputAssetRow]:
+        return list(
+            db.scalars(
+                select(OutputAssetRow)
+                .where(OutputAssetRow.operation_id == operation_id)
+                .order_by(OutputAssetRow.output_index)
+            ).all()
+        )
+
+    def _fail_render(
+        self,
+        db: Session,
+        row: BoothSessionRow,
+        operation: OperationRow,
+        outputs: Sequence[OutputAssetRow],
+        code: str,
+    ) -> RenderOutcome:
+        for output in outputs:
+            output.status = str(OutputStatus.FAILED)
+            output.failure_reason = code
+            output.file_delete_pending = output.storage_key is not None
+        operation.status = str(OperationStatus.FAILED)
+        operation.failure_code = code
+        operation.finished_at = outputs[0].rendered_at if outputs else operation.created_at
+        db.flush()
+        return RenderOutcome(
+            session=_session_of(row), outputs=tuple(_output_of(o) for o in outputs)
+        )
 
     def _locked(self, db: Session, session_id: str) -> BoothSessionRow:
         row = db.get(BoothSessionRow, session_id, with_for_update=False)

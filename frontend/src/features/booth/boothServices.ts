@@ -13,8 +13,8 @@ import type { BoothSessionState, FrameMenu } from '../../shared/api/client'
  * screen below this is the same in both cases: there is no second copy of the booth.
  */
 
-/** The three screens of a visit, in the order they come. */
-export type BoothStep = 'start' | 'frames' | 'capture'
+/** The screens of a visit, in the order they come. */
+export type BoothStep = 'start' | 'frames' | 'capture' | 'done'
 
 export interface BoothServices {
   /** An organizer trying the booth from Admin, rather than a guest at the event. */
@@ -31,6 +31,7 @@ const BOOTH_PATHS: Record<BoothStep, string> = {
   start: '/booth',
   frames: '/booth/frames',
   capture: '/booth/capture',
+  done: '/booth/done',
 }
 
 /** Wrap booth screens in this to run them against something other than the live event. */

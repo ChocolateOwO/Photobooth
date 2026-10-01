@@ -104,11 +104,33 @@ class EligibilityRefusedError(SessionError):
         self.reason = reason
 
 
+class RenderBusyError(SessionError):
+    """The render worker is full; nothing was recorded, so the same request may be retried."""
+
+    def __init__(self) -> None:
+        super().__init__("the booth is busy making photos; try again in a moment")
+
+
+class RenderFailedError(SessionError):
+    """The finished photos could not be made from this visit's photos and frame."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__("the photos could not be made")
+        self.code = code
+
+
+class OutputNotFoundError(SessionError):
+    def __init__(self) -> None:
+        super().__init__("that finished photo is not part of this booth session")
+
+
 class SessionState(StrEnum):
     STARTED = "started"
     ELIGIBILITY_OK = "eligibility_ok"
     CAPTURING = "capturing"
     REVIEWING = "reviewing"
+    # The finished photos exist and the guest can take them home (QR link).
+    DELIVERED = "delivered"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     ERROR = "error"
@@ -119,17 +141,25 @@ TERMINAL_STATES: frozenset[SessionState] = frozenset(
     {SessionState.COMPLETED, SessionState.CANCELLED, SessionState.ERROR, SessionState.ABANDONED}
 )
 
-# Every step a session may take. Later phases (review, render, delivery) add their own.
+# Every step a session may take.
 ALLOWED_TRANSITIONS: Mapping[SessionState, frozenset[SessionState]] = {
     SessionState.STARTED: frozenset({SessionState.ELIGIBILITY_OK, *TERMINAL_STATES}),
     SessionState.ELIGIBILITY_OK: frozenset({SessionState.CAPTURING, *TERMINAL_STATES}),
     SessionState.CAPTURING: frozenset({SessionState.REVIEWING, *TERMINAL_STATES}),
-    SessionState.REVIEWING: frozenset({SessionState.COMPLETED, *TERMINAL_STATES}),
+    SessionState.REVIEWING: frozenset({SessionState.DELIVERED, *TERMINAL_STATES}),
+    # A delivered visit only ends: its photos are made and its link stays valid regardless.
+    SessionState.DELIVERED: frozenset({SessionState.COMPLETED, SessionState.ERROR}),
     SessionState.COMPLETED: frozenset(),
     SessionState.CANCELLED: frozenset(),
     SessionState.ERROR: frozenset(),
     SessionState.ABANDONED: frozenset(),
 }
+
+
+# How an unfinished visit ends when nobody finishes it (a timeout, or the next guest starting):
+# one whose photos were already made was delivered, so it is complete, not abandoned.
+def closing_state(state: SessionState) -> SessionState:
+    return SessionState.COMPLETED if state is SessionState.DELIVERED else SessionState.ABANDONED
 
 
 def may_move(current: SessionState, target: SessionState) -> bool:
@@ -141,6 +171,14 @@ class CaptureStatus(StrEnum):
     OK = "ok"
     FAILED = "failed"
     REPLACED = "replaced"
+
+
+class OutputStatus(StrEnum):
+    PENDING = "pending"
+    OK = "ok"
+    FAILED = "failed"
+    # A later render of the same output replaced it (Phase 9 decorations change the render).
+    SUPERSEDED = "superseded"
 
 
 class OperationStatus(StrEnum):
@@ -270,6 +308,36 @@ class CaptureAsset:
 
 
 @dataclass(frozen=True)
+class OutputAsset:
+    """One finished photo (a print, or one strip of a 2x6) made from the visit's own photos.
+
+    It records exactly what it was made from: the ordered captures, the frame and its checksum,
+    and the decoration, so the same inputs are never rendered twice and different ones never
+    reuse an old file.
+    """
+
+    id: str
+    session_id: str
+    operation_id: str
+    output_index: int
+    status: OutputStatus
+    render_fingerprint: str
+    template_key: str
+    template_version: int
+    frame_id: str
+    frame_sha256: str
+    capture_ids: tuple[str, ...]
+    storage_key: str | None
+    sha256: str | None
+    width: int
+    height: int
+    byte_size: int
+    rendered_at: datetime
+    decoration: str | None = None
+    failure_reason: str | None = None
+
+
+@dataclass(frozen=True)
 class Operation:
     """One client-proposed change, recorded so a repeated request never does the work twice."""
 
@@ -326,6 +394,51 @@ class CaptureFacts:
 
 
 @dataclass(frozen=True)
+class RenderOutcome:
+    """The finished photos of a visit, whether just made or replayed."""
+
+    session: BoothSession
+    outputs: tuple[OutputAsset, ...]
+
+
+@dataclass(frozen=True)
+class RenderPhoto:
+    """One original photo handed to the renderer, in shot order."""
+
+    capture_id: str
+    shot_index: int
+    data: bytes
+
+
+@dataclass(frozen=True)
+class RenderRequest:
+    template_key: str
+    template_version: int
+    frame_png: bytes
+    mirror: bool
+    photos: tuple[RenderPhoto, ...]
+    decoration: str | None = None
+
+
+@dataclass(frozen=True)
+class RenderedFile:
+    output_index: int
+    data: bytes
+    width: int
+    height: int
+    capture_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DeliveryLink:
+    """What the booth shows so the guest can take the photos home. `url` holds the secret."""
+
+    url: str
+    expires_at: datetime
+    qr_svg: str
+
+
+@dataclass(frozen=True)
 class EligibilityDecision:
     allowed: bool
     reason: str | None = None
@@ -370,8 +483,37 @@ class Clock(Protocol):
     def now(self) -> datetime: ...
 
 
+class OutputRenderer(Protocol):
+    """Makes the finished photos (the rendering module, on its single render worker).
+
+    Raises RenderBusyError when the worker is full (nothing started) and RenderFailedError when
+    these inputs can not be rendered.
+    """
+
+    def render(self, request: RenderRequest) -> list[RenderedFile]: ...
+
+
+class SessionFrames(Protocol):
+    """The bytes of a frame file (the frames module). A visit only ever uses its pinned frame."""
+
+    def frame_png(self, frame_id: str) -> bytes: ...
+
+
+class DeliveryLinks(Protocol):
+    """The guest's take-home link for a visit (the delivery module).
+
+    Called while the session is locked, so two simultaneous requests get the same link.
+    """
+
+    def ensure(self, session_id: str) -> DeliveryLink: ...
+
+
 def capture_key(session_id: str, capture_id: str) -> str:
     return f"captures/{session_id}/{capture_id}.jpg"
+
+
+def output_key(session_id: str, output_id: str) -> str:
+    return f"outputs/{session_id}/{output_id}.jpg"
 
 
 class SessionRepository(ABC):
@@ -469,3 +611,32 @@ class SessionRepository(ABC):
 
     @abstractmethod
     def mark_file_deleted(self, capture_id: str, at: datetime) -> None: ...
+
+    # ---- finished photos -----------------------------------------------------------------
+
+    @abstractmethod
+    def output(self, output_id: str) -> OutputAsset | None: ...
+
+    @abstractmethod
+    def outputs(self, session_id: str) -> list[OutputAsset]:
+        """Every output row of the visit, in output order (any status)."""
+
+    @abstractmethod
+    def start_render(
+        self, operation: Operation, outputs: Sequence[OutputAsset], at: datetime
+    ) -> None:
+        """T1: record the pending outputs and their operation before any file is published."""
+
+    @abstractmethod
+    def finalize_render(self, operation_id: str, fingerprint: str) -> RenderOutcome:
+        """T2: the outputs count only if the visit is still reviewing with these same inputs."""
+
+    @abstractmethod
+    def fail_render(self, operation_id: str, code: str) -> RenderOutcome:
+        """Mark the outputs failed and their files for deletion."""
+
+    @abstractmethod
+    def output_files_to_delete(self) -> list[tuple[str, str]]: ...
+
+    @abstractmethod
+    def mark_output_file_deleted(self, output_id: str, at: datetime) -> None: ...
