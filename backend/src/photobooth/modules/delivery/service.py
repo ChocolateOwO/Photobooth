@@ -100,6 +100,15 @@ class DeliveryService:
             self._forget_stale(now)
         return self._link(token, plaintext)
 
+    def forget_expired(self) -> int:
+        """Drop every remembered link whose time is up, whether or not anyone asks again.
+        Runs from the booth's periodic upkeep, so no plaintext outlives its deadline by long."""
+        now = self._clock.now()
+        with self._lock:
+            before = len(self._plaintext)
+            self._forget_stale(now)
+            return before - len(self._plaintext)
+
     def revoke(self, session_id: str) -> int:
         """End every link of a visit (the organizer's decision, or retention)."""
         revoked = self._repository.revoke_session(session_id, self._clock.now())
@@ -193,19 +202,35 @@ class RequestBudget:
         self._seen: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
 
+    # Beyond this many remembered clients, the quiet ones are forgotten (and, if a crowd is still
+    # too large, the longest quiet), so memory stays bounded whatever arrives.
+    _MAX_CLIENTS = 1024
+
     def allow(self, client: str) -> bool:
         now = self._monotonic()
         with self._lock:
+            if client not in self._seen and len(self._seen) >= self._MAX_CLIENTS:
+                self._prune(now)
             history = self._seen.setdefault(client, deque())
             while history and now - history[0] >= self._window:
                 history.popleft()
             if len(history) >= self._limit:
                 return False
             history.append(now)
-            if len(self._seen) > 4096:  # forget quiet clients so memory stays bounded
-                for key in [k for k, v in self._seen.items() if not v]:
-                    del self._seen[key]
             return True
+
+    def _prune(self, now: float) -> None:
+        for key in [k for k, v in self._seen.items() if not v or now - v[-1] >= self._window]:
+            del self._seen[key]
+        if len(self._seen) >= self._MAX_CLIENTS:
+            by_last_seen = sorted(self._seen, key=lambda key: self._seen[key][-1])
+            for key in by_last_seen[: len(self._seen) - self._MAX_CLIENTS + 1]:
+                del self._seen[key]
+
+    @property
+    def clients(self) -> int:
+        with self._lock:
+            return len(self._seen)
 
     def retry_after(self, client: str) -> int:
         now = self._monotonic()

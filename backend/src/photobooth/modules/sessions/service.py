@@ -153,7 +153,7 @@ class BoothSessionService:
         """
         with self._device_locks.held(device_id):
             # Visits nobody came back to are ended first, so the booth starts from a clean slate.
-            self._repository.close_inactive(self._clock.now())
+            self.close_inactive()
             if is_test:
                 self.clear_old_tests()
             snapshot = self._event.snapshot(profile_id)
@@ -198,15 +198,22 @@ class BoothSessionService:
                 status=OperationStatus.DONE,
                 result_ref=session.id,
             )
-            return self._repository.create(session, operation)
+            # The visit this one replaces is ended while it is locked, so it can not be in the
+            # middle of publishing a photo or finished photos when it ends.
+            previous = self._repository.active_for_device(device_id)
+            if previous is None:
+                return self._repository.create(session, operation)
+            with self._locks.held(previous.id):
+                return self._repository.create(session, operation)
 
     def current(self, device_id: str) -> BoothSession | None:
         """The visit this device is in the middle of, if any (used after a reload)."""
         session = self._repository.active_for_device(device_id)
         if session is None:
             return None
-        # A visit nobody came back to ends here rather than waiting for the next guest.
-        settled = self._closed_if_inactive(session)
+        with self._locks.held(session.id):
+            # A visit nobody came back to ends here rather than waiting for the next guest.
+            settled = self._closed_if_inactive(self._repository.get(session.id) or session)
         return None if settled.closed else settled
 
     def read(self, device_id: str, session_id: str) -> BoothSession:
@@ -285,6 +292,7 @@ class BoothSessionService:
             replay = self._replay(session_id, idempotency_key, fingerprint)
             if replay is not None:
                 return replay
+            self._settle_leftovers(session_id)
 
             session = self._load(device_id, session_id)
             if session.state is not SessionState.CAPTURING or session.selection is None:
@@ -452,6 +460,9 @@ class BoothSessionService:
             replay = self._replay_render(session_id, idempotency_key, request_fingerprint)
             if replay is not None:
                 return replay
+            # A render whose finishing step failed earlier in this very process is settled first:
+            # if its photos are intact the visit is delivered with them, never rendered twice.
+            self._settle_leftovers(session_id)
 
             session = self._load(device_id, session_id)
             if session.state is SessionState.DELIVERED:
@@ -470,7 +481,7 @@ class BoothSessionService:
                     RenderPhoto(
                         capture_id=capture.id,
                         shot_index=capture.shot_index,
-                        data=self._files.read(capture.storage_key or ""),
+                        data=self._read_photo(capture),
                     )
                     for capture in captures
                 )
@@ -488,11 +499,6 @@ class BoothSessionService:
                 # Nothing about this visit can be made: it ends, and the booth starts over.
                 self._repository.close(session_id, SessionState.ERROR, self._clock.now(), exc.code)
                 raise
-            except (FileNotFoundError, OSError) as exc:
-                self._repository.close(
-                    session_id, SessionState.ERROR, self._clock.now(), "photo_missing"
-                )
-                raise RenderFailedError("photo_missing") from exc
 
             now = self._clock.now()
             operation = Operation(
@@ -584,23 +590,43 @@ class BoothSessionService:
         cleared = 0
         for session_id in self._repository.finished_test_sessions(cutoff):
             with self._locks.held(session_id):
-                for key in self._repository.forget_test_session(session_id):
-                    self._files.delete(key)
+                self._forget_test(session_id)
                 cleared += 1
         return cleared
 
     def _clear_test(self, session: BoothSession) -> None:
         """A test visit leaves nothing behind once the organizer has finished with it."""
-        if not session.is_test:
-            return
-        for key in self._repository.forget_test_session(session.id):
+        if session.is_test:
+            self._forget_test(session.id)
+
+    def _forget_test(self, session_id: str) -> None:
+        """Files first, rows after: if a file can not be deleted (or the process dies), the rows
+        that name it are still there and the next cleanup tries again. Nothing is ever orphaned."""
+        for key in self._repository.session_files(session_id):
             self._files.delete(key)
+        self._repository.forget_test_session(session_id)
 
     # ---- keeping the booth honest --------------------------------------------------------
 
     def close_inactive(self) -> list[str]:
-        """End every session nobody has touched within its event's inactivity timeout."""
-        return self._repository.close_inactive(self._clock.now())
+        """End every session nobody has touched within its event's inactivity timeout.
+
+        Each is closed while it is locked, so a visit in the middle of publishing photos or
+        finished photos is never ended under it; its own activity then keeps it open."""
+        closed: list[str] = []
+        now = self._clock.now()
+        for session_id, idle_since in self._repository.inactive_sessions(now):
+            with self._locks.held(session_id):
+                settled = self._repository.close(
+                    session_id,
+                    SessionState.ABANDONED,
+                    self._clock.now(),
+                    "inactivity",
+                    idle_since=idle_since,
+                )
+            if settled is not None and settled.closed:
+                closed.append(session_id)
+        return closed
 
     def pinned_frames(self) -> set[str]:
         """Frames a visit in progress depends on (its own and the ones its event offered)."""
@@ -666,6 +692,25 @@ class BoothSessionService:
             mine[0].decoration,
         )
         self._repository.finalize_render(operation.id, current)
+
+    def _read_photo(self, capture: CaptureAsset) -> bytes:
+        """An original photo for rendering; however storage fails, it is a missing photo."""
+        try:
+            return self._files.read(capture.storage_key or "")
+        except Exception as exc:
+            raise RenderFailedError("photo_missing") from exc
+
+    def _settle_leftovers(self, session_id: str) -> None:
+        """Settle every pending operation of a locked session. Holding the lock, no live request
+        owns one: each was left by a request whose finishing step failed, or by a dead process."""
+        leftovers = self._repository.pending_operations(session_id)
+        for operation in leftovers:
+            if operation.kind == "render":
+                self._settle_render(operation)
+            else:
+                self._settle_capture(operation)
+        if leftovers:
+            self._collect_files()
 
     def _intact(self, output: OutputAsset) -> bool:
         if output.storage_key is None or output.sha256 is None:

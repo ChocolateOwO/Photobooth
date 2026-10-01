@@ -694,7 +694,7 @@ def test_a_visit_used_again_at_the_last_moment_is_not_ended_behind_the_guest(
 
     # A visit that really is idle still ends.
     repository.touch(session["id"], long_ago)
-    assert session["id"] in repository.close_inactive(datetime.now(UTC))
+    assert session["id"] in container.session_service.close_inactive()
 
 
 # ---- the organizer's own test of the booth (Admin "Test booth") -----------------------------

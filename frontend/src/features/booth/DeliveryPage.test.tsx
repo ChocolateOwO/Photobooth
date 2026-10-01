@@ -180,11 +180,23 @@ describe('DeliveryPage (the finished photos)', () => {
   })
 
   it('says so when the photos can not be made, and starts over', async () => {
-    const { fetcher } = server(visit(), 0, true)
+    const { booth, fetcher } = server(visit(), 0, true)
     renderDone(fetcher)
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be made')
     await userEvent.click(screen.getByRole('button', { name: 'Start over' }))
     expect(await screen.findByText('the start screen')).toBeInTheDocument()
+    expect(booth.gaveUp).toBe(1) // the visit it knew about is closed, not left behind
+  })
+
+  it('leaves a failure screen by itself when nobody is there (P8-006)', async () => {
+    const { booth, fetcher } = server(visit({ inactivity_timeout_s: 30 }), 0, true)
+    renderDone(fetcher)
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be made')
+    await act(async () => {
+      vi.advanceTimersByTime(31_000)
+    })
+    expect(await screen.findByText('the start screen')).toBeInTheDocument()
+    await waitFor(() => expect(booth.gaveUp).toBe(1))
   })
 
   it('Done ends the visit and the booth is ready for the next guest', async () => {

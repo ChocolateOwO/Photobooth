@@ -1,4 +1,4 @@
-import { DEVICE_KEY_HEADER, type DeviceKeyStore } from './deviceKey'
+import { boothHeaders, DEVICE_KEY_HEADER, type DeviceKeyStore } from './deviceKey'
 import type { components } from './schema'
 
 export type HealthResponse = components['schemas']['HealthResponse']
@@ -35,7 +35,7 @@ export function createApiClient(
 ) {
   async function getJson<T>(path: string): Promise<T> {
     const response = await fetcher(path, {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', ...boothHeaders(deviceKeys) },
       credentials: 'same-origin',
     })
     if (!response.ok) {
@@ -60,6 +60,7 @@ export function createApiClient(
         Accept: 'application/json',
         'Content-Type': 'application/json',
         [DEVICE_KEY_HEADER]: key,
+        ...boothHeaders(deviceKeys),
       },
       body: body === undefined ? null : JSON.stringify(body),
     })
@@ -88,7 +89,7 @@ export function createApiClient(
     const response = await fetcher(path, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { Accept: 'application/json', [DEVICE_KEY_HEADER]: key },
+      headers: { Accept: 'application/json', [DEVICE_KEY_HEADER]: key, ...boothHeaders(deviceKeys) },
       body: form,
     })
     if (response.status === 401 || response.status === 403) {

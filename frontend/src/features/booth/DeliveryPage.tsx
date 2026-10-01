@@ -85,6 +85,9 @@ export function DeliveryPage() {
           booth.go('capture', { replace: true })
           return
         }
+        // Known from here on: whatever happens next, the booth can close this visit and its
+        // inactivity time still sends the booth back to the start.
+        setSession(current)
         if (current.state === 'reviewing') {
           for (let attempt = 0; ; attempt++) {
             try {

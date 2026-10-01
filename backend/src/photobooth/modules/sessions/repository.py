@@ -747,8 +747,7 @@ class SqlSessionRepository(SessionRepository):
             db.flush()
             return _session_of(row)
 
-    def close_inactive(self, now: datetime) -> list[str]:
-        closed: list[str] = []
+    def inactive_sessions(self, now: datetime) -> list[tuple[str, datetime]]:
         with self._sessions() as db:
             rows = db.scalars(
                 select(BoothSessionRow).where(
@@ -757,19 +756,38 @@ class SqlSessionRepository(SessionRepository):
             ).all()
             # The activity seen here is carried into the closing transaction, so a visit that
             # was used in the meantime is never ended behind the participant's back (P67-008).
-            stale = [
+            return [
                 (row.id, row.last_activity_at)
                 for row in rows
                 if (now - row.last_activity_at).total_seconds()
                 >= _snapshot_of(row.profile_snapshot).inactivity_timeout_s
             ]
-        for session_id, idle_since in stale:
-            settled = self.close(
-                session_id, SessionState.ABANDONED, now, "inactivity", idle_since=idle_since
-            )
-            if settled is not None and settled.closed:
-                closed.append(session_id)
-        return closed
+
+    def pending_operations(self, session_id: str) -> list[Operation]:
+        with self._sessions() as db:
+            rows = db.scalars(
+                select(OperationRow).where(
+                    OperationRow.session_id == session_id,
+                    OperationRow.status == str(OperationStatus.PENDING),
+                )
+            ).all()
+            return [_operation_of(row) for row in rows]
+
+    def session_files(self, session_id: str) -> list[str]:
+        with self._sessions() as db:
+            keys = [
+                *db.scalars(
+                    select(CaptureAssetRow.storage_key).where(
+                        CaptureAssetRow.session_id == session_id
+                    )
+                ).all(),
+                *db.scalars(
+                    select(OutputAssetRow.storage_key).where(
+                        OutputAssetRow.session_id == session_id
+                    )
+                ).all(),
+            ]
+            return [key for key in keys if key]
 
     def finished_test_sessions(self, before: datetime) -> list[str]:
         """Test visits that are over, or were left behind, and may be cleared away."""

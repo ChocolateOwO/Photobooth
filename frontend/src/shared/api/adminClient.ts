@@ -1,6 +1,6 @@
 import type { Fetcher } from './client'
 import type { BoothSessionState, FrameMenu } from './client'
-import { DEVICE_KEY_HEADER, type DeviceKeyStore } from './deviceKey'
+import { boothHeaders, DEVICE_KEY_HEADER, type DeviceKeyStore } from './deviceKey'
 import type { components } from './schema'
 
 type Schemas = components['schemas']
@@ -139,7 +139,7 @@ export function createAdminApiClient(
     /** Login, logout and session checks report auth failures to their caller instead of listeners. */
     quietAuth = false,
   ): Promise<T> {
-    const headers: Record<string, string> = { Accept: 'application/json' }
+    const headers: Record<string, string> = { Accept: 'application/json', ...boothHeaders(deviceKeys) }
     if (method !== 'GET') {
       const key = deviceKeys.get()
       if (!key) {

@@ -587,8 +587,18 @@ class SessionRepository(ABC):
         """`idle_since` only closes a visit nobody has touched since that moment."""
 
     @abstractmethod
-    def close_inactive(self, now: datetime) -> list[str]:
-        """End every session whose own inactivity timeout has passed. Returns their ids."""
+    def inactive_sessions(self, now: datetime) -> list[tuple[str, datetime]]:
+        """Unfinished sessions whose own inactivity timeout has passed, with the activity time
+        that was seen (closing uses it, so a visit touched meanwhile is never ended)."""
+
+    @abstractmethod
+    def pending_operations(self, session_id: str) -> list[Operation]:
+        """Operations of a session still pending (any process). Under the session lock no live
+        request owns one, so each is left over and may be settled."""
+
+    @abstractmethod
+    def session_files(self, session_id: str) -> list[str]:
+        """Every stored file of a session (photos and finished photos)."""
 
     @abstractmethod
     def pinned_frames(self) -> set[str]:

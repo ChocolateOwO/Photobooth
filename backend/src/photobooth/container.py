@@ -23,7 +23,7 @@ from photobooth.core.kiosk_pairing import (
     RuntimeSecretFile,
 )
 from photobooth.core.uploads import UploadAdmission
-from photobooth.core.web import DeviceCookieSettings, ServiceRegistry
+from photobooth.core.web import BoothBindings, DeviceCookieSettings, ServiceRegistry
 from photobooth.modules.assets.domain import AssetNotFoundError, AssetValidationError, UploadLimits
 from photobooth.modules.assets.inspector import PillowImageInspector, presentation_copy
 from photobooth.modules.assets.repository import SqlAssetRepository
@@ -597,6 +597,7 @@ class Container:
         )
 
         self.registry = ServiceRegistry()
+        self.registry.register(BoothBindings, BoothBindings())
         self.registry.register(SystemService, self.system_service)
         self.registry.register(KioskPairingService, self.kiosk_pairing_service)
         self.registry.register(TemplateSpecService, self.template_service)
@@ -656,6 +657,7 @@ class Container:
     def maintain(self) -> None:
         """Periodic upkeep while serving (every step is idempotent and safe to repeat)."""
         self.session_service.maintain()
+        self.delivery_service.forget_expired()
 
     def close(self) -> None:
         self.pairing.shutdown()

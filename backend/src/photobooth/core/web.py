@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import re
+import threading
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -16,6 +18,9 @@ from photobooth.core.kiosk_pairing import (
 
 REGISTRY_STATE_KEY = "service_registry"
 DEVICE_KEY_HEADER = "X-Photobooth-Device-Key"
+# The booth browser's own durable id (random, URL-safe, made once and kept through re-pairing).
+BOOTH_HEADER = "X-Photobooth-Booth"
+_BOOTH_ID = re.compile(r"^[A-Za-z0-9_-]{22,64}$")
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -79,16 +84,51 @@ def require_device(request: Request) -> None:
 
 
 def device_identity(request: Request) -> str:
-    """A stable name for the paired device, derived from its cookie.
+    """A stable name for the booth browser, so a visit belongs to the booth that started it.
 
-    Sessions belong to the device that started them, so a second browser can not read or continue
-    somebody else's visit. The cookie itself is a secret and is never stored: only this digest is.
+    The pairing cookie proves the request may act at all (checked by `require_device`) but is
+    renewed at every restart, so it can not name the owner of a visit across a restart. The booth
+    browser therefore also sends its own random booth id, kept in that browser's storage only and
+    kept through re-pairing: after a restart the re-paired booth still owns its visits (it can
+    resume one, or show a delivered visit's link again). A second browser has its own id, so it
+    still can not read or continue somebody else's visit. Neither secret is stored: only this
+    digest is. A client without a booth id is named by its cookie, as before.
     """
     registry = cast(ServiceRegistry, getattr(request.app.state, REGISTRY_STATE_KEY))
     cookie = request.cookies.get(registry.get(DeviceCookieSettings).cookie_name)
     if cookie is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="device not paired")
-    return hashlib.sha256(cookie.encode()).hexdigest()[:32]
+    by_cookie = hashlib.sha256(cookie.encode()).hexdigest()[:32]
+    bindings = registry.get(BoothBindings)
+    booth = request.headers.get(BOOTH_HEADER)
+    if booth is not None and _BOOTH_ID.fullmatch(booth):
+        identity = hashlib.sha256(f"booth:{booth}".encode()).hexdigest()[:32]
+        # Remembered for this pairing, so requests that can not carry a header (an <img> of a
+        # photo) are still recognised as this booth's.
+        bindings.bind(by_cookie, identity)
+        return identity
+    return bindings.get(by_cookie) or by_cookie
+
+
+class BoothBindings:
+    """Which booth id a pairing cookie last spoke for (process memory; pairings end at restart)."""
+
+    _LIMIT = 256
+
+    def __init__(self) -> None:
+        self._bound: dict[str, str] = {}
+        self._lock = threading.Lock()
+
+    def bind(self, cookie_digest: str, identity: str) -> None:
+        with self._lock:
+            self._bound.pop(cookie_digest, None)
+            self._bound[cookie_digest] = identity
+            while len(self._bound) > self._LIMIT:
+                self._bound.pop(next(iter(self._bound)))
+
+    def get(self, cookie_digest: str) -> str | None:
+        with self._lock:
+            return self._bound.get(cookie_digest)
 
 
 def require_launcher(request: Request) -> None:

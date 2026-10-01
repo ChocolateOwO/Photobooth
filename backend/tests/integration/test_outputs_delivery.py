@@ -711,3 +711,198 @@ def test_a_failing_delivery_request_never_writes_its_token_to_the_log(
     written = "".join(path.read_text(encoding="utf-8") for path in logs.glob("*.log*"))
     assert "delivery request failed: RuntimeError" in written
     assert token not in written
+
+
+# ---- Codex inspection P8-001 .. P8-008 -------------------------------------------------------
+
+BOOTH_ID = "booth-" + "b" * 30  # the booth browser's own durable id (kept through re-pairing)
+BOOTH_HEADER = "X-Photobooth-Booth"
+
+
+def test_a_restarted_booth_resumes_its_visit_and_replaces_the_link_over_http(
+    settings: AppSettings,
+) -> None:
+    """P8-001: re-pairing renews the cookie, but the booth's own id still owns its visit."""
+    Migrator(settings.db_path).upgrade("head")
+    first = Container(settings)
+    first.system_service.stamp_instance()
+    first.restore_builtin_files()
+    try:
+        client = TestClient(
+            create_kiosk_app(first.registry, KioskAppOptions()), base_url="http://127.0.0.1:18111"
+        )
+        with client:
+            client.headers[BOOTH_HEADER] = BOOTH_ID
+            device, body = delivered(client, first)
+            old = token_of(link(client, device, body["id"])["url"])
+    finally:
+        first.close()
+
+    second = Container(settings)  # a restart: new boot, every pairing is gone
+    try:
+        client = TestClient(
+            create_kiosk_app(second.registry, KioskAppOptions()), base_url="http://127.0.0.1:18111"
+        )
+        guests = TestClient(
+            create_delivery_app(second.registry), base_url="http://192.168.1.50:18113"
+        )
+        with client, guests:
+            device = device_headers(adopt_device(client, second))  # the booth pairs again
+            assert client.get(f"{SESSIONS}/current").json() is None  # without its id: a stranger
+            client.headers[BOOTH_HEADER] = BOOTH_ID
+            resumed = client.get(f"{SESSIONS}/current").json()
+            assert resumed["id"] == body["id"] and resumed["state"] == "delivered"
+            # An <img> sends no header: the pairing remembers which booth it spoke for.
+            output = resumed["outputs"][0]["id"]
+            client.headers.pop(BOOTH_HEADER)
+            image = client.get(f"{SESSIONS}/{body['id']}/outputs/{output}.jpg")
+            assert image.status_code == 200
+            client.headers[BOOTH_HEADER] = BOOTH_ID
+            replaced = token_of(link(client, device, body["id"])["url"])
+            assert replaced != old
+            assert guests.get(f"/d/{old}").status_code == 404
+            assert guests.get(f"/d/{replaced}").status_code == 200
+    finally:
+        second.close()
+
+
+def test_a_render_whose_finishing_step_failed_is_settled_not_rendered_again(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P8-002: T1 and the files succeeded, T2 raised; a fresh key must not make a second set."""
+    _device, session = reviewing(kiosk_client, container, PRINT34)
+    who = device_id(kiosk_client, container)
+    repository = container.session_service._repository
+    real = repository.finalize_render
+    calls = {"n": 0}
+
+    def flaky(operation_id: str, fingerprint: str) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("database went away for a moment")
+        return real(operation_id, fingerprint)
+
+    monkeypatch.setattr(repository, "finalize_render", flaky)
+    with pytest.raises(RuntimeError):
+        container.session_service.render(who, session["id"], "render-first")
+    retried = container.session_service.render(who, session["id"], "render-reloaded-page")
+    assert retried.session.state is SessionState.DELIVERED
+    rows = repository.outputs(session["id"])
+    assert len(rows) == 1 and rows[0].status is OutputStatus.OK  # the first set, settled
+    assert repository.pending_operations(session["id"]) == []
+
+
+def test_an_upkeep_tick_never_ends_a_visit_that_is_rendering(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P8-003: the inactivity sweep waits for the visit's lock and sees the render's activity."""
+    _device, session = reviewing(kiosk_client, container, PRINT34)
+    who = device_id(kiosk_client, container)
+    service = container.session_service
+    entered, release = threading.Event(), threading.Event()
+    real = service._renderer
+
+    class Paused:
+        def render(self, request: Any) -> Any:
+            entered.set()
+            release.wait(timeout=30)
+            return real.render(request)
+
+    monkeypatch.setattr(service, "_renderer", Paused())
+    outcome: list[Any] = []
+    rendering = threading.Thread(
+        target=lambda: outcome.append(service.render(who, session["id"], "slow-render"))
+    )
+    rendering.start()
+    assert entered.wait(timeout=30)
+    # While it renders, the visit looks long idle to anyone reading the table.
+    with sqlite3.connect(container.settings.db_path) as conn:
+        conn.execute(
+            "UPDATE booth_sessions SET last_activity_at = ? WHERE id = ?",
+            (
+                (datetime.now(UTC) - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                session["id"],
+            ),
+        )
+    swept: list[list[str]] = []
+    sweeping = threading.Thread(target=lambda: swept.append(service.close_inactive()))
+    sweeping.start()
+    sweeping.join(timeout=1.0)
+    assert sweeping.is_alive()  # it waits for the visit's lock instead of ending it
+    release.set()
+    rendering.join(timeout=60)
+    sweeping.join(timeout=60)
+    assert outcome and outcome[0].session.state is SessionState.DELIVERED
+    assert swept == [[]]
+    settled = service._repository.get(session["id"])
+    assert settled is not None and settled.state is SessionState.DELIVERED
+
+
+def test_a_test_visit_whose_files_could_not_be_deleted_is_cleaned_up_later(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P8-004: files go before the rows that name them, so a failure leaves nothing orphaned."""
+    key = adopt_device(kiosk_client, container)
+    admin = login(kiosk_client, container, key=key)
+    device = device_headers(key)
+    profile = activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
+    visit = kiosk_client.post(
+        "/api/admin/booth-test/sessions",
+        json={"idempotency_key": "test-visit-2", "profile_id": profile["id"]},
+        headers=admin,
+    ).json()
+    choose(kiosk_client, device, visit["id"], PRINT34)
+    for shot in (1, 2):
+        send(kiosk_client, device, visit["id"], shot)
+    kiosk_client.post(f"{SESSIONS}/{visit['id']}/finish", headers=device)
+    render(kiosk_client, device, visit["id"])
+    files = container.session_service._repository.session_files(visit["id"])
+    assert len(files) == 3  # two photos and the finished print
+
+    real_delete = container.session_service._files.delete
+
+    def broken(_key: str) -> None:
+        raise OSError("file is locked by another program")
+
+    monkeypatch.setattr(container.session_service._files, "delete", broken)
+    with pytest.raises(OSError):
+        kiosk_client.post(f"{SESSIONS}/{visit['id']}/give-up", headers=device)
+    assert container.session_service._repository.get(visit["id"]) is not None  # still known
+
+    monkeypatch.setattr(container.session_service._files, "delete", real_delete)
+    assert container.session_service.clear_old_tests(keep_for_seconds=0) == 1
+    assert container.session_service._repository.get(visit["id"]) is None
+    for stored in files:
+        assert not container.storage.exists(StorageKey(stored))
+
+
+def test_a_remembered_link_is_forgotten_on_time_without_another_request(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """P8-005: the periodic sweep removes plaintext at its deadline."""
+    device, body = delivered(kiosk_client, container)
+    link(kiosk_client, device, body["id"])
+    delivery = container.delivery_service
+    assert len(delivery._plaintext) == 1
+
+    class Later:
+        def now(self) -> datetime:
+            return datetime.now(UTC) + timedelta(minutes=31)
+
+    delivery._clock = Later()
+    container.maintain()
+    assert delivery._plaintext == {}
+
+
+def test_a_missing_original_photo_ends_the_visit_with_a_clear_answer(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """P8-007: a storage failure reading a photo is a known failure, not a 500."""
+    device, session = reviewing(kiosk_client, container, PRINT34)
+    capture = container.session_service._repository.captures(session["id"])[0]
+    container.storage.delete(StorageKey(capture.storage_key or ""))
+    answer = render(kiosk_client, device, session["id"])
+    assert answer.status_code == 409
+    ended = container.session_service._repository.get(session["id"])
+    assert ended is not None and ended.state is SessionState.ERROR
+    assert ended.error_code == "photo_missing"
