@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
+from typing import Protocol
 
 
 class ComponentState(StrEnum):
@@ -52,3 +54,24 @@ class AppMetaRepository(ABC):
 
     def read_instance(self) -> str | None:
         return self.get(self.INSTANCE_KEY)
+
+
+@dataclass(frozen=True)
+class InstanceFacts:
+    """What the composition root knows about the running booth, gathered when asked."""
+
+    profile: str
+    started_at: datetime
+    storage_bytes: int
+    disk_free_bytes: int
+    disk_total_bytes: int
+    kiosk_url: str
+    delivery_url: str
+    active_event: str | None
+    visits_in_progress: int
+    last_cleanup_at: datetime | None
+    last_cleanup_errors: tuple[str, ...]
+
+
+class InstanceFactsSource(Protocol):
+    def facts(self) -> InstanceFacts: ...

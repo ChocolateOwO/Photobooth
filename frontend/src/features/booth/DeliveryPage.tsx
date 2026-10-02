@@ -47,6 +47,7 @@ export function DeliveryPage() {
   const [stage, setStage] = useState<Stage>('loading')
   const [problem, setProblem] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
+  const leavingNow = useRef(false)
   const activity = useRef(0)
 
   // ---- the visit, then its link --------------------------------------------------------
@@ -94,7 +95,8 @@ export function DeliveryPage() {
   // ---- leaving --------------------------------------------------------------------------
   const leave = useCallback(
     async (replace: boolean) => {
-      if (leaving) return
+      if (leaving || leavingNow.current) return
+      leavingNow.current = true // at once: a double tap on Done leaves once (Phase 12)
       setLeaving(true)
       if (session) {
         try {

@@ -926,6 +926,21 @@ class SqlSessionRepository(SessionRepository):
             )
         return facts
 
+    def visits_in_progress(self) -> int:
+        """Guests' visits not over yet (organizer tests not counted)."""
+        with self._sessions() as db:
+            return int(
+                db.scalar(
+                    select(func.count())
+                    .select_from(BoothSessionRow)
+                    .where(
+                        BoothSessionRow.is_test.is_(False),
+                        BoothSessionRow.state.notin_([str(s) for s in _TERMINAL]),
+                    )
+                )
+                or 0
+            )
+
     # ---- retention -------------------------------------------------------------------------
 
     def ended_visits(self, before: datetime) -> list[str]:

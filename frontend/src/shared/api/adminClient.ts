@@ -35,6 +35,7 @@ export type RetentionPolicyUpdate = Schemas['RetentionPolicyBody']
 export type RetentionReport = Schemas['RetentionReportResponse']
 export type RetentionRun = Schemas['RetentionRunResponse']
 export type EventRemoval = Schemas['EventRemovalResponse']
+export type SystemDetails = Schemas['SystemDetailsResponse']
 
 /** A period (ISO instants) and, optionally, one event. */
 export interface PeriodQuery {
@@ -423,6 +424,7 @@ export function createAdminApiClient(
           : { dry_run: false, confirm: 'DELETE', policy_revision: policyRevision },
       }),
     retentionRuns: () => send<RetentionRun[]>('GET', '/api/admin/retention/runs'),
+    systemDetails: () => send<SystemDetails>('GET', '/api/admin/system'),
     /** A deleted event for good, with its visits: a dry run counts only. */
     removeEvent: (profileId: string, dryRun: boolean) =>
       send<EventRemoval>(

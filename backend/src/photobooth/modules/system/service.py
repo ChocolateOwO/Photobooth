@@ -9,6 +9,8 @@ from photobooth.modules.system.domain import (
     AppMetaRepository,
     ComponentState,
     HealthReport,
+    InstanceFacts,
+    InstanceFactsSource,
     VersionInfo,
 )
 
@@ -52,3 +54,25 @@ class SystemService:
         if stored != self._identity.instance:
             raise InstanceStampMismatchError(self._identity.instance, stored)
         return stored
+
+
+@dataclass(frozen=True)
+class SystemDetails:
+    version: VersionInfo
+    health: HealthReport
+    facts: InstanceFacts
+
+
+class SystemDetailsService:
+    """The organizer's System page: versions, health and the running booth's own facts."""
+
+    def __init__(self, system: SystemService, facts: InstanceFactsSource) -> None:
+        self._system = system
+        self._facts = facts
+
+    def details(self) -> SystemDetails:
+        return SystemDetails(
+            version=self._system.version(),
+            health=self._system.health(),
+            facts=self._facts.facts(),
+        )

@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import secrets
+import shutil
 import socket
 import threading
 import time
 from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from photobooth import API_VERSION, __version__
 from photobooth.core.admin_gate import AdminAuthenticator, AdminCookieSettings
@@ -122,9 +124,9 @@ from photobooth.modules.sessions.repository import SqlSessionRepository
 from photobooth.modules.sessions.service import BoothSessionService
 from photobooth.modules.storage.domain import StorageKey
 from photobooth.modules.storage.local import LocalStorageProvider
-from photobooth.modules.system.domain import AppMetaRepository
+from photobooth.modules.system.domain import AppMetaRepository, InstanceFacts
 from photobooth.modules.system.repository import SqlAppMetaRepository
-from photobooth.modules.system.service import SystemIdentity, SystemService
+from photobooth.modules.system.service import SystemDetailsService, SystemIdentity, SystemService
 from photobooth.modules.templates.domain import PhotoTemplate, TemplateNotFoundError
 from photobooth.modules.templates.imaging import PillowTemplateArtist
 from photobooth.modules.templates.repository import JsonTemplateRepository
@@ -683,6 +685,40 @@ class _EventRemoval:
             raise RetentionError("only a deleted event can be deleted for good")
 
 
+class _InstanceFacts:
+    """Adapter: the running booth's facts for the System page (no secret, no file name)."""
+
+    def __init__(self, container: Container) -> None:
+        self._c = container
+        self._started = datetime.now(UTC)
+
+    def facts(self) -> InstanceFacts:
+        settings = self._c.settings
+        storage = 0
+        if settings.storage_dir.is_dir():
+            for path in settings.storage_dir.rglob("*"):
+                with contextlib.suppress(OSError):
+                    if path.is_file():
+                        storage += path.stat().st_size
+        disk = shutil.disk_usage(settings.data_dir)
+        active = self._c.profile_service.get_active()
+        done = [run for run in self._c.retention_service.runs(20) if not run.dry_run]
+        last = done[0] if done else None
+        return InstanceFacts(
+            profile=settings.profile,
+            started_at=self._started,
+            storage_bytes=storage,
+            disk_free_bytes=disk.free,
+            disk_total_bytes=disk.total,
+            kiosk_url=f"http://{settings.kiosk_host}:{settings.kiosk_port}",
+            delivery_url=_LinkAddress(settings).base_url(),
+            active_event=active.settings.name if active else None,
+            visits_in_progress=self._c.session_repository.visits_in_progress(),
+            last_cleanup_at=last.finished_at if last else None,
+            last_cleanup_errors=tuple(last.errors) if last else (),
+        )
+
+
 class _SessionActivity:
     """Adapter: a guest's visit, recorded in the activity log. Organizer tests never are."""
 
@@ -965,6 +1001,9 @@ class Container:
             _EventRemoval(self.profile_service),
         )
         self.registry.register(RetentionService, self.retention_service)
+        self.registry.register(
+            SystemDetailsService, SystemDetailsService(self.system_service, _InstanceFacts(self))
+        )
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))
         self.registry.register(
             AdminCookieSettings, AdminCookieSettings(f"pb_admin_{settings.instance}")

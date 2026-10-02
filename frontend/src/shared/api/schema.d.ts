@@ -507,6 +507,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/system": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** System */
+        get: operations["system_api_admin_system_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/themes": {
         parameters: {
             query?: never;
@@ -2299,6 +2316,46 @@ export interface components {
             /** Width */
             width: number;
         };
+        /** SystemDetailsResponse */
+        SystemDetailsResponse: {
+            /** Active Event */
+            active_event: string | null;
+            /** Api Version */
+            api_version: number;
+            /** App Version */
+            app_version: string;
+            /** Database */
+            database: string;
+            /** Delivery Url */
+            delivery_url: string;
+            /** Disk Free Bytes */
+            disk_free_bytes: number;
+            /** Disk Total Bytes */
+            disk_total_bytes: number;
+            /** Git Commit */
+            git_commit: string | null;
+            /** Instance */
+            instance: string;
+            /** Kiosk Url */
+            kiosk_url: string;
+            /** Last Cleanup At */
+            last_cleanup_at: string | null;
+            /** Last Cleanup Errors */
+            last_cleanup_errors: string[];
+            /** Profile */
+            profile: string;
+            /** Schema Revision */
+            schema_revision: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Storage Bytes */
+            storage_bytes: number;
+            /** Visits In Progress */
+            visits_in_progress: number;
+        };
         /** TemplateLinks */
         TemplateLinks: {
             /** Blank Png */
@@ -3704,6 +3761,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    system_api_admin_system_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemDetailsResponse"];
                 };
             };
         };

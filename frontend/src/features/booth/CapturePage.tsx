@@ -66,6 +66,8 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   const [phase, setPhase] = useState<Phase>('starting')
   const [count, setCount] = useState(0)
   const [busy, setBusy] = useState(false)
+  // Set at once, before any re-render: two taps in the same frame can not both act (Phase 12).
+  const acting = useRef(false)
   const [problem, setProblem] = useState<{ text: string; kind: CameraProblem | 'session' } | null>(
     null,
   )
@@ -347,7 +349,8 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   }, [leave, seenSomebody, session])
 
   const retake = async (shotIndex?: number) => {
-    if (!session || busy) return
+    if (!session || busy || acting.current) return
+    acting.current = true
     clearTimers()
     setBusy(true)
     pending.current = null
@@ -360,12 +363,14 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
     } catch {
       setProblem({ text: 'That photo could not be taken again.', kind: 'session' })
     } finally {
+      acting.current = false
       setBusy(false)
     }
   }
 
   const finish = async () => {
-    if (!session || busy) return
+    if (!session || busy || acting.current) return
+    acting.current = true
     setBusy(true)
     try {
       await api.finishCaptures(session.id)
@@ -375,6 +380,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
     } catch {
       setProblem({ text: 'The booth could not finish the session.', kind: 'session' })
     } finally {
+      acting.current = false
       setBusy(false)
     }
   }

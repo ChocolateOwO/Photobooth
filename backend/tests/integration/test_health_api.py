@@ -101,4 +101,5 @@ def test_openapi_lists_only_expected_public_paths(kiosk_client: TestClient) -> N
         "/api/admin/retention/run",
         "/api/admin/retention/runs",
         "/api/admin/retention/events/{profile_id}/remove",
+        "/api/admin/system",
     }

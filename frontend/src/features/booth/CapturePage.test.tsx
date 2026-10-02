@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
@@ -472,6 +472,24 @@ describe('CapturePage (booth)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'These are good' }))
     await waitFor(() => expect(booth.state().state).toBe('reviewing'))
     expect(await screen.findByText('the decorate screen')).toBeInTheDocument()
+  })
+
+  it('a double tap on "These are good" finishes the visit once', async () => {
+    const booth = server(visit({ expected_captures: 1 }))
+    let finishes = 0
+    renderCapture(async (path, init) => {
+      if (path.endsWith('/finish')) finishes += 1
+      return booth.handler(path, init)
+    })
+    await screen.findByTestId('capture-progress')
+    await oneShot()
+    const done = await screen.findByRole('button', { name: 'These are good' })
+    act(() => {
+      fireEvent.click(done)
+      fireEvent.click(done) // the second tap, in the same frame
+    })
+    expect(await screen.findByText('the decorate screen')).toBeInTheDocument()
+    expect(finishes).toBe(1)
   })
 
   it('a reload after the photos were taken goes straight to decorating', async () => {

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './support/fixtures'
 
 import { PERSISTED, pairAndSignIn, profileRow } from './support/admin'
 
@@ -313,7 +313,8 @@ test('the countdown shown is the one the event asks for', async ({ page }) => {
   await openBooth(page)
   await chooseFrame(page, 'Midnight')
   const countdown = page.getByTestId('countdown')
-  await expect(countdown).toHaveText('4')
+  // It starts once the camera is live; the fake camera is sometimes a few seconds opening.
+  await expect(countdown).toHaveText('4', { timeout: 15_000 })
   await expect(countdown).toHaveText('3')
   await expect(countdown).toHaveText('2')
   await page.getByRole('button', { name: 'Stop and start over' }).click()

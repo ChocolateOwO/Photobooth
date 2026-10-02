@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 
-import { expect, request, test } from '@playwright/test'
+import { expect, request, test } from './support/fixtures'
 
 const instanceRoot = process.env.PHOTOBOOTH_E2E_INSTANCE_ROOT ?? ''
 

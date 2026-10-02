@@ -2665,6 +2665,132 @@
         "title": "StickerResponse",
         "type": "object"
       },
+      "SystemDetailsResponse": {
+        "properties": {
+          "active_event": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Event"
+          },
+          "api_version": {
+            "title": "Api Version",
+            "type": "integer"
+          },
+          "app_version": {
+            "title": "App Version",
+            "type": "string"
+          },
+          "database": {
+            "title": "Database",
+            "type": "string"
+          },
+          "delivery_url": {
+            "title": "Delivery Url",
+            "type": "string"
+          },
+          "disk_free_bytes": {
+            "title": "Disk Free Bytes",
+            "type": "integer"
+          },
+          "disk_total_bytes": {
+            "title": "Disk Total Bytes",
+            "type": "integer"
+          },
+          "git_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Commit"
+          },
+          "instance": {
+            "title": "Instance",
+            "type": "string"
+          },
+          "kiosk_url": {
+            "title": "Kiosk Url",
+            "type": "string"
+          },
+          "last_cleanup_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Cleanup At"
+          },
+          "last_cleanup_errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Last Cleanup Errors",
+            "type": "array"
+          },
+          "profile": {
+            "title": "Profile",
+            "type": "string"
+          },
+          "schema_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Revision"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "storage_bytes": {
+            "title": "Storage Bytes",
+            "type": "integer"
+          },
+          "visits_in_progress": {
+            "title": "Visits In Progress",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "instance",
+          "profile",
+          "app_version",
+          "api_version",
+          "schema_revision",
+          "git_commit",
+          "started_at",
+          "database",
+          "storage_bytes",
+          "disk_free_bytes",
+          "disk_total_bytes",
+          "kiosk_url",
+          "delivery_url",
+          "active_event",
+          "visits_in_progress",
+          "last_cleanup_at",
+          "last_cleanup_errors"
+        ],
+        "title": "SystemDetailsResponse",
+        "type": "object"
+      },
       "TemplateLinks": {
         "properties": {
           "blank_png": {
@@ -5114,6 +5240,27 @@
         "summary": "Statistics",
         "tags": [
           "admin-activity"
+        ]
+      }
+    },
+    "/api/admin/system": {
+      "get": {
+        "operationId": "system_api_admin_system_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemDetailsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "System",
+        "tags": [
+          "admin-system"
         ]
       }
     },

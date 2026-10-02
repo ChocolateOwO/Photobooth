@@ -59,6 +59,9 @@ export function AdminLayout({ username, onLogout, children }: AdminLayoutProps) 
             <Link to="/admin/retention" className={styles.navLink}>
               Retention
             </Link>
+            <Link to="/admin/system" className={styles.navLink}>
+              System
+            </Link>
           </nav>
           <button
             type="button"

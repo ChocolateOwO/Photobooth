@@ -1,0 +1,73 @@
+/* The booth's reconnecting and start-again screens. Neutral colours: they must work even when
+   the event's theme could not be loaded. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: color-mix(in srgb, var(--pb-color-bg) 88%, transparent);
+  color: var(--pb-color-text);
+  text-align: center;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 520px;
+  padding: 32px;
+  border-radius: 24px;
+  background-color: var(--pb-color-surface);
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(24px, 4vh, 40px);
+  font-weight: 700;
+}
+
+.text {
+  margin: 0;
+  font-size: clamp(18px, 2.6vh, 24px);
+  color: var(--pb-color-muted);
+}
+
+.spinner {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 6px solid var(--pb-color-bg);
+  border-top-color: var(--pb-color-primary);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+.button {
+  min-height: var(--pb-touch-target);
+  min-width: 220px;
+  padding: 0 28px;
+  border: none;
+  border-radius: 999px;
+  background-color: var(--pb-color-primary);
+  color: var(--pb-color-text);
+  font: inherit;
+  font-size: 22px;
+  font-weight: 700;
+  cursor: pointer;
+}

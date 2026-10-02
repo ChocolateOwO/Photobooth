@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import { expect, request, test } from '@playwright/test'
+import { expect, request, test } from './support/fixtures'
 
 import {
   fixturesDir,

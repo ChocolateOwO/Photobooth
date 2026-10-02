@@ -73,6 +73,7 @@ export function DecoratePage() {
   // The decoration the guest is asked to confirm, frozen as it was on screen (P9-R1).
   const [confirming, setConfirming] = useState<Decoration | null>(null)
   const [leaving, setLeaving] = useState(false)
+  const leavingNow = useRef(false)
   const [editor, dispatch] = useReducer(editorReducer, undefined, initialEditor)
   // One key for this screen's request: a retry after a lost answer never makes a second set.
   const renderKey = useRef(newKey())
@@ -117,7 +118,8 @@ export function DecoratePage() {
   // ---- leaving and finishing -------------------------------------------------------------
   const leave = useCallback(
     async (replace: boolean) => {
-      if (leaving) return
+      if (leaving || leavingNow.current) return
+      leavingNow.current = true // at once: a double tap on Done leaves once (Phase 12)
       setLeaving(true)
       if (session) {
         try {

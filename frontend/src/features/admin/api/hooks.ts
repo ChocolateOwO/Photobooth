@@ -316,3 +316,12 @@ export function useRemoveEvent() {
     },
   })
 }
+
+export function useSystemDetails() {
+  const api = useAdminApi()
+  return useQuery({
+    queryKey: [...ADMIN_QUERY_ROOT, 'system'],
+    queryFn: () => api.systemDetails(),
+    ...noRetry,
+  })
+}

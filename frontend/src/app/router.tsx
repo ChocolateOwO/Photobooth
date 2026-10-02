@@ -10,6 +10,8 @@ import { ProfileEditorPage } from '../features/admin/pages/ProfileEditorPage'
 import { ProfileListPage } from '../features/admin/pages/ProfileListPage'
 import { RetentionPage } from '../features/admin/pages/RetentionPage'
 import { StatisticsPage } from '../features/admin/pages/StatisticsPage'
+import { SystemPage } from '../features/admin/pages/SystemPage'
+import { BoothErrorBoundary } from '../features/booth/BoothSafety'
 import { BoothStartPage } from '../features/booth/BoothStartPage'
 import { CapturePage } from '../features/booth/CapturePage'
 import { DecoratePage } from '../features/booth/DecoratePage'
@@ -39,13 +41,15 @@ export const routes = [
       { path: 'statistics', element: <StatisticsPage /> },
       { path: 'activity', element: <ActivityPage /> },
       { path: 'retention', element: <RetentionPage /> },
+      { path: 'system', element: <SystemPage /> },
     ],
   },
-  { path: '/booth', element: <BoothStartPage /> },
-  { path: '/booth/frames', element: <FrameSelectPage /> },
-  { path: '/booth/capture', element: <CapturePage /> },
-  { path: '/booth/decorate', element: <DecoratePage /> },
-  { path: '/booth/done', element: <DeliveryPage /> },
+  // Every booth screen: a screen that fails never leaves the booth blank.
+  { path: '/booth', element: <BoothErrorBoundary><BoothStartPage /></BoothErrorBoundary> },
+  { path: '/booth/frames', element: <BoothErrorBoundary><FrameSelectPage /></BoothErrorBoundary> },
+  { path: '/booth/capture', element: <BoothErrorBoundary><CapturePage /></BoothErrorBoundary> },
+  { path: '/booth/decorate', element: <BoothErrorBoundary><DecoratePage /></BoothErrorBoundary> },
+  { path: '/booth/done', element: <BoothErrorBoundary><DeliveryPage /></BoothErrorBoundary> },
   { path: '*', element: <SystemHomePage instance={buildInstance} /> },
 ]
 

@@ -15,6 +15,7 @@ import {
   useProfileTestBooth,
   type BoothStep,
 } from '../../booth/boothServices'
+import { BoothErrorBoundary } from '../../booth/BoothSafety'
 import { BoothStartPage } from '../../booth/BoothStartPage'
 import { CapturePage } from '../../booth/CapturePage'
 import { DecoratePage } from '../../booth/DecoratePage'
@@ -83,11 +84,14 @@ function TestBooth({ profileId, onExit }: { profileId: string; onExit: () => voi
   useEnterImmersive()
   return (
     <BoothServicesContext.Provider value={booth}>
-      {step === 'start' && <BoothStartPage />}
-      {step === 'frames' && <FrameSelectPage />}
-      {step === 'capture' && <CapturePage />}
-      {step === 'decorate' && <DecoratePage />}
-      {step === 'done' && <DeliveryPage />}
+      {/* A screen that fails shows "Start again", which goes back to the test's start. */}
+      <BoothErrorBoundary key={step} onRestart={() => go('start')}>
+        {step === 'start' && <BoothStartPage />}
+        {step === 'frames' && <FrameSelectPage />}
+        {step === 'capture' && <CapturePage />}
+        {step === 'decorate' && <DecoratePage />}
+        {step === 'done' && <DeliveryPage />}
+      </BoothErrorBoundary>
       <TestChrome onExit={onExit} />
     </BoothServicesContext.Provider>
   )

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { expect, test, type Browser, type Page } from '@playwright/test'
+import { expect, test, type Browser, type Page } from './support/fixtures'
 
 import { instanceRoot, PERSISTED, pairAndSignIn, profileRow } from './support/admin'
 

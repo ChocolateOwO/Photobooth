@@ -3,6 +3,7 @@ import type {
   RetentionPolicy,
   RetentionReport,
   RetentionRun,
+  SystemDetails,
   HistoryPage,
   Statistics,
   VisitDetail,
@@ -175,6 +176,25 @@ export class FakeAdminServer {
   /** Visits each deleted event still has; removal requests are kept for the tests. */
   eventVisits = new Map<string, number>()
   eventRemovals: { id: string; body: unknown }[] = []
+  systemDetails: SystemDetails = {
+    instance: 'dummy',
+    profile: 'dev',
+    app_version: '0.1.0',
+    api_version: 1,
+    schema_revision: '0011_retention',
+    git_commit: '7328935d7c9283abb482d38d1a71354bf8ec90a6',
+    started_at: '2026-10-03T01:00:00Z',
+    database: 'ok',
+    storage_bytes: 52_428_800,
+    disk_free_bytes: 120 * 1024 ** 3,
+    disk_total_bytes: 476 * 1024 ** 3,
+    kiosk_url: 'http://127.0.0.1:8111',
+    delivery_url: 'http://192.168.1.20:8113',
+    active_event: 'Garden Party',
+    visits_in_progress: 1,
+    last_cleanup_at: '2026-10-03T01:00:05Z',
+    last_cleanup_errors: [],
+  }
   templates = [template('strip_2x6', '2x6 photo strip'), template('print_4x6', '4x6 print')]
   private nextId = 1
 
@@ -480,6 +500,9 @@ export class FakeAdminServer {
 
     if (method !== 'GET' && headers[DEVICE_KEY_HEADER] !== DEVICE_KEY) {
       return json({ detail: 'device key invalid' }, 403)
+    }
+    if (path === '/api/admin/system' && method === 'GET') {
+      return this.signedIn ? json(this.systemDetails) : json({ detail: 'admin login required' }, 401)
     }
     // ---- retention ------------------------------------------------------------------------
     if (path.startsWith('/api/admin/retention/')) {
