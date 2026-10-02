@@ -344,6 +344,8 @@ class OutputAsset:
     rendered_at: datetime
     decoration: str | None = None
     failure_reason: str | None = None
+    # Set when retention took the file away (the record of the photo stays).
+    file_deleted_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -512,6 +514,10 @@ class CaptureFiles(Protocol):
 
     def delete(self, key: str) -> None: ...
 
+    def size(self, key: str) -> int:
+        """Bytes stored under the key; 0 when there is nothing."""
+        ...
+
 
 class Clock(Protocol):
     def now(self) -> datetime: ...
@@ -583,6 +589,10 @@ class DeliveryLinks(Protocol):
     """
 
     def ensure(self, session_id: str) -> DeliveryLink: ...
+
+    def revoke(self, session_id: str) -> int:
+        """End every link of a visit (its finished photos are gone)."""
+        ...
 
 
 def capture_key(session_id: str, capture_id: str) -> str:
@@ -676,6 +686,35 @@ class SessionRepository(ABC):
     @abstractmethod
     def session_files(self, session_id: str) -> list[str]:
         """Every stored file of a session (photos and finished photos)."""
+
+    # ---- retention ---------------------------------------------------------------------------
+
+    @abstractmethod
+    def ended_visits(self, before: datetime) -> list[str]:
+        """Visits that are over and ended before `before`; never one still going."""
+
+    @abstractmethod
+    def event_visits(self, profile_id: str) -> list[tuple[str, bool]]:
+        """Every visit of one event, with whether it is over."""
+
+    @abstractmethod
+    def is_over(self, session_id: str) -> bool: ...
+
+    @abstractmethod
+    def kept_files(self, session_id: str, kind: str) -> list[tuple[str, str]]:
+        """(row id, key) of "captures" or "outputs" whose file is still kept."""
+
+    @abstractmethod
+    def mark_files_gone(self, kind: str, row_ids: Sequence[str], at: datetime) -> None: ...
+
+    @abstractmethod
+    def anonymize_visit(self, session_id: str) -> bool: ...
+
+    @abstractmethod
+    def delete_visit(self, session_id: str) -> list[str]: ...
+
+    @abstractmethod
+    def visit_keys(self, session_id: str) -> list[str]: ...
 
     @abstractmethod
     def pinned_frames(self) -> set[str]:

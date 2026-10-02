@@ -370,6 +370,22 @@ class SqlEventProfileRepository(EventProfileRepository):
                 self._explain_miss(session, profile_id, expected_revision)
         return self._require(profile_id)
 
+    def remove_deleted(self, profile_id: str) -> bool:
+        with self._sessions.begin() as session:
+            return bool(
+                _rowcount(
+                    session.execute(
+                        delete(EventProfileRow)
+                        .where(
+                            EventProfileRow.id == profile_id,
+                            EventProfileRow.deleted_at.is_not(None),
+                            EventProfileRow.is_active.is_(False),
+                        )
+                        .execution_options(synchronize_session=False)
+                    )
+                )
+            )
+
     def restore(self, profile_id: str, at: datetime) -> EventProfile:
         try:
             with self._sessions.begin() as session:

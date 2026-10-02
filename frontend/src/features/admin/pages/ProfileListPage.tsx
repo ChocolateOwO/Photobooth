@@ -13,6 +13,7 @@ import {
 } from '../api/hooks'
 import { PillButton } from '../components/ui/Controls'
 import { MessageDialog } from '../components/ui/MessageDialog'
+import { RemoveEventDialog } from '../components/RemoveEventDialog'
 import { layoutLabel } from '../frameCatalog'
 import styles from './ProfileListPage.module.css'
 
@@ -29,6 +30,7 @@ function extractErrorMessages(err: unknown): string[] {
 export function ProfileListPage() {
   const [showDeleted, setShowDeleted] = useState(false)
   const [deletingProfile, setDeletingProfile] = useState<EventProfile | null>(null)
+  const [removingProfile, setRemovingProfile] = useState<EventProfile | null>(null)
   const [mutationErrors, setMutationErrors] = useState<string[] | null>(null)
   const [activationStatus, setActivationStatus] = useState<string | null>(null)
 
@@ -157,14 +159,19 @@ export function ProfileListPage() {
 
                 <div className={styles.rowActions}>
                   {isDeleted ? (
-                    <BigButton
-                      type="button"
-                      onClick={() => {
-                        void handleRestore(profile)
-                      }}
-                    >
-                      Restore {profile.settings.name}
-                    </BigButton>
+                    <>
+                      <BigButton
+                        type="button"
+                        onClick={() => {
+                          void handleRestore(profile)
+                        }}
+                      >
+                        Restore {profile.settings.name}
+                      </BigButton>
+                      <BigButton type="button" onClick={() => setRemovingProfile(profile)}>
+                        Delete {profile.settings.name} for good
+                      </BigButton>
+                    </>
                   ) : (
                     <>
                       <Link to={`/admin/profiles/${profile.id}`} className={styles.actionLink}>
@@ -234,6 +241,10 @@ export function ProfileListPage() {
         >
           <p>The profile is hidden but can be restored later.</p>
         </MessageDialog>
+      )}
+
+      {removingProfile && (
+        <RemoveEventDialog profile={removingProfile} onClose={() => setRemovingProfile(null)} />
       )}
 
       {activationError && (

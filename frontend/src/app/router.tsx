@@ -8,6 +8,7 @@ import { FrameManagerPage } from '../features/admin/pages/FrameManagerPage'
 import { HistoryPage } from '../features/admin/pages/HistoryPage'
 import { ProfileEditorPage } from '../features/admin/pages/ProfileEditorPage'
 import { ProfileListPage } from '../features/admin/pages/ProfileListPage'
+import { RetentionPage } from '../features/admin/pages/RetentionPage'
 import { StatisticsPage } from '../features/admin/pages/StatisticsPage'
 import { BoothStartPage } from '../features/booth/BoothStartPage'
 import { CapturePage } from '../features/booth/CapturePage'
@@ -37,6 +38,7 @@ export const routes = [
       { path: 'history', element: <HistoryPage /> },
       { path: 'statistics', element: <StatisticsPage /> },
       { path: 'activity', element: <ActivityPage /> },
+      { path: 'retention', element: <RetentionPage /> },
     ],
   },
   { path: '/booth', element: <BoothStartPage /> },

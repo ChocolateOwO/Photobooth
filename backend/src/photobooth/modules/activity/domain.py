@@ -200,3 +200,7 @@ class ActivityRepository(ABC):
     @abstractmethod
     def for_session(self, session_id: str) -> list[ActivityRecord]:
         """Oldest first: a visit's own timeline."""
+
+    @abstractmethod
+    def purge(self, before: datetime, dry_run: bool) -> int:
+        """Records older than `before`: counted, and deleted unless this is a dry run."""

@@ -28,6 +28,7 @@ from photobooth.core.sqlite_backup import SqliteBackupService
 from photobooth.core.web import ServiceRegistry
 from photobooth.main import KioskAppOptions, create_delivery_app, create_kiosk_app
 from photobooth.modules.auth.domain import PasswordPolicyError
+from photobooth.modules.retention.domain import Trigger
 from photobooth.modules.system.repository import SqlAppMetaRepository
 
 log = logging.getLogger("photobooth")
@@ -73,6 +74,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 container.restore_builtin_files()
                 # Photos left half-published by a process that died are settled before serving.
                 container.session_service.recover()
+                # Anything past its time (also whatever an older backup brought back after a
+                # restore) is deleted before the booth opens.
+                prepare_retention(container)
             kiosk_spec, delivery_spec = listener_specs(settings)
             kiosk_app = create_kiosk_app(
                 container.registry,
@@ -102,6 +106,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
         finally:
             container.close()
     return 0
+
+
+def prepare_retention(container: Container) -> None:
+    """The startup cleanup; a failure is reported and the booth still opens."""
+    try:
+        report = container.retention_service.run(Trigger.STARTUP, dry_run=False)
+        log.info("startup cleanup: %s item(s) past their time deleted", report.total)
+    except Exception:
+        log.exception("startup cleanup failed")
 
 
 # How often the running booth ends idle visits, settles leftovers and deletes unwanted files.

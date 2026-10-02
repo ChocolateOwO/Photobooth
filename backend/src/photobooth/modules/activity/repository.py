@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from sqlalchemy import Engine, ForeignKey, Index, String, Text, and_, or_, select
+from sqlalchemy import Engine, ForeignKey, Index, String, Text, and_, delete, func, or_, select
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
 from photobooth.core.db import Base, UtcDateTime
@@ -112,3 +112,10 @@ class SqlActivityRepository(ActivityRepository):
                 .order_by(ActivityRow.at, ActivityRow.id)
             ).all()
             return [_record_of(row) for row in rows]
+
+    def purge(self, before: datetime, dry_run: bool) -> int:
+        with self._sessions() as db, db.begin():
+            count = db.scalar(select(func.count()).where(ActivityRow.at < before)) or 0
+            if count and not dry_run:
+                db.execute(delete(ActivityRow).where(ActivityRow.at < before))
+            return int(count)

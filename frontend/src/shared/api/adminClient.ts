@@ -30,6 +30,11 @@ export type Visit = Schemas['VisitResponse']
 export type HistoryPage = Schemas['HistoryPage']
 export type VisitDetail = Schemas['VisitDetailResponse']
 export type Statistics = Schemas['StatisticsResponse']
+export type RetentionPolicy = Schemas['RetentionPolicyResponse']
+export type RetentionPolicyUpdate = Schemas['RetentionPolicyBody']
+export type RetentionReport = Schemas['RetentionReportResponse']
+export type RetentionRun = Schemas['RetentionRunResponse']
+export type EventRemoval = Schemas['EventRemovalResponse']
 
 /** A period (ISO instants) and, optionally, one event. */
 export interface PeriodQuery {
@@ -406,6 +411,24 @@ export function createAdminApiClient(
         })}`,
       ),
     visit: (id: string) => send<VisitDetail>('GET', `/api/admin/history/${encodeURIComponent(id)}`),
+    retentionPolicy: () => send<RetentionPolicy>('GET', '/api/admin/retention/policy'),
+    saveRetentionPolicy: (policy: RetentionPolicyUpdate) =>
+      send<RetentionPolicy>('PUT', '/api/admin/retention/policy', { json: policy }),
+    /** A cleanup: a dry run counts only; deleting sends the confirmation word. */
+    runRetention: (dryRun: boolean) =>
+      send<RetentionReport>(
+        'POST',
+        '/api/admin/retention/run',
+        { json: dryRun ? { dry_run: true } : { dry_run: false, confirm: 'DELETE' } },
+      ),
+    retentionRuns: () => send<RetentionRun[]>('GET', '/api/admin/retention/runs'),
+    /** A deleted event for good, with its visits: a dry run counts only. */
+    removeEvent: (profileId: string, dryRun: boolean) =>
+      send<EventRemoval>(
+        'POST',
+        `/api/admin/retention/events/${encodeURIComponent(profileId)}/remove`,
+        { json: dryRun ? { dry_run: true } : { dry_run: false, confirm: 'DELETE' } },
+      ),
     statistics: (q: PeriodQuery) =>
       send<Statistics>(
         'GET',

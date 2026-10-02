@@ -20,7 +20,7 @@ def test_version_contract(kiosk_client: TestClient) -> None:
     assert body["app_version"] == "0.1.0"
     assert body["api_version"] == 1
     assert body["instance"] == "dummy"
-    assert body["schema_revision"] == "0010_activity_log"
+    assert body["schema_revision"] == "0011_retention"
 
 
 def test_health_reports_database_error(container: Container) -> None:
@@ -97,4 +97,8 @@ def test_openapi_lists_only_expected_public_paths(kiosk_client: TestClient) -> N
         "/api/admin/history",
         "/api/admin/history/{session_id}",
         "/api/admin/statistics",
+        "/api/admin/retention/policy",
+        "/api/admin/retention/run",
+        "/api/admin/retention/runs",
+        "/api/admin/retention/events/{profile_id}/remove",
     }

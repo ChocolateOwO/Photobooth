@@ -59,5 +59,9 @@ class StorageProvider(ABC):
     def exists(self, key: StorageKey) -> bool: ...
 
     @abstractmethod
+    def size(self, key: StorageKey) -> int:
+        """The stored size in bytes; 0 for a blob that is not there."""
+
+    @abstractmethod
     def delete(self, key: StorageKey) -> None:
         """Idempotent: deleting a missing key succeeds."""

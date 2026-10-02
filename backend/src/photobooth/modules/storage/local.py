@@ -58,5 +58,11 @@ class LocalStorageProvider(StorageProvider):
     def exists(self, key: StorageKey) -> bool:
         return self._path(key).is_file()
 
+    def size(self, key: StorageKey) -> int:
+        try:
+            return self._path(key).stat().st_size
+        except FileNotFoundError:
+            return 0
+
     def delete(self, key: StorageKey) -> None:
         self._path(key).unlink(missing_ok=True)

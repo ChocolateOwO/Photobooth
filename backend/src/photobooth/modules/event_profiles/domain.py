@@ -167,6 +167,11 @@ class EventProfileRepository(ABC):
     def restore(self, profile_id: str, at: datetime) -> EventProfile: ...
 
     @abstractmethod
+    def remove_deleted(self, profile_id: str) -> bool:
+        """Delete a profile that is already deleted (soft) for good; False when it is not one.
+        Its visits must be gone first (the database refuses otherwise)."""
+
+    @abstractmethod
     def names_by_layout(self) -> dict[str, list[str]]:
         """layout key -> names of the profiles offering it (soft-deleted ones marked)."""
 

@@ -1,5 +1,8 @@
 import type {
   ActivityLogPage,
+  RetentionPolicy,
+  RetentionReport,
+  RetentionRun,
   HistoryPage,
   Statistics,
   VisitDetail,
@@ -147,6 +150,29 @@ export class FakeAdminServer {
   historyPage: HistoryPage = { visits: [], total: 0, offset: 0 }
   visits = new Map<string, VisitDetail>()
   statistics: Statistics | null = null
+  retentionPolicy: RetentionPolicy = {
+    originals_days: 7,
+    outputs_days: 30,
+    link_days: 7,
+    temp_hours: 24,
+    metadata_mode: 'keep',
+    metadata_days: 90,
+    activity_log_days: 90,
+    backup_days: 7,
+    app_log_days: 14,
+    revision: 1,
+    updated_at: null,
+  }
+  /** What a cleanup counts (dry run) or deletes; every request body is kept for the tests. */
+  retentionCounts: RetentionReport['counts'] = [
+    { category: 'originals', items: 4, bytes: 4_200_000 },
+    { category: 'outputs', items: 0, bytes: 0 },
+  ]
+  retentionRequests: unknown[] = []
+  retentionRuns: RetentionRun[] = []
+  /** Visits each deleted event still has; removal requests are kept for the tests. */
+  eventVisits = new Map<string, number>()
+  eventRemovals: { id: string; body: unknown }[] = []
   templates = [template('strip_2x6', '2x6 photo strip'), template('print_4x6', '4x6 print')]
   private nextId = 1
 
@@ -452,6 +478,55 @@ export class FakeAdminServer {
 
     if (method !== 'GET' && headers[DEVICE_KEY_HEADER] !== DEVICE_KEY) {
       return json({ detail: 'device key invalid' }, 403)
+    }
+    // ---- retention ------------------------------------------------------------------------
+    if (path.startsWith('/api/admin/retention/')) {
+      if (!this.signedIn) return json({ detail: 'admin login required' }, 401)
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {}
+      if (path === '/api/admin/retention/policy' && method === 'GET') {
+        return json(this.retentionPolicy)
+      }
+      if (path === '/api/admin/retention/policy' && method === 'PUT') {
+        if (body.revision !== this.retentionPolicy.revision) {
+          return json({ detail: 'the policy was changed meanwhile' }, 409)
+        }
+        if (Number(body.link_days) > Number(body.outputs_days)) {
+          return json({ detail: 'the take-home link can not outlive the finished photos' }, 422)
+        }
+        this.retentionPolicy = {
+          ...(body as unknown as RetentionPolicy),
+          revision: this.retentionPolicy.revision + 1,
+          updated_at: '2026-10-03T00:00:00Z',
+        }
+        return json(this.retentionPolicy)
+      }
+      if (path === '/api/admin/retention/runs' && method === 'GET') return json(this.retentionRuns)
+      if (path === '/api/admin/retention/run' && method === 'POST') {
+        this.retentionRequests.push(body)
+        const dryRun = body.dry_run !== false
+        if (!dryRun && body.confirm !== 'DELETE') return json({ detail: 'confirm' }, 422)
+        const report: RetentionReport = {
+          dry_run: dryRun,
+          trigger: 'manual',
+          started_at: '2026-10-03T00:00:00Z',
+          finished_at: '2026-10-03T00:00:01Z',
+          policy_revision: this.retentionPolicy.revision,
+          counts: this.retentionCounts,
+          errors: [],
+        }
+        this.retentionRuns = [{ id: `run-${this.retentionRuns.length}`, ...report }, ...this.retentionRuns]
+        return json(report)
+      }
+      const removal = /^\/api\/admin\/retention\/events\/([^/]+)\/remove$/.exec(path)
+      if (removal && method === 'POST') {
+        const id = removal[1] ?? ''
+        this.eventRemovals.push({ id, body })
+        const dryRun = body.dry_run !== false
+        if (!dryRun && body.confirm !== 'DELETE') return json({ detail: 'confirm' }, 422)
+        const visits = this.eventVisits.get(id) ?? 0
+        if (!dryRun) this.profiles.delete(id)
+        return json({ dry_run: dryRun, visits, bytes: visits * 1000 })
+      }
     }
     // ---- history, statistics and the activity log (read only) ------------------------------
     if (method === 'GET' && /^\/api\/admin\/(activity|history|statistics)/.test(path)) {

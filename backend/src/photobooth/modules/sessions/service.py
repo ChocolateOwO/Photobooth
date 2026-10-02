@@ -745,6 +745,84 @@ class BoothSessionService:
             self._files.delete(key)
         self._repository.forget_test_session(session_id)
 
+    # ---- retention -----------------------------------------------------------------------
+    # Only visits that are over are ever touched, each one while it is locked (so it can not be
+    # in the middle of anything), and files always go before the rows that name them.
+
+    def purge_originals(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+        """The camera's photos of visits that ended before `before`."""
+        return self._purge_files("captures", before, dry_run)
+
+    def purge_outputs(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+        """The finished photos of visits that ended before `before`; their links end too."""
+        return self._purge_files("outputs", before, dry_run)
+
+    def anonymize_visits(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+        """Visits that ended before `before` no longer name the device that made them."""
+        changed = 0
+        for session_id in self._repository.ended_visits(before):
+            with self._locks.held(session_id):
+                session = self._repository.get(session_id)
+                if session is None or not session.closed or session.device_id == "anonymous":
+                    continue
+                if dry_run or self._repository.anonymize_visit(session_id):
+                    changed += 1
+        return changed, 0
+
+    def delete_visits(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+        """Visits that ended before `before`, with everything about them, permanently."""
+        return self._delete_visits(self._repository.ended_visits(before), dry_run)
+
+    def delete_event_visits(self, profile_id: str, dry_run: bool) -> tuple[int, int]:
+        """Every visit of one event, for its permanent deletion. Refused while one is going."""
+        visits = self._repository.event_visits(profile_id)
+        going = sum(1 for _sid, over in visits if not over)
+        if going:
+            raise TransitionRefusedError(
+                f"{going} visit{'s' if going > 1 else ''} of this event "
+                f"{'are' if going > 1 else 'is'} still going"
+            )
+        return self._delete_visits([sid for sid, _over in visits], dry_run)
+
+    def _purge_files(self, kind: str, before: datetime, dry_run: bool) -> tuple[int, int]:
+        items = size = 0
+        for session_id in self._repository.ended_visits(before):
+            with self._locks.held(session_id):
+                if not self._repository.is_over(session_id):
+                    continue  # it came back to life meanwhile: never touched
+                kept = self._repository.kept_files(session_id, kind)
+                if not kept:
+                    continue
+                gone: list[str] = []
+                for row_id, key in kept:
+                    size += self._files.size(key)
+                    items += 1
+                    if not dry_run:
+                        self._files.delete(key)
+                        gone.append(row_id)
+                if not dry_run:
+                    self._repository.mark_files_gone(kind, gone, self._clock.now())
+                    if kind == "outputs":
+                        self._links.revoke(session_id)
+        return items, size
+
+    def _delete_visits(self, session_ids: Sequence[str], dry_run: bool) -> tuple[int, int]:
+        count = size = 0
+        for session_id in session_ids:
+            with self._locks.held(session_id):
+                if not self._repository.is_over(session_id):
+                    continue
+                keys = self._repository.visit_keys(session_id)
+                size += sum(self._files.size(key) for key in keys)
+                count += 1
+                if dry_run:
+                    continue
+                self._links.revoke(session_id)
+                for key in keys:
+                    self._files.delete(key)
+                self._repository.delete_visit(session_id)
+        return count, size
+
     # ---- keeping the booth honest --------------------------------------------------------
 
     def close_inactive(self) -> list[str]:

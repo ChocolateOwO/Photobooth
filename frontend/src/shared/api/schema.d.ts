@@ -421,6 +421,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/retention/events/{profile_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove Event */
+        post: operations["remove_event_api_admin_retention_events__profile_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/retention/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Policy */
+        get: operations["policy_api_admin_retention_policy_get"];
+        /** Save Policy */
+        put: operations["save_policy_api_admin_retention_policy_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/retention/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run */
+        post: operations["run_api_admin_retention_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/retention/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Runs */
+        get: operations["runs_api_admin_retention_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/statistics": {
         parameters: {
             query?: never;
@@ -1181,13 +1250,6 @@ export interface components {
             /** What */
             what: string;
         };
-        /** CountResponse */
-        CountResponse: {
-            /** Count */
-            count: number;
-            /** Key */
-            key: string;
-        };
         /**
          * DecorateLayoutResponse
          * @description The finished photos as the renderer will compose them, for the decorating preview.
@@ -1289,6 +1351,18 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * EventRemovalResponse
+         * @description What deleting an event for good takes (dry run) or took with it.
+         */
+        EventRemovalResponse: {
+            /** Bytes */
+            bytes: number;
+            /** Dry Run */
+            dry_run: boolean;
+            /** Visits */
+            visits: number;
         };
         /**
          * EventThemeBody
@@ -1915,6 +1989,122 @@ export interface components {
          * @enum {string}
          */
         RetakeMode: "none" | "per_photo" | "all";
+        /**
+         * RetentionPolicyBody
+         * @description The booth's policy. `revision` is the one the organizer saw (a newer one refuses).
+         */
+        RetentionPolicyBody: {
+            /** Activity Log Days */
+            activity_log_days: number;
+            /** App Log Days */
+            app_log_days: number;
+            /** Backup Days */
+            backup_days: number;
+            /** Link Days */
+            link_days: number;
+            /** Metadata Days */
+            metadata_days: number;
+            /**
+             * Metadata Mode
+             * @enum {string}
+             */
+            metadata_mode: "keep" | "anonymize" | "delete";
+            /** Originals Days */
+            originals_days: number;
+            /** Outputs Days */
+            outputs_days: number;
+            /** Revision */
+            revision: number;
+            /** Temp Hours */
+            temp_hours: number;
+        };
+        /** RetentionPolicyResponse */
+        RetentionPolicyResponse: {
+            /** Activity Log Days */
+            activity_log_days: number;
+            /** App Log Days */
+            app_log_days: number;
+            /** Backup Days */
+            backup_days: number;
+            /** Link Days */
+            link_days: number;
+            /** Metadata Days */
+            metadata_days: number;
+            /**
+             * Metadata Mode
+             * @enum {string}
+             */
+            metadata_mode: "keep" | "anonymize" | "delete";
+            /** Originals Days */
+            originals_days: number;
+            /** Outputs Days */
+            outputs_days: number;
+            /** Revision */
+            revision: number;
+            /** Temp Hours */
+            temp_hours: number;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /** RetentionReportResponse */
+        RetentionReportResponse: {
+            /** Counts */
+            counts: components["schemas"]["photobooth__modules__retention__schemas__CountResponse"][];
+            /** Dry Run */
+            dry_run: boolean;
+            /** Errors */
+            errors: string[];
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /** Policy Revision */
+            policy_revision: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Trigger */
+            trigger: string;
+        };
+        /** RetentionRunResponse */
+        RetentionRunResponse: {
+            /** Counts */
+            counts: components["schemas"]["photobooth__modules__retention__schemas__CountResponse"][];
+            /** Dry Run */
+            dry_run: boolean;
+            /** Errors */
+            errors: string[];
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /** Id */
+            id: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Trigger */
+            trigger: string;
+        };
+        /**
+         * RunBody
+         * @description A cleanup. Deleting needs `confirm` set to the word DELETE; a dry run needs nothing.
+         */
+        RunBody: {
+            /** Confirm */
+            confirm?: string | null;
+            /**
+             * Dry Run
+             * @default true
+             */
+            dry_run: boolean;
+        };
         /** SessionResponse */
         SessionResponse: {
             /** Csrf Token */
@@ -2034,14 +2224,14 @@ export interface components {
              */
             average_minutes: number | null;
             /** By Filter */
-            by_filter: components["schemas"]["CountResponse"][];
+            by_filter: components["schemas"]["photobooth__modules__activity__schemas__CountResponse"][];
             /**
              * By Hour
              * @description Visits started per hour (booth clock).
              */
-            by_hour: components["schemas"]["CountResponse"][];
+            by_hour: components["schemas"]["photobooth__modules__activity__schemas__CountResponse"][];
             /** By Layout */
-            by_layout: components["schemas"]["CountResponse"][];
+            by_layout: components["schemas"]["photobooth__modules__activity__schemas__CountResponse"][];
             /** Cancelled */
             cancelled: number;
             /**
@@ -2280,6 +2470,22 @@ export interface components {
             state: string;
             /** Stickers */
             stickers: number;
+        };
+        /** CountResponse */
+        photobooth__modules__activity__schemas__CountResponse: {
+            /** Count */
+            count: number;
+            /** Key */
+            key: string;
+        };
+        /** CountResponse */
+        photobooth__modules__retention__schemas__CountResponse: {
+            /** Bytes */
+            bytes: number;
+            /** Category */
+            category: string;
+            /** Items */
+            items: number;
         };
     };
     responses: never;
@@ -3288,6 +3494,158 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_event_api_admin_retention_events__profile_id__remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventRemovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    policy_api_admin_retention_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionPolicyResponse"];
+                };
+            };
+        };
+    };
+    save_policy_api_admin_retention_policy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetentionPolicyBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_api_admin_retention_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionReportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    runs_api_admin_retention_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionRunResponse"][];
                 };
             };
             /** @description Validation Error */

@@ -60,6 +60,9 @@ from photobooth.modules.sessions.domain import (
     closing_state,
 )
 
+# A visit made anonymous by retention no longer names the device that made it.
+ANONYMOUS_DEVICE = "anonymous"
+
 
 class BoothSessionRow(Base):
     __tablename__ = "booth_sessions"
@@ -378,6 +381,7 @@ def _output_of(row: OutputAssetRow) -> OutputAsset:
         rendered_at=row.rendered_at,
         decoration=row.decoration,
         failure_reason=row.failure_reason,
+        file_deleted_at=row.file_deleted_at,
     )
 
 
@@ -921,6 +925,114 @@ class SqlSessionRepository(SessionRepository):
                 )
             )
         return facts
+
+    # ---- retention -------------------------------------------------------------------------
+
+    def ended_visits(self, before: datetime) -> list[str]:
+        """Visits that are over and ended before `before` (oldest first). A visit still going is
+        never among them, whatever its age."""
+        with self._sessions() as db:
+            rows = db.execute(
+                select(
+                    BoothSessionRow.id,
+                    BoothSessionRow.completed_at,
+                    BoothSessionRow.last_activity_at,
+                ).where(BoothSessionRow.state.in_([str(state) for state in _TERMINAL]))
+            ).all()
+        ended = [(completed or last, sid) for sid, completed, last in rows]
+        return [sid for at, sid in sorted(ended) if at < before]
+
+    def event_visits(self, profile_id: str) -> list[tuple[str, bool]]:
+        """Every visit of one event, with whether it is over."""
+        terminal = {str(state) for state in _TERMINAL}
+        with self._sessions() as db:
+            rows = db.execute(
+                select(BoothSessionRow.id, BoothSessionRow.state).where(
+                    BoothSessionRow.event_profile_id == profile_id
+                )
+            ).all()
+        return [(sid, state in terminal) for sid, state in rows]
+
+    def is_over(self, session_id: str) -> bool:
+        with self._sessions() as db:
+            state = db.scalar(select(BoothSessionRow.state).where(BoothSessionRow.id == session_id))
+        return state in {str(s) for s in _TERMINAL}
+
+    def kept_files(self, session_id: str, kind: str) -> list[tuple[str, str]]:
+        """(row id, storage key) of a visit's photos ("captures") or finished photos
+        ("outputs") whose file is still kept."""
+        table: Any = CaptureAssetRow if kind == "captures" else OutputAssetRow
+        with self._sessions() as db:
+            return [
+                (rid, key)
+                for rid, key in db.execute(
+                    select(table.id, table.storage_key).where(
+                        table.session_id == session_id,
+                        table.storage_key.is_not(None),
+                        table.file_deleted_at.is_(None),
+                    )
+                ).all()
+            ]
+
+    def mark_files_gone(self, kind: str, row_ids: Sequence[str], at: datetime) -> None:
+        """The files of these rows were deleted by retention (the rows themselves stay)."""
+        table: Any = CaptureAssetRow if kind == "captures" else OutputAssetRow
+        if not row_ids:
+            return
+        with self._sessions() as db, db.begin():
+            db.execute(
+                update(table)
+                .where(table.id.in_(list(row_ids)))
+                .values(file_deleted_at=at, file_delete_pending=False)
+            )
+
+    def anonymize_visit(self, session_id: str) -> bool:
+        """Nothing links the visit to a device any more; True when this call changed it."""
+        with self._sessions() as db, db.begin():
+            row = db.get(BoothSessionRow, session_id)
+            if row is None or row.device_id == ANONYMOUS_DEVICE:
+                return False
+            row.device_id = ANONYMOUS_DEVICE
+            row.eligibility_result = None
+            db.execute(
+                delete(DeviceOperationRow).where(DeviceOperationRow.result_ref == session_id)
+            )
+            return True
+
+    def delete_visit(self, session_id: str) -> list[str]:
+        """Remove a visit that is over, with every row about it; returns the storage keys it
+        still named (the caller deletes those files first)."""
+        with self._sessions() as db, db.begin():
+            row = db.get(BoothSessionRow, session_id)
+            if row is None or row.state not in {str(s) for s in _TERMINAL}:
+                return []
+            keys = [
+                *db.scalars(
+                    select(CaptureAssetRow.storage_key).where(
+                        CaptureAssetRow.session_id == session_id
+                    )
+                ).all(),
+                *db.scalars(
+                    select(OutputAssetRow.storage_key).where(
+                        OutputAssetRow.session_id == session_id
+                    )
+                ).all(),
+            ]
+            db.execute(delete(OperationRow).where(OperationRow.session_id == session_id))
+            db.execute(delete(CaptureAssetRow).where(CaptureAssetRow.session_id == session_id))
+            db.execute(delete(OutputAssetRow).where(OutputAssetRow.session_id == session_id))
+            db.execute(
+                delete(DeviceOperationRow).where(DeviceOperationRow.result_ref == session_id)
+            )
+            # The visit's activity records and take-home links go with it (ON DELETE CASCADE).
+            db.execute(delete(BoothSessionRow).where(BoothSessionRow.id == session_id))
+            return [key for key in keys if key]
+
+    def visit_keys(self, session_id: str) -> list[str]:
+        """Every storage key a visit names whose file may still exist."""
+        return [key for _rid, key in self.kept_files(session_id, "captures")] + [
+            key for _rid, key in self.kept_files(session_id, "outputs")
+        ]
 
     def unfinished_operations(self, boot_id: str) -> list[Operation]:
         with self._sessions() as db:

@@ -382,24 +382,6 @@
         "title": "ContrastRuleInfo",
         "type": "object"
       },
-      "CountResponse": {
-        "properties": {
-          "count": {
-            "title": "Count",
-            "type": "integer"
-          },
-          "key": {
-            "title": "Key",
-            "type": "string"
-          }
-        },
-        "required": [
-          "key",
-          "count"
-        ],
-        "title": "CountResponse",
-        "type": "object"
-      },
       "DecorateLayoutResponse": {
         "description": "The finished photos as the renderer will compose them, for the decorating preview.",
         "properties": {
@@ -617,6 +599,30 @@
           "deleted_at"
         ],
         "title": "EventProfileResponse",
+        "type": "object"
+      },
+      "EventRemovalResponse": {
+        "description": "What deleting an event for good takes (dry run) or took with it.",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "visits": {
+            "title": "Visits",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dry_run",
+          "visits",
+          "bytes"
+        ],
+        "title": "EventRemovalResponse",
         "type": "object"
       },
       "EventThemeBody": {
@@ -1927,6 +1933,291 @@
         "title": "RetakeMode",
         "type": "string"
       },
+      "RetentionPolicyBody": {
+        "additionalProperties": false,
+        "description": "The booth's policy. `revision` is the one the organizer saw (a newer one refuses).",
+        "properties": {
+          "activity_log_days": {
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Activity Log Days",
+            "type": "integer"
+          },
+          "app_log_days": {
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "App Log Days",
+            "type": "integer"
+          },
+          "backup_days": {
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Backup Days",
+            "type": "integer"
+          },
+          "link_days": {
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Link Days",
+            "type": "integer"
+          },
+          "metadata_days": {
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Metadata Days",
+            "type": "integer"
+          },
+          "metadata_mode": {
+            "enum": [
+              "keep",
+              "anonymize",
+              "delete"
+            ],
+            "title": "Metadata Mode",
+            "type": "string"
+          },
+          "originals_days": {
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Originals Days",
+            "type": "integer"
+          },
+          "outputs_days": {
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Outputs Days",
+            "type": "integer"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "temp_hours": {
+            "maximum": 720.0,
+            "minimum": 1.0,
+            "title": "Temp Hours",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "originals_days",
+          "outputs_days",
+          "link_days",
+          "temp_hours",
+          "metadata_mode",
+          "metadata_days",
+          "activity_log_days",
+          "backup_days",
+          "app_log_days",
+          "revision"
+        ],
+        "title": "RetentionPolicyBody",
+        "type": "object"
+      },
+      "RetentionPolicyResponse": {
+        "properties": {
+          "activity_log_days": {
+            "title": "Activity Log Days",
+            "type": "integer"
+          },
+          "app_log_days": {
+            "title": "App Log Days",
+            "type": "integer"
+          },
+          "backup_days": {
+            "title": "Backup Days",
+            "type": "integer"
+          },
+          "link_days": {
+            "title": "Link Days",
+            "type": "integer"
+          },
+          "metadata_days": {
+            "title": "Metadata Days",
+            "type": "integer"
+          },
+          "metadata_mode": {
+            "enum": [
+              "keep",
+              "anonymize",
+              "delete"
+            ],
+            "title": "Metadata Mode",
+            "type": "string"
+          },
+          "originals_days": {
+            "title": "Originals Days",
+            "type": "integer"
+          },
+          "outputs_days": {
+            "title": "Outputs Days",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "temp_hours": {
+            "title": "Temp Hours",
+            "type": "integer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "originals_days",
+          "outputs_days",
+          "link_days",
+          "temp_hours",
+          "metadata_mode",
+          "metadata_days",
+          "activity_log_days",
+          "backup_days",
+          "app_log_days",
+          "revision",
+          "updated_at"
+        ],
+        "title": "RetentionPolicyResponse",
+        "type": "object"
+      },
+      "RetentionReportResponse": {
+        "properties": {
+          "counts": {
+            "items": {
+              "$ref": "#/components/schemas/photobooth__modules__retention__schemas__CountResponse"
+            },
+            "title": "Counts",
+            "type": "array"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "policy_revision": {
+            "title": "Policy Revision",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dry_run",
+          "trigger",
+          "started_at",
+          "finished_at",
+          "policy_revision",
+          "counts",
+          "errors"
+        ],
+        "title": "RetentionReportResponse",
+        "type": "object"
+      },
+      "RetentionRunResponse": {
+        "properties": {
+          "counts": {
+            "items": {
+              "$ref": "#/components/schemas/photobooth__modules__retention__schemas__CountResponse"
+            },
+            "title": "Counts",
+            "type": "array"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "finished_at",
+          "dry_run",
+          "trigger",
+          "counts",
+          "errors"
+        ],
+        "title": "RetentionRunResponse",
+        "type": "object"
+      },
+      "RunBody": {
+        "additionalProperties": false,
+        "description": "A cleanup. Deleting needs `confirm` set to the word DELETE; a dry run needs nothing.",
+        "properties": {
+          "confirm": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirm"
+          },
+          "dry_run": {
+            "default": true,
+            "title": "Dry Run",
+            "type": "boolean"
+          }
+        },
+        "title": "RunBody",
+        "type": "object"
+      },
       "SessionResponse": {
         "properties": {
           "csrf_token": {
@@ -2196,7 +2487,7 @@
           },
           "by_filter": {
             "items": {
-              "$ref": "#/components/schemas/CountResponse"
+              "$ref": "#/components/schemas/photobooth__modules__activity__schemas__CountResponse"
             },
             "title": "By Filter",
             "type": "array"
@@ -2204,14 +2495,14 @@
           "by_hour": {
             "description": "Visits started per hour (booth clock).",
             "items": {
-              "$ref": "#/components/schemas/CountResponse"
+              "$ref": "#/components/schemas/photobooth__modules__activity__schemas__CountResponse"
             },
             "title": "By Hour",
             "type": "array"
           },
           "by_layout": {
             "items": {
-              "$ref": "#/components/schemas/CountResponse"
+              "$ref": "#/components/schemas/photobooth__modules__activity__schemas__CountResponse"
             },
             "title": "By Layout",
             "type": "array"
@@ -2896,6 +3187,47 @@
           "downloads"
         ],
         "title": "VisitResponse",
+        "type": "object"
+      },
+      "photobooth__modules__activity__schemas__CountResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "count"
+        ],
+        "title": "CountResponse",
+        "type": "object"
+      },
+      "photobooth__modules__retention__schemas__CountResponse": {
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category",
+          "items",
+          "bytes"
+        ],
+        "title": "CountResponse",
         "type": "object"
       }
     }
@@ -4470,6 +4802,209 @@
         "summary": "Restore Profile",
         "tags": [
           "admin-profiles"
+        ]
+      }
+    },
+    "/api/admin/retention/events/{profile_id}/remove": {
+      "post": {
+        "operationId": "remove_event_api_admin_retention_events__profile_id__remove_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profile_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Profile Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventRemovalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Event",
+        "tags": [
+          "admin-retention"
+        ]
+      }
+    },
+    "/api/admin/retention/policy": {
+      "get": {
+        "operationId": "policy_api_admin_retention_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Policy",
+        "tags": [
+          "admin-retention"
+        ]
+      },
+      "put": {
+        "operationId": "save_policy_api_admin_retention_policy_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionPolicyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Policy",
+        "tags": [
+          "admin-retention"
+        ]
+      }
+    },
+    "/api/admin/retention/run": {
+      "post": {
+        "operationId": "run_api_admin_retention_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionReportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run",
+        "tags": [
+          "admin-retention"
+        ]
+      }
+    },
+    "/api/admin/retention/runs": {
+      "get": {
+        "operationId": "runs_api_admin_retention_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RetentionRunResponse"
+                  },
+                  "title": "Response Runs Api Admin Retention Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Runs",
+        "tags": [
+          "admin-retention"
         ]
       }
     },

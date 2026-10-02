@@ -105,6 +105,7 @@ containers = [
     "photobooth.modules.delivery",
     "photobooth.modules.decorations",
     "photobooth.modules.activity",
+    "photobooth.modules.retention",
 ]
 layers = ["api", "service", "domain"]
 exhaustive = false
@@ -138,6 +139,8 @@ source_modules = [
     "photobooth.modules.decorations.service",
     "photobooth.modules.activity.api",
     "photobooth.modules.activity.service",
+    "photobooth.modules.retention.api",
+    "photobooth.modules.retention.service",
 ]
 forbidden_modules = [
     "photobooth.modules.system.repository",
@@ -160,6 +163,8 @@ forbidden_modules = [
     "photobooth.modules.delivery.qr",
     "photobooth.modules.decorations.builtin",
     "photobooth.modules.activity.repository",
+    "photobooth.modules.retention.repository",
+    "photobooth.modules.retention.files",
     "segno",
     "PIL",
     "argon2",
@@ -184,6 +189,7 @@ source_modules = [
     "photobooth.modules.delivery.domain",
     "photobooth.modules.decorations.domain",
     "photobooth.modules.activity.domain",
+    "photobooth.modules.retention.domain",
 ]
 forbidden_modules = [
     "fastapi",
@@ -376,6 +382,28 @@ forbidden_modules = [
     "photobooth.modules.booth",
     "photobooth.modules.delivery",
     "photobooth.modules.decorations",
+    "photobooth.modules.rendering",
+    "photobooth.modules.frames",
+    "photobooth.modules.assets",
+    "photobooth.modules.storage",
+    "photobooth.modules.event_profiles",
+    "photobooth.modules.auth",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.system",
+    "photobooth.modules.templates",
+    "photobooth.modules.themes",
+]
+
+[[tool.importlinter.contracts]]
+name = "Retention talks to other modules only through ports"
+type = "forbidden"
+source_modules = ["photobooth.modules.retention"]
+forbidden_modules = [
+    "photobooth.modules.sessions",
+    "photobooth.modules.booth",
+    "photobooth.modules.delivery",
+    "photobooth.modules.decorations",
+    "photobooth.modules.activity",
     "photobooth.modules.rendering",
     "photobooth.modules.frames",
     "photobooth.modules.assets",

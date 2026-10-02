@@ -12,6 +12,7 @@ import type {
   HistoryQuery,
   NewProfileSettings,
   PeriodQuery,
+  RetentionPolicy,
   ProfileSettings,
 } from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
@@ -33,6 +34,7 @@ export const adminKeys = {
   history: (q: HistoryQuery) => [...ADMIN_QUERY_ROOT, 'history', q] as const,
   visit: (id: string) => [...ADMIN_QUERY_ROOT, 'visit', id] as const,
   statistics: (q: PeriodQuery) => [...ADMIN_QUERY_ROOT, 'statistics', q] as const,
+  retention: () => [...ADMIN_QUERY_ROOT, 'retention'] as const,
 }
 
 const noRetry = { retry: false } as const
@@ -252,5 +254,64 @@ export function useStatistics(q: PeriodQuery) {
     queryFn: () => api.statistics(q),
     placeholderData: keepPreviousData,
     ...noRetry,
+  })
+}
+
+export function useRetentionPolicy() {
+  const api = useAdminApi()
+  return useQuery({
+    queryKey: [...adminKeys.retention(), 'policy'],
+    queryFn: () => api.retentionPolicy(),
+    ...noRetry,
+  })
+}
+
+export function useRetentionRuns() {
+  const api = useAdminApi()
+  return useQuery({
+    queryKey: [...adminKeys.retention(), 'runs'],
+    queryFn: () => api.retentionRuns(),
+    ...noRetry,
+  })
+}
+
+export function useSaveRetentionPolicy() {
+  const api = useAdminApi()
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (policy: RetentionPolicy) =>
+      api.saveRetentionPolicy({
+        originals_days: policy.originals_days,
+        outputs_days: policy.outputs_days,
+        link_days: policy.link_days,
+        temp_hours: policy.temp_hours,
+        metadata_mode: policy.metadata_mode,
+        metadata_days: policy.metadata_days,
+        activity_log_days: policy.activity_log_days,
+        backup_days: policy.backup_days,
+        app_log_days: policy.app_log_days,
+        revision: policy.revision,
+      }),
+    onSuccess: (saved) => client.setQueryData([...adminKeys.retention(), 'policy'], saved),
+  })
+}
+
+export function useRunRetention() {
+  const api = useAdminApi()
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ dryRun }: { dryRun: boolean }) => api.runRetention(dryRun),
+    onSuccess: () => void client.invalidateQueries({ queryKey: [...adminKeys.retention(), 'runs'] }),
+  })
+}
+
+export function useRemoveEvent() {
+  const api = useAdminApi()
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, dryRun }: { id: string; dryRun: boolean }) => api.removeEvent(id, dryRun),
+    onSuccess: (_result, { dryRun }) => {
+      if (!dryRun) void client.invalidateQueries({ queryKey: [...ADMIN_QUERY_ROOT, 'profiles'] })
+    },
   })
 }

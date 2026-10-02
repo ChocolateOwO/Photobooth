@@ -10,6 +10,7 @@ import socket
 import threading
 import time
 from collections.abc import Mapping, Sequence
+from datetime import datetime, timedelta
 
 from photobooth import API_VERSION, __version__
 from photobooth.core.admin_gate import AdminAuthenticator, AdminCookieSettings
@@ -24,6 +25,7 @@ from photobooth.core.kiosk_pairing import (
     PairingService,
     RuntimeSecretFile,
 )
+from photobooth.core.sqlite_backup import SqliteBackupService
 from photobooth.core.uploads import UploadAdmission
 from photobooth.core.web import BoothBindings, DeviceCookieSettings, ServiceRegistry
 from photobooth.modules.activity.domain import ActivityType
@@ -69,6 +71,7 @@ from photobooth.modules.delivery.qr import SegnoQrEncoder
 from photobooth.modules.delivery.repository import SqlDeliveryTokenRepository
 from photobooth.modules.delivery.service import DeliveryService, RequestBudget
 from photobooth.modules.eligibility.service import AllowAllEligibility
+from photobooth.modules.event_profiles.domain import ProfileNotFoundError
 from photobooth.modules.event_profiles.repository import SqlEventProfileRepository
 from photobooth.modules.event_profiles.service import EventProfileService
 from photobooth.modules.frames.domain import FrameError
@@ -87,6 +90,10 @@ from photobooth.modules.rendering.domain import (
 from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
 from photobooth.modules.rendering.service import RenderService
+from photobooth.modules.retention.domain import EventNotFoundError, RetentionError
+from photobooth.modules.retention.files import InstanceFolders
+from photobooth.modules.retention.repository import SqlRetentionRepository
+from photobooth.modules.retention.service import RetentionService
 from photobooth.modules.sessions.domain import (
     MAX_CAPTURE_BYTES,
     MAX_CAPTURE_SIDE,
@@ -540,7 +547,10 @@ class _DeliveredOutputs:
                 rendered_at=output.rendered_at,
             )
             for output in self._sessions.outputs(session_id)
-            if output.status is OutputStatus.OK and output.storage_key
+            # A finished photo retention took away is no longer on offer.
+            if output.status is OutputStatus.OK
+            and output.storage_key
+            and not output.file_deleted_at
         ]
 
     def read(self, session_id: str, output_id: str) -> bytes:
@@ -550,6 +560,7 @@ class _DeliveredOutputs:
             or output.session_id != session_id
             or output.status is not OutputStatus.OK
             or output.storage_key is None
+            or output.file_deleted_at is not None
         ):
             raise DeliveryNotFoundError()
         return self._storage.get(StorageKey(output.storage_key))
@@ -610,6 +621,62 @@ class _SessionLinks:
             new=issued.new,
             renewed=issued.renewed,
         )
+
+    def revoke(self, session_id: str) -> int:
+        return self._delivery.revoke(session_id)
+
+
+class _LinkLifetime:
+    """Adapter: a new take-home link works as long as the retention policy says."""
+
+    def __init__(self, policy: SqlRetentionRepository) -> None:
+        self._policy = policy
+
+    def lifetime(self) -> timedelta:
+        return timedelta(days=self._policy.policy().link_days)
+
+
+class _VisitRetention:
+    """Adapter: the sessions module deletes its own visits' files and rows for retention."""
+
+    def __init__(self, sessions: BoothSessionService) -> None:
+        self._sessions = sessions
+
+    def purge_originals(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+        return self._sessions.purge_originals(before, dry_run)
+
+    def purge_outputs(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+        return self._sessions.purge_outputs(before, dry_run)
+
+    def anonymize_visits(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+        return self._sessions.anonymize_visits(before, dry_run)
+
+    def delete_visits(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+        return self._sessions.delete_visits(before, dry_run)
+
+    def delete_event_visits(self, profile_id: str, dry_run: bool) -> tuple[int, int]:
+        try:
+            return self._sessions.delete_event_visits(profile_id, dry_run)
+        except TransitionRefusedError as exc:
+            raise RetentionError(str(exc)) from exc
+
+
+class _EventRemoval:
+    """Adapter: the event_profiles module removes a deleted profile for good."""
+
+    def __init__(self, profiles: EventProfileService) -> None:
+        self._profiles = profiles
+
+    def deleted(self, profile_id: str) -> bool:
+        try:
+            profile = self._profiles.get(profile_id)
+        except ProfileNotFoundError as exc:
+            raise EventNotFoundError() from exc
+        return profile.deleted_at is not None
+
+    def remove(self, profile_id: str) -> None:
+        if not self._profiles.remove_deleted(profile_id):
+            raise RetentionError("only a deleted event can be deleted for good")
 
 
 class _SessionActivity:
@@ -738,6 +805,9 @@ class _CaptureFiles:
     def delete(self, key: str) -> None:
         self._storage.delete(StorageKey(key))
 
+    def size(self, key: str) -> int:
+        return self._storage.size(StorageKey(key))
+
 
 class Container:
     """Owns process-lifetime resources for one instance."""
@@ -838,6 +908,7 @@ class Container:
         )
         self.registry.register(BoothService, self.booth_service)
         self.delivery_tokens = SqlDeliveryTokenRepository(self.engine)
+        self.retention_repository = SqlRetentionRepository(self.engine)
         self.activity_service = ActivityService(
             SqlActivityRepository(self.engine),
             _ActivityVisits(self.session_repository),
@@ -850,6 +921,7 @@ class Container:
             _DeliveredOutputs(self.session_repository, self.storage),
             _LinkAddress(settings),
             SegnoQrEncoder(),
+            policy=_LinkLifetime(self.retention_repository),
             activity=_LinkActivity(self.activity_service, self.session_repository),
         )
         self.registry.register(DeliveryService, self.delivery_service)
@@ -875,6 +947,20 @@ class Container:
             activity=_SessionActivity(self.activity_service),
         )
         self.registry.register(BoothSessionService, self.session_service)
+        self.retention_service = RetentionService(
+            self.retention_repository,
+            _VisitRetention(self.session_service),
+            self.activity_service,
+            InstanceFolders(
+                settings.instance_root,
+                settings.storage_dir,
+                settings.backups_dir,
+                settings.logs_dir,
+                SqliteBackupService(settings.backups_dir).forget,
+            ),
+            _EventRemoval(self.profile_service),
+        )
+        self.registry.register(RetentionService, self.retention_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))
         self.registry.register(
             AdminCookieSettings, AdminCookieSettings(f"pb_admin_{settings.instance}")
@@ -892,6 +978,7 @@ class Container:
         """Periodic upkeep while serving (every step is idempotent and safe to repeat)."""
         self.session_service.maintain()
         self.delivery_service.forget_expired()
+        self.retention_service.scheduled()  # at most once an hour
 
     def close(self) -> None:
         self.pairing.shutdown()

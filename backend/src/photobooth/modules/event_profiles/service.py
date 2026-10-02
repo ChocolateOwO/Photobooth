@@ -146,5 +146,9 @@ class EventProfileService:
     def soft_delete(self, profile_id: str, expected_revision: int) -> EventProfile:
         return self._repository.soft_delete(profile_id, expected_revision, self._clock())
 
+    def remove_deleted(self, profile_id: str) -> bool:
+        """Permanently delete a profile that was deleted (retention asks, after its visits)."""
+        return self._repository.remove_deleted(profile_id)
+
     def restore(self, profile_id: str) -> EventProfile:
         return self._repository.restore(profile_id, self._clock())

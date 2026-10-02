@@ -161,6 +161,10 @@ class ActivityService:
         except Exception as exc:
             logger.warning("activity record %s not kept (%s)", kind.value, type(exc).__name__)
 
+    def purge(self, before: datetime, dry_run: bool) -> int:
+        """Retention: activity records older than `before` (counted, or deleted)."""
+        return self._repository.purge(before, dry_run)
+
     # ---- reading -----------------------------------------------------------------------------
 
     def search(
