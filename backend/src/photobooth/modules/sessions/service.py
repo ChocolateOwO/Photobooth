@@ -8,6 +8,7 @@ does the work twice: each change carries an idempotency key whose recorded outco
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
 import uuid
 from collections.abc import Iterator, Sequence
@@ -51,6 +52,7 @@ from photobooth.modules.sessions.domain import (
     RenderRequest,
     RetakeMode,
     Selection,
+    SessionActivity,
     SessionClosedError,
     SessionFrames,
     SessionNotFoundError,
@@ -70,6 +72,19 @@ from photobooth.modules.sessions.domain import (
 class SystemClock:
     def now(self) -> datetime:
         return datetime.now(UTC)
+
+
+class NoActivity:
+    def record(self, kind: str, session: BoothSession, /, **facts: str | int | bool) -> None:
+        return None
+
+
+def _decoration_facts(canonical: str | None) -> dict[str, str | int]:
+    """The filter and the number of stickers of a stored decoration, for the activity log."""
+    if canonical is None:
+        return {"filter": "none", "stickers": 0}
+    spec = json.loads(canonical)
+    return {"filter": str(spec.get("filter", "none")), "stickers": len(spec.get("stickers", []))}
 
 
 class SessionLocks:
@@ -126,6 +141,7 @@ class BoothSessionService:
         frames: SessionFrames,
         links: DeliveryLinks,
         decorations: DecorationRules,
+        activity: SessionActivity | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._repository = repository
@@ -138,6 +154,7 @@ class BoothSessionService:
         self._frames = frames
         self._links = links
         self._decorations = decorations
+        self._activity = activity or NoActivity()
         self._clock = clock or SystemClock()
         self._locks = SessionLocks()
         self._device_locks = SessionLocks()
@@ -207,9 +224,17 @@ class BoothSessionService:
             # middle of publishing a photo or finished photos when it ends.
             previous = self._repository.active_for_device(device_id)
             if previous is None:
-                return self._repository.create(session, operation)
-            with self._locks.held(previous.id):
-                return self._repository.create(session, operation)
+                created = self._repository.create(session, operation)
+            else:
+                with self._locks.held(previous.id):
+                    created = self._repository.create(session, operation)
+                ended = self._repository.get(previous.id)
+                if ended is not None and ended.closed:
+                    self._activity.record(
+                        "session_ended", ended, state=str(ended.state), reason="next_guest"
+                    )
+            self._activity.record("session_started", created)
+            return created
 
     def current(self, device_id: str) -> BoothSession | None:
         """The visit this device is in the middle of, if any (used after a reload)."""
@@ -276,9 +301,17 @@ class BoothSessionService:
             if not may_move(session.state, SessionState.CAPTURING):
                 raise TransitionRefusedError(f"a {session.state} session can not start photos")
             selection = Selection.of(session.profile.offer(frame_id))
-            return self._repository.select_frame(
+            chosen = self._repository.select_frame(
                 session_id, session.state_version, selection, self._clock.now()
             )
+            self._activity.record(
+                "frame_chosen",
+                chosen,
+                layout=selection.template_key,
+                captures=selection.captures,
+                outputs=selection.outputs,
+            )
+            return chosen
 
     # ---- photos ------------------------------------------------------------------------------
 
@@ -315,7 +348,13 @@ class BoothSessionService:
                 )
             self._check_attempt(session_id, shot_index, attempt_no)
 
-            facts = self._images.inspect(data)
+            try:
+                facts = self._images.inspect(data)
+            except CaptureRefusedError:
+                self._activity.record(
+                    "capture_failed", session, shot=shot_index, attempt=attempt_no, reason="refused"
+                )
+                raise
             capture_id = str(uuid.uuid4())
             key = capture_key(session_id, capture_id)
             now = self._clock.now()
@@ -355,6 +394,17 @@ class BoothSessionService:
             outcome = self._repository.finalize_capture(operation.id, facts)
             if outcome.capture.status is not CaptureStatus.OK:
                 self._collect_files()
+                self._activity.record(
+                    "capture_failed",
+                    outcome.session,
+                    shot=shot_index,
+                    attempt=attempt_no,
+                    reason=outcome.capture.failure_reason or "not_kept",
+                )
+            else:
+                self._activity.record(
+                    "capture_ok", outcome.session, shot=shot_index, attempt=attempt_no
+                )
             return outcome
 
     def retake(
@@ -394,9 +444,11 @@ class BoothSessionService:
                 raise TransitionRefusedError("that photo has not been taken yet")
             for shot in wanted:
                 self._check_attempt_room(session_id, shot)
-            return self._repository.allocate_retake(
+            again = self._repository.allocate_retake(
                 session_id, session.state_version, wanted, self._clock.now()
             )
+            self._activity.record("retake", again, shots=len(wanted))
+            return again
 
     def finish_capturing(self, device_id: str, session_id: str) -> BoothSession:
         """All photos are in: the session leaves the camera behind (review comes next phase)."""
@@ -406,9 +458,13 @@ class BoothSessionService:
                 raise TransitionRefusedError("this session is not taking photos")
             if session.successful_capture_count < session.expected_capture_count:
                 raise TransitionRefusedError("some photos are still missing")
-            return self._repository.finish_capturing(
+            finished = self._repository.finish_capturing(
                 session_id, session.state_version, self._clock.now()
             )
+            self._activity.record(
+                "photos_confirmed", finished, photos=finished.successful_capture_count
+            )
+            return finished
 
     def give_up(self, device_id: str, session_id: str) -> BoothSession:
         """The participant leaves: the session ends and nothing more may be added to it."""
@@ -427,6 +483,17 @@ class BoothSessionService:
             )
             closed = self._repository.close(session_id, ending, self._clock.now())
             settled = closed or session
+            if (
+                closed is not None
+                and closed.closed
+                and closed.state_version > session.state_version
+            ):
+                self._activity.record(
+                    "session_ended",
+                    closed,
+                    state=str(closed.state),
+                    reason="done" if ending is SessionState.COMPLETED else "left",
+                )
             self._clear_test(settled)
             return settled
 
@@ -551,7 +618,12 @@ class BoothSessionService:
                 )
             except RenderFailedError as exc:
                 # Nothing about this visit can be made: it ends, and the booth starts over.
-                self._repository.close(session_id, SessionState.ERROR, self._clock.now(), exc.code)
+                ended = self._repository.close(
+                    session_id, SessionState.ERROR, self._clock.now(), exc.code
+                )
+                self._activity.record("render_failed", session, reason=exc.code)
+                if ended is not None and ended.closed:
+                    self._activity.record("session_ended", ended, state="error", reason=exc.code)
                 raise
 
             now = self._clock.now()
@@ -600,6 +672,13 @@ class BoothSessionService:
             outcome = self._repository.finalize_render(operation.id, fingerprint)
             if any(output.status is not OutputStatus.OK for output in outcome.outputs):
                 self._collect_files()
+            else:
+                self._activity.record(
+                    "render_ok",
+                    outcome.session,
+                    outputs=len(outcome.outputs),
+                    **_decoration_facts(prepared),
+                )
             return outcome
 
     def finished_outputs(self, session_id: str) -> list[OutputAsset]:
@@ -636,7 +715,10 @@ class BoothSessionService:
             session = self._load(device_id, session_id)
             if session.state is not SessionState.DELIVERED:
                 raise TransitionRefusedError("the finished photos are not ready yet")
-            return self._links.ensure(session_id)
+            link = self._links.ensure(session_id)
+            if link.new:  # a reload showing the same code again is not news
+                self._activity.record("link_shown", session, renewed=link.renewed)
+            return link
 
     def clear_old_tests(self, keep_for_seconds: int = 3600) -> int:
         """Clear away the organizer's finished or forgotten test visits. Never a guest's."""
@@ -671,16 +753,19 @@ class BoothSessionService:
         now = self._clock.now()
         for session_id, idle_since in self._repository.inactive_sessions(now):
             with self._locks.held(session_id):
+                at = self._clock.now()
                 settled = self._repository.close(
-                    session_id,
-                    SessionState.ABANDONED,
-                    self._clock.now(),
-                    "inactivity",
-                    idle_since=idle_since,
+                    session_id, SessionState.ABANDONED, at, "inactivity", idle_since=idle_since
                 )
             if settled is not None and settled.closed:
                 closed.append(session_id)
+                self._record_timeout(settled, at)
         return closed
+
+    def _record_timeout(self, settled: BoothSession, at: datetime) -> None:
+        """A visit this very call ended for inactivity (not one somebody had already ended)."""
+        if settled.closed and settled.completed_at == at:
+            self._activity.record("reset_timeout", settled, state=str(settled.state))
 
     def pinned_frames(self) -> set[str]:
         """Frames a visit in progress depends on (its own and the ones its event offered)."""
@@ -891,16 +976,18 @@ class BoothSessionService:
         if idle < session.profile.inactivity_timeout_s:
             return session
         # Closed only while nobody has touched the visit since it was read (P67-008).
-        return (
-            self._repository.close(
-                session.id,
-                SessionState.ABANDONED,
-                self._clock.now(),
-                "inactivity",
-                idle_since=session.last_activity_at,
-            )
-            or session
+        at = self._clock.now()
+        settled = self._repository.close(
+            session.id,
+            SessionState.ABANDONED,
+            at,
+            "inactivity",
+            idle_since=session.last_activity_at,
         )
+        if settled is None:
+            return session
+        self._record_timeout(settled, at)
+        return settled
 
 
 __all__ = [

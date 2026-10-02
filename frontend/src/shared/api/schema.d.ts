@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/admin/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Activity */
+        get: operations["activity_api_admin_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/assets": {
         parameters: {
             query?: never;
@@ -279,6 +296,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** History */
+        get: operations["history_api_admin_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/history/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Visit Detail */
+        get: operations["visit_detail_api_admin_history__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/profiles": {
         parameters: {
             query?: never;
@@ -364,6 +415,23 @@ export interface paths {
         put?: never;
         /** Restore Profile */
         post: operations["restore_profile_api_admin_profiles__profile_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/statistics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Statistics */
+        get: operations["statistics_api_admin_statistics_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -977,6 +1045,57 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivityPage */
+        ActivityPage: {
+            /**
+             * More
+             * @description Older records follow; ask again with before_at/before_id.
+             */
+            more: boolean;
+            /** Records */
+            records: components["schemas"]["ActivityRecordResponse"][];
+        };
+        /** ActivityRecordResponse */
+        ActivityRecordResponse: {
+            /**
+             * Actor
+             * @description booth, guest, admin or system
+             * @example booth
+             */
+            actor: string;
+            /** Admin Username */
+            admin_username: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Id */
+            id: string;
+            /** Payload */
+            payload: {
+                [key: string]: string | number | boolean;
+            };
+            /** Profile Id */
+            profile_id: string | null;
+            /** Session Id */
+            session_id: string | null;
+            /**
+             * Type
+             * @example capture_ok
+             */
+            type: string;
+        };
+        /**
+         * ActivityType
+         * @enum {string}
+         */
+        ActivityType: "session_started" | "frame_chosen" | "capture_ok" | "capture_failed" | "retake" | "photos_confirmed" | "render_ok" | "render_failed" | "link_shown" | "session_ended" | "reset_timeout" | "qr_opened" | "download" | "admin_login" | "admin_login_failed" | "admin_logout" | "admin_profile_created" | "admin_profile_updated" | "admin_profile_duplicated" | "admin_profile_activated" | "admin_profile_deleted" | "admin_profile_restored" | "admin_frame_uploaded" | "admin_frame_replaced" | "admin_frame_renamed" | "admin_frame_deleted" | "admin_asset_uploaded" | "admin_asset_deleted" | "admin_test_started" | "admin_tests_cleared";
+        /**
+         * Actor
+         * @enum {string}
+         */
+        Actor: "booth" | "guest" | "admin" | "system";
         /**
          * AssetKind
          * @enum {string}
@@ -1061,6 +1180,13 @@ export interface components {
             minimum: number;
             /** What */
             what: string;
+        };
+        /** CountResponse */
+        CountResponse: {
+            /** Count */
+            count: number;
+            /** Key */
+            key: string;
         };
         /**
          * DecorateLayoutResponse
@@ -1375,6 +1501,15 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "error";
+        };
+        /** HistoryPage */
+        HistoryPage: {
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+            /** Visits */
+            visits: components["schemas"]["VisitResponse"][];
         };
         /** KioskStatusResponse */
         KioskStatusResponse: {
@@ -1889,6 +2024,62 @@ export interface components {
             /** Profile Id */
             profile_id: string;
         };
+        /** StatisticsResponse */
+        StatisticsResponse: {
+            /** Abandoned */
+            abandoned: number;
+            /**
+             * Average Minutes
+             * @description Start to finish, finished visits only.
+             */
+            average_minutes: number | null;
+            /** By Filter */
+            by_filter: components["schemas"]["CountResponse"][];
+            /**
+             * By Hour
+             * @description Visits started per hour (booth clock).
+             */
+            by_hour: components["schemas"]["CountResponse"][];
+            /** By Layout */
+            by_layout: components["schemas"]["CountResponse"][];
+            /** Cancelled */
+            cancelled: number;
+            /**
+             * Decorated
+             * @description Finished visits with a filter or stickers.
+             */
+            decorated: number;
+            /** Downloads */
+            downloads: number;
+            /** Errors */
+            errors: number;
+            /** Failed Attempts */
+            failed_attempts: number;
+            /**
+             * Finished
+             * @description Visits whose finished photos were made.
+             */
+            finished: number;
+            /** In Progress */
+            in_progress: number;
+            /** Links Opened */
+            links_opened: number;
+            /** Outputs */
+            outputs: number;
+            /** Photos */
+            photos: number;
+            /** Retakes */
+            retakes: number;
+            /** Since */
+            since: string | null;
+            /** Until */
+            until: string | null;
+            /**
+             * Visits
+             * @description Guests' visits started (organizer tests never count).
+             */
+            visits: number;
+        };
         /** StickerResponse */
         StickerResponse: {
             /** Height */
@@ -2041,6 +2232,55 @@ export interface components {
             /** Schema Revision */
             schema_revision: string | null;
         };
+        /** VisitDetailResponse */
+        VisitDetailResponse: {
+            /** Timeline */
+            timeline: components["schemas"]["ActivityRecordResponse"][];
+            visit: components["schemas"]["VisitResponse"];
+        };
+        /**
+         * VisitResponse
+         * @description One guest's visit (never an organizer's test).
+         */
+        VisitResponse: {
+            /** Downloads */
+            downloads: number;
+            /** End Reason */
+            end_reason: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Failed Attempts */
+            failed_attempts: number;
+            /** Filter */
+            filter: string | null;
+            /** Id */
+            id: string;
+            /** Layout */
+            layout: string | null;
+            /** Link Issued */
+            link_issued: boolean;
+            /** Link Opened */
+            link_opened: boolean;
+            /** Outputs */
+            outputs: number;
+            /** Photos */
+            photos: number;
+            /** Profile Id */
+            profile_id: string;
+            /** Profile Name */
+            profile_name: string | null;
+            /** Retakes */
+            retakes: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** State */
+            state: string;
+            /** Stickers */
+            stickers: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -2050,6 +2290,43 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    activity_api_admin_activity_get: {
+        parameters: {
+            query?: {
+                type?: components["schemas"]["ActivityType"][] | null;
+                actor?: components["schemas"]["Actor"][] | null;
+                since?: string | null;
+                until?: string | null;
+                before_at?: string | null;
+                before_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     upload_asset_api_admin_assets_post: {
         parameters: {
             query?: never;
@@ -2553,6 +2830,73 @@ export interface operations {
             };
         };
     };
+    history_api_admin_history_get: {
+        parameters: {
+            query?: {
+                profile_id?: string | null;
+                state?: ("eligibility_ok" | "capturing" | "reviewing" | "delivered" | "completed" | "cancelled" | "abandoned" | "error")[] | null;
+                since?: string | null;
+                until?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    visit_detail_api_admin_history__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisitDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_profiles_api_admin_profiles_get: {
         parameters: {
             query?: {
@@ -2944,6 +3288,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProblemResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    statistics_api_admin_statistics_get: {
+        parameters: {
+            query?: {
+                profile_id?: string | null;
+                since?: string | null;
+                until?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatisticsResponse"];
                 };
             };
             /** @description Validation Error */

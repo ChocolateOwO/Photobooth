@@ -22,7 +22,9 @@ from photobooth.modules.delivery.domain import (
     DeliveryTokenRepository,
     DeliveryUnavailableError,
     IssuedLink,
+    LinkActivity,
     LinkAddress,
+    LinkFacts,
     LinkPolicy,
     OpenedLink,
     QrEncoder,
@@ -44,6 +46,11 @@ class FixedLinkPolicy:
         return self._lifetime
 
 
+class NoLinkActivity:
+    def record(self, kind: str, session_id: str, /, **facts: str | int | bool) -> None:
+        return None
+
+
 class DeliveryService:
     """The guest's link: made once per visit, shown again from memory, checked on every use."""
 
@@ -56,6 +63,7 @@ class DeliveryService:
         policy: LinkPolicy | None = None,
         clock: Clock | None = None,
         new_token: Callable[[], str] = lambda: secrets.token_urlsafe(TOKEN_BYTES),
+        activity: LinkActivity | None = None,
     ) -> None:
         self._repository = repository
         self._outputs = outputs
@@ -64,6 +72,7 @@ class DeliveryService:
         self._policy = policy or FixedLinkPolicy()
         self._clock = clock or SystemClock()
         self._new_token = new_token
+        self._activity = activity or NoLinkActivity()
         # token id -> (plaintext, keep until). Never written anywhere; gone at restart.
         self._plaintext: dict[str, tuple[str, datetime]] = {}
         self._lock = threading.Lock()
@@ -98,7 +107,7 @@ class DeliveryService:
                 self._plaintext.pop(current.id, None)
             self._plaintext[token.id] = (plaintext, min(token.expires_at, now + CACHE_LIFETIME))
             self._forget_stale(now)
-        return self._link(token, plaintext)
+        return self._link(token, plaintext, new=True, renewed=current is not None)
 
     def forget_expired(self) -> int:
         """Drop every remembered link whose time is up, whether or not anyone asks again.
@@ -125,8 +134,8 @@ class DeliveryService:
         files = tuple(self._outputs.files(row.session_id))
         if not files:
             raise DeliveryNotFoundError()
-        if row.opened_at is None:
-            self._repository.mark_opened(row.id, self._clock.now())
+        if row.opened_at is None and self._repository.mark_opened(row.id, self._clock.now()):
+            self._activity.record("qr_opened", row.session_id)
         return OpenedLink(token=row, files=files)
 
     def file(self, token: str, output_id: str) -> tuple[DeliverableFile, bytes]:
@@ -151,8 +160,17 @@ class DeliveryService:
     def read(self, token: DeliveryToken, output_id: str) -> bytes:
         return self._outputs.read(token.session_id, output_id)
 
-    def count_download(self, token: DeliveryToken) -> None:
+    def count_download(self, token: DeliveryToken, output_index: int | None = None) -> None:
+        """One photo saved (its position), or Download All (no position)."""
         self._repository.count_download(token.id)
+        if output_index is None:
+            self._activity.record("download", token.session_id, kind="zip")
+        else:
+            self._activity.record("download", token.session_id, kind="file", output=output_index)
+
+    def facts(self, session_ids: list[str]) -> dict[str, LinkFacts]:
+        """What became of each visit's links, for History and Statistics. Never a token."""
+        return self._repository.facts(session_ids)
 
     # ---- internals ---------------------------------------------------------------------------
 
@@ -164,10 +182,17 @@ class DeliveryService:
             raise DeliveryNotFoundError()
         return row
 
-    def _link(self, token: DeliveryToken, plaintext: str) -> IssuedLink:
+    def _link(
+        self, token: DeliveryToken, plaintext: str, *, new: bool = False, renewed: bool = False
+    ) -> IssuedLink:
         url = f"{self._address.base_url()}/d/{plaintext}"
         return IssuedLink(
-            token_id=token.id, url=url, expires_at=token.expires_at, qr_svg=self._qr.svg(url)
+            token_id=token.id,
+            url=url,
+            expires_at=token.expires_at,
+            qr_svg=self._qr.svg(url),
+            new=new,
+            renewed=renewed,
         )
 
     def _remembered(self, token_id: str, now: datetime) -> str | None:

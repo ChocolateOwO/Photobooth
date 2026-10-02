@@ -47,6 +47,15 @@ export function AdminLayout({ username, onLogout, children }: AdminLayoutProps) 
             <Link to="/admin/test" className={styles.navLink}>
               Test booth
             </Link>
+            <Link to="/admin/history" className={styles.navLink}>
+              History
+            </Link>
+            <Link to="/admin/statistics" className={styles.navLink}>
+              Statistics
+            </Link>
+            <Link to="/admin/activity" className={styles.navLink}>
+              Activity log
+            </Link>
           </nav>
           <button
             type="button"

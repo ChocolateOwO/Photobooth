@@ -97,7 +97,7 @@ def one_file(
     )
     name = download_name(position, len(opened.files))
     if download:
-        service.count_download(opened.token)
+        service.count_download(opened.token, position)
     return Response(
         content=data,
         media_type="image/jpeg",

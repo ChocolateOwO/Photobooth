@@ -12,7 +12,8 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--pb-space);
-  padding: var(--pb-space) calc(var(--pb-space) * 1.5);
+  /* The right edge stays clear of the DUMMY/MAIN badge pinned to the top-right corner. */
+  padding: var(--pb-space) 170px var(--pb-space) calc(var(--pb-space) * 1.5);
   background-color: var(--pb-color-surface);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -30,7 +31,7 @@
      page sideways. */
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--pb-space);
+  gap: 4px;
 }
 
 .navLink {
@@ -38,7 +39,7 @@
   align-items: center;
   justify-content: center;
   min-height: var(--pb-touch-target);
-  padding: 0 20px;
+  padding: 0 14px;
   border-radius: var(--pb-radius);
   color: var(--pb-color-text);
   text-decoration: none;
@@ -96,4 +97,10 @@
   color: var(--pb-color-error);
   font-weight: 600;
   line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .header {
+    padding-right: calc(var(--pb-space) * 1.5);
+  }
 }

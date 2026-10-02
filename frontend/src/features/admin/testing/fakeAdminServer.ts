@@ -1,4 +1,8 @@
 import type {
+  ActivityLogPage,
+  HistoryPage,
+  Statistics,
+  VisitDetail,
   EventProfile,
   ExtractedTheme,
   Frame,
@@ -138,6 +142,11 @@ export class FakeAdminServer {
     message: 'Colors extracted from background',
   }
   requests: { method: string; path: string; headers: Record<string, string> }[] = []
+  /** Activity log pages: the first answer, then the one after "Show older". */
+  activityPages: ActivityLogPage[] = [{ records: [], more: false }]
+  historyPage: HistoryPage = { visits: [], total: 0, offset: 0 }
+  visits = new Map<string, VisitDetail>()
+  statistics: Statistics | null = null
   templates = [template('strip_2x6', '2x6 photo strip'), template('print_4x6', '4x6 print')]
   private nextId = 1
 
@@ -443,6 +452,20 @@ export class FakeAdminServer {
 
     if (method !== 'GET' && headers[DEVICE_KEY_HEADER] !== DEVICE_KEY) {
       return json({ detail: 'device key invalid' }, 403)
+    }
+    // ---- history, statistics and the activity log (read only) ------------------------------
+    if (method === 'GET' && /^\/api\/admin\/(activity|history|statistics)/.test(path)) {
+      if (!this.signedIn) return json({ detail: 'admin login required' }, 401)
+      if (path === '/api/admin/activity') {
+        const older = url.searchParams.has('before_at')
+        return json(this.activityPages[older ? 1 : 0] ?? { records: [], more: false })
+      }
+      if (path === '/api/admin/history') return json(this.historyPage)
+      if (path.startsWith('/api/admin/history/')) {
+        const detail = this.visits.get(path.split('/').pop() ?? '')
+        return detail ? json(detail) : json({ detail: 'no such visit' }, 404)
+      }
+      if (path === '/api/admin/statistics' && this.statistics) return json(this.statistics)
     }
     if (path === '/api/admin/auth/login' && method === 'POST') {
       if (this.throttleSeconds !== null) {

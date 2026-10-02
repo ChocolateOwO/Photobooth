@@ -1,0 +1,212 @@
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--pb-space) 0 calc(var(--pb-space) * 3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pb-space);
+  min-width: 0;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 15px;
+  color: var(--pb-color-muted);
+}
+
+.field select {
+  min-height: 44px;
+  min-width: 220px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background-color: var(--pb-color-surface);
+  color: var(--pb-color-text);
+  font: inherit;
+  font-size: 16px;
+}
+
+.empty {
+  margin: 0;
+  color: var(--pb-color-muted);
+  font-size: 16px;
+}
+
+.error {
+  margin: 0;
+  color: var(--pb-color-error);
+  font-size: 16px;
+}
+
+/* Headline numbers: a tile each, the number big, the context small. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border-radius: var(--pb-radius);
+  background-color: var(--pb-color-surface);
+}
+
+.tileLabel {
+  margin: 0;
+  color: var(--pb-color-muted);
+  font-size: 15px;
+}
+
+.tileValue {
+  margin: 0;
+  color: var(--pb-color-text);
+  font-size: 34px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tileNote {
+  margin: 0;
+  color: var(--pb-color-muted);
+  font-size: 14px;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--pb-radius);
+  background-color: var(--pb-color-surface);
+  min-width: 0;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* One series, one hue (the admin primary); text stays in ink colours. */
+.barList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.barRow {
+  display: grid;
+  grid-template-columns: minmax(90px, 140px) 1fr 3.5ch;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.barLabel {
+  color: var(--pb-color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barTrack {
+  height: 14px;
+}
+
+.bar {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: 0 4px 4px 0;
+  background-color: var(--pb-color-primary);
+}
+
+.barValue {
+  color: var(--pb-color-text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.hours {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  gap: 2px;
+  height: 180px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.hourColumn {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: end;
+  justify-items: center;
+  min-width: 0;
+  height: 100%;
+}
+
+.hourCount {
+  color: var(--pb-color-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hourBar {
+  align-self: end;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background-color: var(--pb-color-primary);
+}
+
+.hourBar[data-empty] {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.hourLabel {
+  color: var(--pb-color-muted);
+  font-size: 12px;
+  min-height: 16px;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

@@ -87,6 +87,8 @@ def login(
         samesite="strict",
         path=COOKIE_PATH,
     )
+    # Who signed in, for the admin audit (never the password: request bodies are not logged).
+    request.state.admin_principal = AdminPrincipal(user_id=info.user_id, username=info.username)
     response.headers["Cache-Control"] = "no-store"
     return SessionResponse(
         username=result.username,

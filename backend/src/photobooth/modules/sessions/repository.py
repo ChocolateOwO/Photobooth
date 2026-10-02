@@ -56,6 +56,7 @@ from photobooth.modules.sessions.domain import (
     SessionState,
     StaleSessionError,
     TransitionRefusedError,
+    VisitFacts,
     closing_state,
 )
 
@@ -844,6 +845,81 @@ class SqlSessionRepository(SessionRepository):
             if selection is not None:
                 pinned.add(selection.frame_id)
         return pinned
+
+    def visits(
+        self,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        profile_id: str | None = None,
+        states: Sequence[str] = (),
+        session_id: str | None = None,
+    ) -> list[VisitFacts]:
+        """Guests' visits, newest first, with what they made. Organizer tests never appear."""
+        query = select(BoothSessionRow).where(BoothSessionRow.is_test.is_(False))
+        if session_id is not None:
+            query = query.where(BoothSessionRow.id == session_id)
+        if since is not None:
+            query = query.where(BoothSessionRow.started_at >= since)
+        if until is not None:
+            query = query.where(BoothSessionRow.started_at < until)
+        if profile_id is not None:
+            query = query.where(BoothSessionRow.event_profile_id == profile_id)
+        if states:
+            query = query.where(BoothSessionRow.state.in_(list(states)))
+        query = query.order_by(BoothSessionRow.started_at.desc(), BoothSessionRow.id.desc())
+        retakes: dict[str, int] = {}
+        outputs: dict[str, int] = {}
+        made_at: dict[str, datetime] = {}
+        decorations: dict[str, str | None] = {}
+        with self._sessions() as db:
+            rows = db.scalars(query).all()
+            ids = [row.id for row in rows]
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                for sid, count in db.execute(
+                    select(CaptureAssetRow.session_id, func.count())
+                    .where(
+                        CaptureAssetRow.session_id.in_(chunk),
+                        CaptureAssetRow.attempt_no > 1,
+                        CaptureAssetRow.status.in_(
+                            [str(CaptureStatus.OK), str(CaptureStatus.REPLACED)]
+                        ),
+                    )
+                    .group_by(CaptureAssetRow.session_id)
+                ).all():
+                    retakes[sid] = int(count)
+                for output in db.scalars(
+                    select(OutputAssetRow).where(
+                        OutputAssetRow.session_id.in_(chunk),
+                        OutputAssetRow.status == str(OutputStatus.OK),
+                    )
+                ).all():
+                    sid = output.session_id
+                    outputs[sid] = outputs.get(sid, 0) + 1
+                    decorations.setdefault(sid, output.decoration)
+                    if sid not in made_at or output.rendered_at < made_at[sid]:
+                        made_at[sid] = output.rendered_at
+        facts: list[VisitFacts] = []
+        for row in rows:
+            selection = _selection_of(row.selection_snapshot)
+            facts.append(
+                VisitFacts(
+                    id=row.id,
+                    started_at=row.started_at,
+                    completed_at=row.completed_at,
+                    photos_made_at=made_at.get(row.id),
+                    state=SessionState(row.state),
+                    error_code=row.error_code,
+                    profile_id=row.event_profile_id,
+                    template_key=selection.template_key if selection else None,
+                    photos=row.successful_capture_count,
+                    failed_attempts=row.failed_capture_attempts,
+                    retakes=retakes.get(row.id, 0),
+                    outputs=outputs.get(row.id, 0),
+                    decoration=decorations.get(row.id),
+                )
+            )
+        return facts
 
     def unfinished_operations(self, boot_id: str) -> list[Operation]:
         with self._sessions() as db:

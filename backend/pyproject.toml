@@ -104,6 +104,7 @@ containers = [
     "photobooth.modules.booth",
     "photobooth.modules.delivery",
     "photobooth.modules.decorations",
+    "photobooth.modules.activity",
 ]
 layers = ["api", "service", "domain"]
 exhaustive = false
@@ -135,6 +136,8 @@ source_modules = [
     "photobooth.modules.delivery.service",
     "photobooth.modules.decorations.api",
     "photobooth.modules.decorations.service",
+    "photobooth.modules.activity.api",
+    "photobooth.modules.activity.service",
 ]
 forbidden_modules = [
     "photobooth.modules.system.repository",
@@ -156,6 +159,7 @@ forbidden_modules = [
     "photobooth.modules.delivery.repository",
     "photobooth.modules.delivery.qr",
     "photobooth.modules.decorations.builtin",
+    "photobooth.modules.activity.repository",
     "segno",
     "PIL",
     "argon2",
@@ -179,6 +183,7 @@ source_modules = [
     "photobooth.modules.booth.domain",
     "photobooth.modules.delivery.domain",
     "photobooth.modules.decorations.domain",
+    "photobooth.modules.activity.domain",
 ]
 forbidden_modules = [
     "fastapi",
@@ -350,6 +355,27 @@ forbidden_modules = [
     "photobooth.modules.sessions",
     "photobooth.modules.booth",
     "photobooth.modules.delivery",
+    "photobooth.modules.rendering",
+    "photobooth.modules.frames",
+    "photobooth.modules.assets",
+    "photobooth.modules.storage",
+    "photobooth.modules.event_profiles",
+    "photobooth.modules.auth",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.system",
+    "photobooth.modules.templates",
+    "photobooth.modules.themes",
+]
+
+[[tool.importlinter.contracts]]
+name = "Activity talks to other modules only through ports"
+type = "forbidden"
+source_modules = ["photobooth.modules.activity"]
+forbidden_modules = [
+    "photobooth.modules.sessions",
+    "photobooth.modules.booth",
+    "photobooth.modules.delivery",
+    "photobooth.modules.decorations",
     "photobooth.modules.rendering",
     "photobooth.modules.frames",
     "photobooth.modules.assets",

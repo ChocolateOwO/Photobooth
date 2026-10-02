@@ -24,6 +24,37 @@ export type AdminSession = Schemas['SessionResponse']
 export type TemplateSummary = Schemas['TemplateSummary']
 export type Frame = Schemas['FrameResponse']
 export type TemplateSpec = Schemas['TemplateSpec']
+export type ActivityRecord = Schemas['ActivityRecordResponse']
+export type ActivityLogPage = Schemas['ActivityPage']
+export type Visit = Schemas['VisitResponse']
+export type HistoryPage = Schemas['HistoryPage']
+export type VisitDetail = Schemas['VisitDetailResponse']
+export type Statistics = Schemas['StatisticsResponse']
+
+/** A period (ISO instants) and, optionally, one event. */
+export interface PeriodQuery {
+  since?: string
+  until?: string
+  profileId?: string
+}
+
+export interface HistoryQuery extends PeriodQuery {
+  states?: readonly string[]
+  offset?: number
+  limit?: number
+}
+
+/** A query string from the values that are set; lists repeat their key. */
+function query(params: Record<string, string | number | readonly string[] | undefined>): string {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue
+    if (typeof value === 'string' || typeof value === 'number') search.set(key, String(value))
+    else for (const item of value) search.append(key, item)
+  }
+  const text = search.toString()
+  return text ? `?${text}` : ''
+}
 
 export const ADMIN_CSRF_HEADER = 'X-Photobooth-Admin-CSRF'
 
@@ -350,6 +381,36 @@ export function createAdminApiClient(
       }),
     /** Clear away test visits that are over or were left behind (never a guest's). */
     clearBoothTests: () => send<undefined>('POST', '/api/admin/booth-test/cleanup'),
+    /** The activity log, newest first; `before` continues after the last record shown. */
+    activity: (actors: readonly string[], before?: { at: string; id: string }, limit = 50) =>
+      send<ActivityLogPage>(
+        'GET',
+        `/api/admin/activity${query({
+          actor: actors,
+          before_at: before?.at,
+          before_id: before?.id,
+          limit,
+        })}`,
+      ),
+    /** Guests' visits, newest first (organizer tests never appear). */
+    history: (q: HistoryQuery) =>
+      send<HistoryPage>(
+        'GET',
+        `/api/admin/history${query({
+          since: q.since,
+          until: q.until,
+          profile_id: q.profileId,
+          state: q.states,
+          offset: q.offset,
+          limit: q.limit,
+        })}`,
+      ),
+    visit: (id: string) => send<VisitDetail>('GET', `/api/admin/history/${encodeURIComponent(id)}`),
+    statistics: (q: PeriodQuery) =>
+      send<Statistics>(
+        'GET',
+        `/api/admin/statistics${query({ since: q.since, until: q.until, profile_id: q.profileId })}`,
+      ),
   }
 }
 

@@ -1,9 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 
 import type {
   AssetKind,
   EventProfile,
+  HistoryQuery,
   NewProfileSettings,
+  PeriodQuery,
   ProfileSettings,
 } from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
@@ -21,6 +29,10 @@ export const adminKeys = {
   templateSpec: (key: string) => ['templates', key] as const,
   frames: (templateKey?: string) => [...ADMIN_QUERY_ROOT, 'frames', templateKey ?? 'all'] as const,
   themes: () => [...ADMIN_QUERY_ROOT, 'themes'] as const,
+  activity: (actors: readonly string[]) => [...ADMIN_QUERY_ROOT, 'activity', actors] as const,
+  history: (q: HistoryQuery) => [...ADMIN_QUERY_ROOT, 'history', q] as const,
+  visit: (id: string) => [...ADMIN_QUERY_ROOT, 'visit', id] as const,
+  statistics: (q: PeriodQuery) => [...ADMIN_QUERY_ROOT, 'statistics', q] as const,
 }
 
 const noRetry = { retry: false } as const
@@ -200,5 +212,45 @@ export function useUploadAsset() {
   return useMutation({
     mutationFn: ({ kind, file }: { kind: AssetKind; file: File }) => api.uploadAsset(kind, file),
     onSuccess: (asset) => queryClient.setQueryData(adminKeys.asset(asset.id), asset),
+  })
+}
+
+/** The activity log, a page at a time (newest first); "Show older" fetches the next page. */
+export function useActivity(actors: readonly string[]) {
+  const api = useAdminApi()
+  return useInfiniteQuery({
+    queryKey: adminKeys.activity(actors),
+    queryFn: ({ pageParam }) => api.activity(actors, pageParam),
+    initialPageParam: undefined as { at: string; id: string } | undefined,
+    getNextPageParam: (last) => {
+      const tail = last.records.at(-1)
+      return last.more && tail ? { at: tail.at, id: tail.id } : undefined
+    },
+    ...noRetry,
+  })
+}
+
+export function useHistory(q: HistoryQuery) {
+  const api = useAdminApi()
+  return useQuery({
+    queryKey: adminKeys.history(q),
+    queryFn: () => api.history(q),
+    placeholderData: keepPreviousData,
+    ...noRetry,
+  })
+}
+
+export function useVisit(id: string) {
+  const api = useAdminApi()
+  return useQuery({ queryKey: adminKeys.visit(id), queryFn: () => api.visit(id), ...noRetry })
+}
+
+export function useStatistics(q: PeriodQuery) {
+  const api = useAdminApi()
+  return useQuery({
+    queryKey: adminKeys.statistics(q),
+    queryFn: () => api.statistics(q),
+    placeholderData: keepPreviousData,
+    ...noRetry,
   })
 }

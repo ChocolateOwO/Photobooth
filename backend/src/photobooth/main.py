@@ -22,6 +22,8 @@ from photobooth import __version__
 from photobooth.core.config import KIOSK_ALLOWED_HOSTS
 from photobooth.core.host_guard import BodySizeLimitMiddleware, HostAllowlistMiddleware
 from photobooth.core.web import REGISTRY_STATE_KEY, ServiceRegistry
+from photobooth.modules.activity.api import AdminAudit, registry_service
+from photobooth.modules.activity.api import router as activity_router
 from photobooth.modules.assets.api import router as assets_router
 from photobooth.modules.auth.api import router as admin_auth_router
 from photobooth.modules.booth.admin_api import router as booth_test_menu_router
@@ -71,6 +73,7 @@ def create_kiosk_app(registry: ServiceRegistry, options: KioskAppOptions) -> Fas
     app.include_router(booth_frames_router)
     app.include_router(booth_sessions_router)
     app.include_router(decorations_router)
+    app.include_router(activity_router)
     # "Test booth" is served under one prefix by the two modules it belongs to.
     app.include_router(booth_test_menu_router)
     app.include_router(booth_test_sessions_router)
@@ -79,6 +82,8 @@ def create_kiosk_app(registry: ServiceRegistry, options: KioskAppOptions) -> Fas
         _mount_spa(app, options.frontend_dist)
 
     # Outermost first: Host check runs before anything else, then the body cap.
+    # Innermost: it sees which admin route answered, after the change has succeeded.
+    app.add_middleware(AdminAudit, service=registry_service)
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=options.max_request_bytes)
     app.add_middleware(HostAllowlistMiddleware, allowed_hosts=options.allowed_hosts)
     return app

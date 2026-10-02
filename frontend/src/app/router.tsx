@@ -1,11 +1,14 @@
 import { createBrowserRouter, Outlet } from 'react-router'
 
 import { AdminAuthProvider } from '../features/admin/api/AdminAuthProvider'
+import { ActivityPage } from '../features/admin/pages/ActivityPage'
 import { AdminGate } from '../features/admin/pages/AdminGate'
 import { BoothTestPage } from '../features/admin/pages/BoothTestPage'
 import { FrameManagerPage } from '../features/admin/pages/FrameManagerPage'
+import { HistoryPage } from '../features/admin/pages/HistoryPage'
 import { ProfileEditorPage } from '../features/admin/pages/ProfileEditorPage'
 import { ProfileListPage } from '../features/admin/pages/ProfileListPage'
+import { StatisticsPage } from '../features/admin/pages/StatisticsPage'
 import { BoothStartPage } from '../features/booth/BoothStartPage'
 import { CapturePage } from '../features/booth/CapturePage'
 import { DecoratePage } from '../features/booth/DecoratePage'
@@ -31,6 +34,9 @@ export const routes = [
       { path: 'profiles/:profileId', element: <ProfileEditorPage /> },
       { path: 'frames', element: <FrameManagerPage /> },
       { path: 'test', element: <BoothTestPage /> },
+      { path: 'history', element: <HistoryPage /> },
+      { path: 'statistics', element: <StatisticsPage /> },
+      { path: 'activity', element: <ActivityPage /> },
     ],
   },
   { path: '/booth', element: <BoothStartPage /> },

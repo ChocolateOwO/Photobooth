@@ -54,11 +54,9 @@ def test_backup_contains_uncheckpointed_wal_rows(thai_root: Path) -> None:
     assert backup.is_file()
     assert "ทดสอบ" in record.path
     assert record.integrity == "ok"
-    assert record.alembic_revision == "0009_outputs_delivery"
+    assert record.alembic_revision == "0010_activity_log"
     assert record.instance == "dummy"
-    assert backup.name.startswith("dummy-") and backup.name.endswith(
-        "-0009_outputs_delivery.sqlite"
-    )
+    assert backup.name.startswith("dummy-") and backup.name.endswith("-0010_activity_log.sqlite")
     assert not backup.with_name(backup.name + "-wal").exists()
     with sqlite3.connect(backup) as conn:
         rows = conn.execute("SELECT COUNT(*) FROM app_meta WHERE key LIKE 'row-%'").fetchone()[0]

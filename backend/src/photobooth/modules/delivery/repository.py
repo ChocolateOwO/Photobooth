@@ -7,13 +7,14 @@ Only the SHA-256 of a token is ever stored.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import Engine, ForeignKey, Index, Integer, String, select, text, update
+from sqlalchemy import Engine, ForeignKey, Index, Integer, String, func, select, text, update
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
 from photobooth.core.db import Base, UtcDateTime
-from photobooth.modules.delivery.domain import DeliveryToken, DeliveryTokenRepository
+from photobooth.modules.delivery.domain import DeliveryToken, DeliveryTokenRepository, LinkFacts
 
 
 class DeliveryTokenRow(Base):
@@ -98,13 +99,35 @@ class SqlDeliveryTokenRepository(DeliveryTokenRepository):
             ).first()
             return _token_of(row) if row else None
 
-    def mark_opened(self, token_id: str, at: datetime) -> None:
+    def mark_opened(self, token_id: str, at: datetime) -> bool:
         with self._sessions() as db, db.begin():
-            db.execute(
+            result = db.execute(
                 update(DeliveryTokenRow)
                 .where(DeliveryTokenRow.id == token_id, DeliveryTokenRow.opened_at.is_(None))
                 .values(opened_at=at)
             )
+            return bool(getattr(result, "rowcount", 0))
+
+    def facts(self, session_ids: Sequence[str]) -> dict[str, LinkFacts]:
+        found: dict[str, LinkFacts] = {}
+        ids = list(session_ids)
+        with self._sessions() as db:
+            for start in range(0, len(ids), 500):
+                rows = db.execute(
+                    select(
+                        DeliveryTokenRow.session_id,
+                        func.count(),
+                        func.count(DeliveryTokenRow.opened_at),
+                        func.coalesce(func.sum(DeliveryTokenRow.download_count), 0),
+                    )
+                    .where(DeliveryTokenRow.session_id.in_(ids[start : start + 500]))
+                    .group_by(DeliveryTokenRow.session_id)
+                ).all()
+                for session_id, links, opened, downloads in rows:
+                    found[session_id] = LinkFacts(
+                        issued=links > 0, opened=opened > 0, downloads=int(downloads)
+                    )
+        return found
 
     def count_download(self, token_id: str) -> None:
         with self._sessions() as db, db.begin():

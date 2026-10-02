@@ -1,6 +1,164 @@
 {
   "components": {
     "schemas": {
+      "ActivityPage": {
+        "properties": {
+          "more": {
+            "description": "Older records follow; ask again with before_at/before_id.",
+            "title": "More",
+            "type": "boolean"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityRecordResponse"
+            },
+            "title": "Records",
+            "type": "array"
+          }
+        },
+        "required": [
+          "records",
+          "more"
+        ],
+        "title": "ActivityPage",
+        "type": "object"
+      },
+      "ActivityRecordResponse": {
+        "properties": {
+          "actor": {
+            "description": "booth, guest, admin or system",
+            "examples": [
+              "booth"
+            ],
+            "title": "Actor",
+            "type": "string"
+          },
+          "admin_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin Username"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Payload",
+            "type": "object"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "type": {
+            "examples": [
+              "capture_ok"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "type",
+          "actor",
+          "session_id",
+          "profile_id",
+          "admin_username",
+          "payload"
+        ],
+        "title": "ActivityRecordResponse",
+        "type": "object"
+      },
+      "ActivityType": {
+        "enum": [
+          "session_started",
+          "frame_chosen",
+          "capture_ok",
+          "capture_failed",
+          "retake",
+          "photos_confirmed",
+          "render_ok",
+          "render_failed",
+          "link_shown",
+          "session_ended",
+          "reset_timeout",
+          "qr_opened",
+          "download",
+          "admin_login",
+          "admin_login_failed",
+          "admin_logout",
+          "admin_profile_created",
+          "admin_profile_updated",
+          "admin_profile_duplicated",
+          "admin_profile_activated",
+          "admin_profile_deleted",
+          "admin_profile_restored",
+          "admin_frame_uploaded",
+          "admin_frame_replaced",
+          "admin_frame_renamed",
+          "admin_frame_deleted",
+          "admin_asset_uploaded",
+          "admin_asset_deleted",
+          "admin_test_started",
+          "admin_tests_cleared"
+        ],
+        "title": "ActivityType",
+        "type": "string"
+      },
+      "Actor": {
+        "enum": [
+          "booth",
+          "guest",
+          "admin",
+          "system"
+        ],
+        "title": "Actor",
+        "type": "string"
+      },
       "AssetKind": {
         "enum": [
           "logo",
@@ -222,6 +380,24 @@
           "what"
         ],
         "title": "ContrastRuleInfo",
+        "type": "object"
+      },
+      "CountResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "count"
+        ],
+        "title": "CountResponse",
         "type": "object"
       },
       "DecorateLayoutResponse": {
@@ -909,6 +1085,32 @@
           "database"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "HistoryPage": {
+        "properties": {
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "visits": {
+            "items": {
+              "$ref": "#/components/schemas/VisitResponse"
+            },
+            "title": "Visits",
+            "type": "array"
+          }
+        },
+        "required": [
+          "visits",
+          "total",
+          "offset"
+        ],
+        "title": "HistoryPage",
         "type": "object"
       },
       "KioskStatusResponse": {
@@ -1974,6 +2176,146 @@
         "title": "StartTestBody",
         "type": "object"
       },
+      "StatisticsResponse": {
+        "properties": {
+          "abandoned": {
+            "title": "Abandoned",
+            "type": "integer"
+          },
+          "average_minutes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Start to finish, finished visits only.",
+            "title": "Average Minutes"
+          },
+          "by_filter": {
+            "items": {
+              "$ref": "#/components/schemas/CountResponse"
+            },
+            "title": "By Filter",
+            "type": "array"
+          },
+          "by_hour": {
+            "description": "Visits started per hour (booth clock).",
+            "items": {
+              "$ref": "#/components/schemas/CountResponse"
+            },
+            "title": "By Hour",
+            "type": "array"
+          },
+          "by_layout": {
+            "items": {
+              "$ref": "#/components/schemas/CountResponse"
+            },
+            "title": "By Layout",
+            "type": "array"
+          },
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "integer"
+          },
+          "decorated": {
+            "description": "Finished visits with a filter or stickers.",
+            "title": "Decorated",
+            "type": "integer"
+          },
+          "downloads": {
+            "title": "Downloads",
+            "type": "integer"
+          },
+          "errors": {
+            "title": "Errors",
+            "type": "integer"
+          },
+          "failed_attempts": {
+            "title": "Failed Attempts",
+            "type": "integer"
+          },
+          "finished": {
+            "description": "Visits whose finished photos were made.",
+            "title": "Finished",
+            "type": "integer"
+          },
+          "in_progress": {
+            "title": "In Progress",
+            "type": "integer"
+          },
+          "links_opened": {
+            "title": "Links Opened",
+            "type": "integer"
+          },
+          "outputs": {
+            "title": "Outputs",
+            "type": "integer"
+          },
+          "photos": {
+            "title": "Photos",
+            "type": "integer"
+          },
+          "retakes": {
+            "title": "Retakes",
+            "type": "integer"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "visits": {
+            "description": "Guests' visits started (organizer tests never count).",
+            "title": "Visits",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "since",
+          "until",
+          "visits",
+          "finished",
+          "cancelled",
+          "abandoned",
+          "errors",
+          "in_progress",
+          "photos",
+          "retakes",
+          "failed_attempts",
+          "outputs",
+          "decorated",
+          "links_opened",
+          "downloads",
+          "average_minutes",
+          "by_layout",
+          "by_hour",
+          "by_filter"
+        ],
+        "title": "StatisticsResponse",
+        "type": "object"
+      },
       "StickerResponse": {
         "properties": {
           "height": {
@@ -2404,6 +2746,157 @@
         ],
         "title": "VersionResponse",
         "type": "object"
+      },
+      "VisitDetailResponse": {
+        "properties": {
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityRecordResponse"
+            },
+            "title": "Timeline",
+            "type": "array"
+          },
+          "visit": {
+            "$ref": "#/components/schemas/VisitResponse"
+          }
+        },
+        "required": [
+          "visit",
+          "timeline"
+        ],
+        "title": "VisitDetailResponse",
+        "type": "object"
+      },
+      "VisitResponse": {
+        "description": "One guest's visit (never an organizer's test).",
+        "properties": {
+          "downloads": {
+            "title": "Downloads",
+            "type": "integer"
+          },
+          "end_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Reason"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "failed_attempts": {
+            "title": "Failed Attempts",
+            "type": "integer"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
+          },
+          "link_issued": {
+            "title": "Link Issued",
+            "type": "boolean"
+          },
+          "link_opened": {
+            "title": "Link Opened",
+            "type": "boolean"
+          },
+          "outputs": {
+            "title": "Outputs",
+            "type": "integer"
+          },
+          "photos": {
+            "title": "Photos",
+            "type": "integer"
+          },
+          "profile_id": {
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "profile_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Name"
+          },
+          "retakes": {
+            "title": "Retakes",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "stickers": {
+            "title": "Stickers",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "ended_at",
+          "state",
+          "end_reason",
+          "profile_id",
+          "profile_name",
+          "layout",
+          "photos",
+          "retakes",
+          "failed_attempts",
+          "outputs",
+          "filter",
+          "stickers",
+          "link_issued",
+          "link_opened",
+          "downloads"
+        ],
+        "title": "VisitResponse",
+        "type": "object"
       }
     }
   },
@@ -2413,6 +2906,157 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/activity": {
+      "get": {
+        "operationId": "activity_api_admin_activity_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/ActivityType"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/components/schemas/Actor"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before At"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activity",
+        "tags": [
+          "admin-activity"
+        ]
+      }
+    },
     "/api/admin/assets": {
       "post": {
         "operationId": "upload_asset_api_admin_assets_post",
@@ -3111,6 +3755,186 @@
         ]
       }
     },
+    "/api/admin/history": {
+      "get": {
+        "operationId": "history_api_admin_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "profile_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "eligibility_ok",
+                      "capturing",
+                      "reviewing",
+                      "delivered",
+                      "completed",
+                      "cancelled",
+                      "abandoned",
+                      "error"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "History",
+        "tags": [
+          "admin-activity"
+        ]
+      }
+    },
+    "/api/admin/history/{session_id}": {
+      "get": {
+        "operationId": "visit_detail_api_admin_history__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisitDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Visit Detail",
+        "tags": [
+          "admin-activity"
+        ]
+      }
+    },
     "/api/admin/profiles": {
       "get": {
         "operationId": "list_profiles_api_admin_profiles_get",
@@ -3646,6 +4470,90 @@
         "summary": "Restore Profile",
         "tags": [
           "admin-profiles"
+        ]
+      }
+    },
+    "/api/admin/statistics": {
+      "get": {
+        "operationId": "statistics_api_admin_statistics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "profile_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatisticsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Statistics",
+        "tags": [
+          "admin-activity"
         ]
       }
     },

@@ -467,6 +467,9 @@ class DeliveryLink:
     url: str
     expires_at: datetime
     qr_svg: str
+    # Made just now (not shown before), and whether it replaced an earlier link.
+    new: bool = False
+    renewed: bool = False
 
 
 @dataclass(frozen=True)
@@ -529,6 +532,35 @@ class OutputRenderer(Protocol):
         """Where each photo (capture id, shot index) lies on each finished photo, exactly as
         `render` will place it. Raises RenderFailedError when the template is gone."""
         ...
+
+
+class SessionActivity(Protocol):
+    """Keeps a record of what happened in a guest's visit (the activity module).
+
+    `kind` is one of the activity types (session_started, capture_ok, ...); `facts` are a few
+    plain words and numbers. Never raises, and an organizer's test visit is never recorded.
+    """
+
+    def record(self, kind: str, session: BoothSession, /, **facts: str | int | bool) -> None: ...
+
+
+@dataclass(frozen=True)
+class VisitFacts:
+    """A guest's visit as History and Statistics count it (never a test visit)."""
+
+    id: str
+    started_at: datetime
+    completed_at: datetime | None
+    photos_made_at: datetime | None
+    state: SessionState
+    error_code: str | None
+    profile_id: str
+    template_key: str | None
+    photos: int
+    failed_attempts: int
+    retakes: int
+    outputs: int
+    decoration: str | None
 
 
 class DecorationRules(Protocol):

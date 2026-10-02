@@ -64,4 +64,6 @@ def require_admin(request: Request) -> AdminPrincipal:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="admin csrf token invalid"
         )
+    # Who acted, for the admin audit (activity log): it reads this after the change succeeds.
+    request.state.admin_principal = principal
     return principal

@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import re
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol
@@ -80,6 +81,9 @@ class IssuedLink:
     url: str
     expires_at: datetime
     qr_svg: str
+    # Made by this call (not a link the booth already showed), and whether it replaced one.
+    new: bool = False
+    renewed: bool = False
 
 
 @dataclass(frozen=True)
@@ -105,11 +109,15 @@ class DeliveryTokenRepository(ABC):
     def by_hash(self, token_hash: str) -> DeliveryToken | None: ...
 
     @abstractmethod
-    def mark_opened(self, token_id: str, at: datetime) -> None:
-        """Record the first time the guest opened the link."""
+    def mark_opened(self, token_id: str, at: datetime) -> bool:
+        """Record the first time the guest opened the link; True when this was that time."""
 
     @abstractmethod
     def count_download(self, token_id: str) -> None: ...
+
+    @abstractmethod
+    def facts(self, session_ids: Sequence[str]) -> dict[str, LinkFacts]:
+        """Per visit: was a link shown, opened, and how many downloads (summed over links)."""
 
     @abstractmethod
     def revoke_session(self, session_id: str, at: datetime) -> list[str]:
@@ -122,6 +130,21 @@ class DeliveredOutputs(Protocol):
     def files(self, session_id: str) -> list[DeliverableFile]: ...
 
     def read(self, session_id: str, output_id: str) -> bytes: ...
+
+
+@dataclass(frozen=True)
+class LinkFacts:
+    """What became of a visit's take-home links, over every link it was given. No token."""
+
+    issued: bool
+    opened: bool
+    downloads: int
+
+
+class LinkActivity(Protocol):
+    """Keeps a record of what guests did with their link (the activity module). Never raises."""
+
+    def record(self, kind: str, session_id: str, /, **facts: str | int | bool) -> None: ...
 
 
 class LinkAddress(Protocol):

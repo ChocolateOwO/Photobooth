@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 import socket
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from photobooth import API_VERSION, __version__
 from photobooth.core.admin_gate import AdminAuthenticator, AdminCookieSettings
@@ -24,6 +25,10 @@ from photobooth.core.kiosk_pairing import (
 )
 from photobooth.core.uploads import UploadAdmission
 from photobooth.core.web import BoothBindings, DeviceCookieSettings, ServiceRegistry
+from photobooth.modules.activity.domain import ActivityType
+from photobooth.modules.activity.repository import SqlActivityRepository
+from photobooth.modules.activity.service import ActivityService, Visit, VisitFilter
+from photobooth.modules.activity.service import LinkFacts as ActivityLinkFacts
 from photobooth.modules.assets.domain import AssetNotFoundError, AssetValidationError, UploadLimits
 from photobooth.modules.assets.inspector import PillowImageInspector, presentation_copy
 from photobooth.modules.assets.repository import SqlAssetRepository
@@ -85,6 +90,7 @@ from photobooth.modules.sessions.domain import (
     MAX_CAPTURE_BYTES,
     MAX_CAPTURE_SIDE,
     MIN_CAPTURE_SIDE,
+    BoothSession,
     CaptureFacts,
     CaptureRefusedError,
     DecorationRefusedError,
@@ -98,6 +104,7 @@ from photobooth.modules.sessions.domain import (
     RenderRequest,
     SlotPhoto,
     TransitionRefusedError,
+    VisitFacts,
 )
 from photobooth.modules.sessions.domain import ProfileSnapshot as SessionProfileSnapshot
 from photobooth.modules.sessions.domain import RenderBusyError as SessionRenderBusyError
@@ -593,7 +600,115 @@ class _SessionLinks:
             issued = self._delivery.ensure(session_id)
         except DeliveryUnavailableError as exc:
             raise TransitionRefusedError("the finished photos are not ready yet") from exc
-        return DeliveryLink(url=issued.url, expires_at=issued.expires_at, qr_svg=issued.qr_svg)
+        return DeliveryLink(
+            url=issued.url,
+            expires_at=issued.expires_at,
+            qr_svg=issued.qr_svg,
+            new=issued.new,
+            renewed=issued.renewed,
+        )
+
+
+class _SessionActivity:
+    """Adapter: a guest's visit, recorded in the activity log. Organizer tests never are."""
+
+    def __init__(self, activity: ActivityService) -> None:
+        self._activity = activity
+
+    def record(self, kind: str, session: BoothSession, /, **facts: str | int | bool) -> None:
+        if session.is_test:
+            return
+        self._activity.record(
+            ActivityType(kind),
+            session_id=session.id,
+            profile_id=session.event_profile_id,
+            payload=facts,
+        )
+
+
+class _LinkActivity:
+    """Adapter: what guests did with their take-home link (never the link itself)."""
+
+    def __init__(self, activity: ActivityService, sessions: SqlSessionRepository) -> None:
+        self._activity = activity
+        self._sessions = sessions
+
+    def record(self, kind: str, session_id: str, /, **facts: str | int | bool) -> None:
+        session = self._sessions.get(session_id)
+        if session is None or session.is_test:
+            return
+        self._activity.record(
+            ActivityType(kind),
+            session_id=session_id,
+            profile_id=session.event_profile_id,
+            payload=facts,
+        )
+
+
+class _ActivityVisits:
+    """Adapter: guests' visits as History and Statistics count them."""
+
+    def __init__(self, sessions: SqlSessionRepository) -> None:
+        self._sessions = sessions
+
+    def visits(self, where: VisitFilter) -> list[Visit]:
+        return [
+            _visit_of(facts)
+            for facts in self._sessions.visits(
+                since=where.since,
+                until=where.until,
+                profile_id=where.profile_id,
+                states=where.states,
+            )
+        ]
+
+    def visit(self, session_id: str) -> Visit | None:
+        found = self._sessions.visits(session_id=session_id)
+        return _visit_of(found[0]) if found else None
+
+
+def _visit_of(facts: VisitFacts) -> Visit:
+    spec = json.loads(facts.decoration) if facts.decoration else {}
+    chosen = spec.get("filter")
+    return Visit(
+        id=facts.id,
+        started_at=facts.started_at,
+        ended_at=facts.completed_at,
+        photos_made_at=facts.photos_made_at,
+        state=str(facts.state),
+        end_reason=facts.error_code,
+        profile_id=facts.profile_id,
+        layout=facts.template_key,
+        photos=facts.photos,
+        failed_attempts=facts.failed_attempts,
+        retakes=facts.retakes,
+        outputs=facts.outputs,
+        filter=chosen if isinstance(chosen, str) and chosen != "none" else None,
+        stickers=len(spec.get("stickers", [])),
+    )
+
+
+class _ActivityLinks:
+    """Adapter: what became of each visit's links (from the delivery tables; no token)."""
+
+    def __init__(self, tokens: SqlDeliveryTokenRepository) -> None:
+        self._tokens = tokens
+
+    def facts(self, session_ids: Sequence[str]) -> Mapping[str, ActivityLinkFacts]:
+        return {
+            sid: ActivityLinkFacts(issued=f.issued, opened=f.opened, downloads=f.downloads)
+            for sid, f in self._tokens.facts(session_ids).items()
+        }
+
+
+class _ProfileNames:
+    """Adapter: event names for History (deleted events keep their name)."""
+
+    def __init__(self, profiles: EventProfileService) -> None:
+        self._profiles = profiles
+
+    def names(self) -> Mapping[str, str]:
+        return {profile.id: profile.settings.name for profile in self._profiles.list_profiles(True)}
 
 
 class _CaptureFiles:
@@ -713,11 +828,20 @@ class Container:
             _BoothImages(self.asset_service),
         )
         self.registry.register(BoothService, self.booth_service)
+        self.delivery_tokens = SqlDeliveryTokenRepository(self.engine)
+        self.activity_service = ActivityService(
+            SqlActivityRepository(self.engine),
+            _ActivityVisits(self.session_repository),
+            _ActivityLinks(self.delivery_tokens),
+            _ProfileNames(self.profile_service),
+        )
+        self.registry.register(ActivityService, self.activity_service)
         self.delivery_service = DeliveryService(
-            SqlDeliveryTokenRepository(self.engine),
+            self.delivery_tokens,
             _DeliveredOutputs(self.session_repository, self.storage),
             _LinkAddress(settings),
             SegnoQrEncoder(),
+            activity=_LinkActivity(self.activity_service, self.session_repository),
         )
         self.registry.register(DeliveryService, self.delivery_service)
         self.decoration_service = DecorationService(PackagedStickerLibrary())
@@ -739,6 +863,7 @@ class Container:
             frames=_SessionFrames(self.frame_service),
             links=_SessionLinks(self.delivery_service),
             decorations=_DecorationRules(self.decoration_service),
+            activity=_SessionActivity(self.activity_service),
         )
         self.registry.register(BoothSessionService, self.session_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))
