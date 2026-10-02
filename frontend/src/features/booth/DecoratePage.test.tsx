@@ -340,6 +340,91 @@ describe('DecoratePage (decorating the finished photos)', () => {
     expect(booth.reads).toBe(1) // nobody there: nothing kept the visit alive
   })
 
+  it('confirms exactly what is on screen, even with a finger still on a sticker (P9-R1)', async () => {
+    // jsdom has no SVG geometry: the screen maps one to one onto the photo's own pixels.
+    class Point {
+      constructor(
+        readonly x: number,
+        readonly y: number,
+      ) {}
+      matrixTransform() {
+        return { x: this.x, y: this.y }
+      }
+    }
+    vi.stubGlobal('DOMPoint', Point)
+    Object.defineProperty(SVGSVGElement.prototype, 'getScreenCTM', {
+      configurable: true,
+      value: () => ({ inverse: () => ({}) }),
+    })
+    try {
+      const { booth, fetcher } = server(visit())
+      renderDecorate(fetcher)
+      const { first } = await ready()
+      await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+      const heart = within(first).getByTestId('placed-sticker')
+      fireEvent.pointerDown(heart, { pointerId: 7, clientX: 300, clientY: 900 })
+      fireEvent.pointerMove(first, { pointerId: 7, clientX: 360, clientY: 960 })
+      expect(heart).toHaveAttribute('transform', 'translate(360 960) rotate(0)')
+      // Still holding the sticker, the guest finishes from the keyboard.
+      screen.getByRole('button', { name: 'Finish' }).focus()
+      await userEvent.keyboard('{Enter}')
+      expect(screen.getByRole('dialog', { name: 'Finish your photos?' })).toBeInTheDocument()
+      // The finger goes on moving while the question is asked: nothing changes any more.
+      fireEvent.pointerMove(first, { pointerId: 7, clientX: 100, clientY: 100 })
+      expect(within(first).getByTestId('placed-sticker')).toHaveAttribute(
+        'transform',
+        'translate(360 960) rotate(0)',
+      )
+      const dialog = screen.getByRole('dialog', { name: 'Finish your photos?' })
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Make my photos' }))
+      expect(await screen.findByText('the take-home screen')).toBeInTheDocument()
+      expect(booth.renders[0]?.decoration).toEqual({
+        filter: 'none',
+        stickers: [{ sticker: 'heart', output: 1, x: 0.6, y: 0.5333, size: 0.32, rotation: 0 }],
+      })
+    } finally {
+      vi.unstubAllGlobals()
+      Reflect.deleteProperty(SVGSVGElement.prototype, 'getScreenCTM')
+    }
+  })
+
+  it('a guest dragging stickers is somebody at the booth (P9-R4)', async () => {
+    const { booth, fetcher } = server(visit({ inactivity_timeout_s: 30 }))
+    renderDecorate(fetcher)
+    const { first } = await ready()
+    await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+    const heart = within(first).getByTestId('placed-sticker')
+    for (let second = 0; second < 60; second += 10) {
+      // The sticker stops its own pointer events; the booth still sees them.
+      fireEvent.pointerDown(heart, { pointerId: 3 })
+      fireEvent.pointerUp(first, { pointerId: 3 })
+      await act(async () => {
+        vi.advanceTimersByTime(10_000)
+      })
+    }
+    expect(screen.getByRole('heading', { name: 'Decorate your photos' })).toBeInTheDocument()
+    expect(booth.gaveUp).toBe(0)
+    expect(booth.reads).toBeGreaterThanOrEqual(3) // and the server heard about it
+  })
+
+  it('tells the server at once when a guest comes back, and leaves a visit that ended (P9-R5)', async () => {
+    const { booth, fetcher } = server(visit({ inactivity_timeout_s: 60 }))
+    renderDecorate(fetcher)
+    await ready()
+    await act(async () => {
+      vi.advanceTimersByTime(25_000) // a quiet spell longer than the 20 s keep-alive interval
+    })
+    expect(booth.reads).toBe(0)
+    fireEvent.keyDown(window, { key: 'a' })
+    await waitFor(() => expect(booth.reads).toBe(1)) // at once, not at the next tick
+    // The visit was ended elsewhere meanwhile: the next touch finds out and leaves.
+    booth.current = { ...booth.current, state: 'cancelled' }
+    await act(async () => {
+      vi.advanceTimersByTime(21_000)
+    })
+    fireEvent.keyDown(window, { key: 'b' })
+    expect(await screen.findByText('the start screen')).toBeInTheDocument()
+  })
   it('wears the event theme', async () => {
     const { fetcher } = server(visit())
     renderDecorate(fetcher)

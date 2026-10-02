@@ -217,12 +217,19 @@ class BoothSessionService:
         if session is None:
             return None
         with self._locks.held(session.id):
+            # Finished photos whose finishing step failed are settled first, so a reload never
+            # shows a visit as still choosing its decorations when its photos already exist
+            # (P9-R2).
+            self._settle_leftovers(session.id)
             # A visit nobody came back to ends here rather than waiting for the next guest.
             settled = self._closed_if_inactive(self._repository.get(session.id) or session)
         return None if settled.closed else settled
 
     def read(self, device_id: str, session_id: str) -> BoothSession:
-        return self._load(device_id, session_id, allow_closed=True)
+        """One visit of this device. Read under the visit's lock: ending an idle visit here can
+        never cut across a render or a photo that is being published (P9-R3)."""
+        with self._locks.held(session_id):
+            return self._load(device_id, session_id, allow_closed=True)
 
     def progress(self, session_id: str) -> list[ShotProgress]:
         """Which photo is next and how far the session has come.
@@ -446,6 +453,10 @@ class BoothSessionService:
         """Where each photo of the visit lies on each finished photo, for the booth's decorating
         preview: the very slots, crops and order the renderer will use."""
         with self._locks.held(session_id):
+            self._owned(device_id, session_id)
+            # Photos already published by a render whose finishing step failed are never offered
+            # for decorating again: they are settled first and the visit is delivered (P9-R2).
+            self._settle_leftovers(session_id)
             session = self._load(device_id, session_id)
             if session.state is not SessionState.REVIEWING or session.selection is None:
                 raise TransitionRefusedError("this visit is not choosing its decorations")

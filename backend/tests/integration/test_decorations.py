@@ -12,6 +12,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import sqlite3
+import threading
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -290,6 +293,111 @@ def test_the_decoration_is_part_of_the_render_fingerprint(
     assert made.render_fingerprint == render_fingerprint(
         visit.selection, captures, visit.mirror, prepare(choices[2], 1)
     )
+
+
+# ---- inspection fixes ------------------------------------------------------------------------
+
+
+def test_photos_already_made_are_never_offered_for_decorating_again(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P9-R2: the files of decoration A exist but the finishing step failed. A reload must find
+    the visit delivered with A, never a fresh decorating screen that would let B be confirmed."""
+    device, session = reviewing(kiosk_client, container, PRINT34)
+    who = _device_id(kiosk_client, container)
+    repository = container.session_service._repository
+    real = repository.finalize_render
+    calls = {"n": 0}
+
+    def flaky(operation_id: str, fingerprint: str) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("database went away for a moment")
+        return real(operation_id, fingerprint)
+
+    monkeypatch.setattr(repository, "finalize_render", flaky)
+    with pytest.raises(RuntimeError):
+        container.session_service.render(
+            who, session["id"], "render-a-key", {"filter": "sepia", "stickers": [heart()]}
+        )
+    # The page reloads: the booth asks what this device was doing.
+    current = kiosk_client.get(f"{SESSIONS}/current", headers=device).json()
+    assert current["state"] == "delivered"
+    assert len(current["outputs"]) == 1
+    assert (
+        kiosk_client.get(f"{SESSIONS}/{session['id']}/decorate", headers=device).status_code == 409
+    )
+    rows = container.session_service.finished_outputs(session["id"])
+    assert rows[0].decoration is not None and json.loads(rows[0].decoration)["filter"] == "sepia"
+
+
+def test_the_decorating_preview_settles_a_half_finished_render_too(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    device, session = reviewing(kiosk_client, container, PRINT34)
+    who = _device_id(kiosk_client, container)
+    repository = container.session_service._repository
+    real = repository.finalize_render
+    calls = {"n": 0}
+
+    def flaky(operation_id: str, fingerprint: str) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("database went away for a moment")
+        return real(operation_id, fingerprint)
+
+    monkeypatch.setattr(repository, "finalize_render", flaky)
+    with pytest.raises(RuntimeError):
+        container.session_service.render(who, session["id"], "render-a-key", {"filter": "mono"})
+    answer = kiosk_client.get(f"{SESSIONS}/{session['id']}/decorate", headers=device)
+    assert answer.status_code == 409
+    assert container.session_service.read(who, session["id"]).state.value == "delivered"
+
+
+def test_reading_a_visit_never_ends_it_while_it_is_rendering(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P9-R3: a keep-alive read of a visit that looks idle waits for the render's lock."""
+    _device, session = reviewing(kiosk_client, container, PRINT34)
+    who = _device_id(kiosk_client, container)
+    service = container.session_service
+    entered, release = threading.Event(), threading.Event()
+    real = service._renderer
+
+    class Paused:
+        def render(self, request: Any) -> Any:
+            entered.set()
+            release.wait(timeout=30)
+            return real.render(request)
+
+        def layout(self, *args: Any) -> Any:
+            return real.layout(*args)
+
+    monkeypatch.setattr(service, "_renderer", Paused())
+    outcome: list[Any] = []
+    rendering = threading.Thread(
+        target=lambda: outcome.append(service.render(who, session["id"], "slow-render", None))
+    )
+    rendering.start()
+    assert entered.wait(timeout=30)
+    with sqlite3.connect(container.settings.db_path) as conn:
+        conn.execute(
+            "UPDATE booth_sessions SET last_activity_at = ? WHERE id = ?",
+            (
+                (datetime.now(UTC) - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                session["id"],
+            ),
+        )
+    seen: list[Any] = []
+    reading = threading.Thread(target=lambda: seen.append(service.read(who, session["id"])))
+    reading.start()
+    reading.join(timeout=1.0)
+    assert reading.is_alive()  # it waits for the visit's lock instead of ending it
+    release.set()
+    rendering.join(timeout=60)
+    reading.join(timeout=60)
+    assert outcome and outcome[0].session.state.value == "delivered"
+    assert seen and seen[0].state.value == "delivered"
 
 
 def _device_id(client: TestClient, container: Container) -> str:

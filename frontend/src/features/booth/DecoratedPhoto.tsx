@@ -1,4 +1,4 @@
-import { useId, useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useId, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 
 import type { DecorateOutput, DecorationFilter, StickerOffer } from '../../shared/api/client'
 import { matrixValues } from './colorMatrix'
@@ -26,6 +26,8 @@ interface DecoratedPhotoProps {
   art: ReadonlyMap<string, StickerOffer>
   label: string
   selected?: number | null
+  /** Shown, not touched: a gesture under way is let go (the guest is asked to confirm). */
+  frozen?: boolean
   /** Without these the photo is a picture only (a filter thumbnail, the review). */
   onSelect?: (id: number | null) => void
   onMove?: (sticker: PlacedSticker) => void
@@ -50,6 +52,7 @@ export function DecoratedPhoto({
   art,
   label,
   selected = null,
+  frozen = false,
   onSelect,
   onMove,
   onMoveEnd,
@@ -58,11 +61,14 @@ export function DecoratedPhoto({
   const svgRef = useRef<SVGSVGElement>(null)
   const gesture = useRef<Gesture | null>(null)
   const { width: W, height: H } = output
-  const interactive = Boolean(onSelect && onMove)
+  const interactive = Boolean(onSelect && onMove) && !frozen
+  useEffect(() => {
+    if (!interactive) gesture.current = null
+  }, [interactive])
 
   function toPhoto(event: ReactPointerEvent): Point {
     const svg = svgRef.current
-    const matrix = svg?.getScreenCTM()
+    const matrix = typeof svg?.getScreenCTM === 'function' ? svg.getScreenCTM() : null
     if (!svg || !matrix) return { x: 0, y: 0 }
     const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse())
     return { x: point.x, y: point.y }

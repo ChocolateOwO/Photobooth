@@ -22,6 +22,7 @@ import { FilterSwatch } from './FilterSwatch'
 import { FinishDialog } from './FinishDialog'
 import {
   countOn,
+  type Decoration,
   editorReducer,
   forServer,
   initialEditor,
@@ -53,6 +54,9 @@ function wait(ms: number): Promise<void> {
 }
 
 type Stage = 'loading' | 'editing' | 'making' | 'failed'
+
+/** States in which a visit is over. */
+const ENDED = new Set(['completed', 'cancelled', 'abandoned', 'error'])
 type Tab = 'stickers' | 'filters'
 
 export function DecoratePage() {
@@ -66,7 +70,8 @@ export function DecoratePage() {
   const [problem, setProblem] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('stickers')
   const [active, setActive] = useState(1)
-  const [confirming, setConfirming] = useState(false)
+  // The decoration the guest is asked to confirm, frozen as it was on screen (P9-R1).
+  const [confirming, setConfirming] = useState<Decoration | null>(null)
   const [leaving, setLeaving] = useState(false)
   const [editor, dispatch] = useReducer(editorReducer, undefined, initialEditor)
   // One key for this screen's request: a retry after a lost answer never makes a second set.
@@ -94,6 +99,12 @@ export function DecoratePage() {
         setStage('editing')
       } catch {
         if (!alive) return
+        // The photos may have been made after all (a render settled on the server): go where
+        // the visit really is rather than offering to decorate it again (P9-R2).
+        const again = await api.currentSession().catch(() => undefined)
+        if (!alive) return
+        if (again === null) return booth.go('start', { replace: true })
+        if (again?.state === 'delivered') return booth.go('done', { replace: true })
         setStage('failed')
         setProblem('Sorry, your photos could not be shown. Please start over.')
       }
@@ -126,16 +137,33 @@ export function DecoratePage() {
   useIdleTimeout(stage === 'making' ? undefined : session?.inactivity_timeout_s, () =>
     void leave(true),
   )
-  const timeout = session?.inactivity_timeout_s
+  // Only while decorating: once the photos are being made, the render itself keeps the visit
+  // (and a read then would only wait for it) (P9-R3).
+  const timeout = stage === 'editing' ? session?.inactivity_timeout_s : undefined
   useKeepAlive(timeout ? Math.max(5, Math.min(20, Math.floor(timeout / 3))) : undefined, () => {
-    if (session) void api.readSession(session.id).catch(() => undefined)
+    if (!session) return
+    void api
+      .readSession(session.id)
+      .then((current) => {
+        // The visit ended anyway (another screen, the organizer): say so instead of letting the
+        // guest go on decorating something that can no longer be made (P9-R5).
+        if (current.state === 'delivered') booth.go('done', { replace: true })
+        else if (ENDED.has(current.state)) booth.go('start', { replace: true })
+      })
+      .catch(() => undefined)
   })
 
+  /** Finish asks first, about exactly what is on screen: a finger still moving is let go. */
+  const askToFinish = useCallback(() => {
+    dispatch({ type: 'commit' })
+    setConfirming(shown(editor))
+  }, [editor])
+
   const finish = useCallback(async () => {
-    if (!session || stage !== 'editing') return
-    setConfirming(false)
+    if (!session || stage !== 'editing' || !confirming) return
+    const decoration = forServer(confirming)
+    setConfirming(null)
     setStage('making')
-    const decoration = forServer(editor.decoration)
     try {
       for (let attempt = 0; ; attempt++) {
         try {
@@ -156,11 +184,12 @@ export function DecoratePage() {
       setStage('failed')
       setProblem('Sorry, your photos could not be made. Please start over.')
     }
-  }, [api, booth, editor.decoration, session, stage])
+  }, [api, booth, confirming, session, stage])
 
   // ---- what is on screen -----------------------------------------------------------------
   const tokens = menu.isSuccess ? menu.data.theme : {}
-  const decoration = shown(editor)
+  // While the guest is asked to confirm, the screen shows exactly what will be made.
+  const decoration = confirming ?? shown(editor)
   const art = useMemo(
     () => new Map((catalog?.stickers ?? []).map((sticker) => [sticker.key, sticker])),
     [catalog],
@@ -227,7 +256,8 @@ export function DecoratePage() {
                         stickers={decoration.stickers.filter((s) => s.output === index)}
                         art={art}
                         label={many ? `Photo ${index} of ${outputs.length}` : 'Your photo'}
-                        selected={editor.selected}
+                        selected={confirming ? null : editor.selected}
+                        frozen={confirming !== null}
                         onSelect={(id) => {
                           setActive(index)
                           dispatch({ type: 'select', id })
@@ -371,13 +401,13 @@ export function DecoratePage() {
               >
                 Start again
               </EventButton>
-              <EventButton variant="primary" onClick={() => setConfirming(true)}>
+              <EventButton variant="primary" onClick={askToFinish}>
                 Finish
               </EventButton>
             </div>
 
             {confirming && (
-              <FinishDialog onKeep={() => setConfirming(false)} onFinish={() => void finish()} />
+              <FinishDialog onKeep={() => setConfirming(null)} onFinish={() => void finish()} />
             )}
           </>
         )}

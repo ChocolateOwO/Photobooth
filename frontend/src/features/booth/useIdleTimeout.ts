@@ -2,12 +2,33 @@ import { useEffect, useRef } from 'react'
 
 /** How often the booth checks whether anybody is still there. */
 const IDLE_CHECK_MS = 1000
-const ACTIVITY: (keyof WindowEventMap)[] = ['pointerdown', 'keydown', 'touchstart', 'wheel']
+/**
+ * Everything that means somebody is at the booth. Listened to in the capture phase, so a control
+ * that stops an event (a sticker being dragged) still counts as somebody there (P9-R4).
+ */
+const ACTIVITY: (keyof WindowEventMap)[] = [
+  'pointerdown',
+  'pointermove',
+  'pointerup',
+  'keydown',
+  'touchstart',
+  'wheel',
+]
+
+function listen(handler: () => void): () => void {
+  for (const name of ACTIVITY) {
+    window.addEventListener(name, handler, { capture: true, passive: true })
+  }
+  return () => {
+    for (const name of ACTIVITY) window.removeEventListener(name, handler, { capture: true })
+  }
+}
 
 /**
  * While somebody is busy at the booth without it asking the server anything (decorating), tells
- * the server now and then, at most every `everySeconds`, so their visit is not ended as
- * abandoned under them. Nobody touching the booth sends nothing: the visit may end as usual.
+ * the server, at most every `everySeconds`, so their visit is not ended as abandoned under them.
+ * The first touch after a quiet spell is told at once, not at the next tick (P9-R5). Nobody
+ * touching the booth sends nothing: the visit may end as usual. No interval watches nothing.
  */
 export function useKeepAlive(everySeconds: number | undefined, ping: () => void): void {
   const callback = useRef(ping)
@@ -17,19 +38,25 @@ export function useKeepAlive(everySeconds: number | undefined, ping: () => void)
 
   useEffect(() => {
     if (!everySeconds) return undefined
-    let busy = false
-    const seen = () => {
-      busy = true
-    }
-    for (const name of ACTIVITY) window.addEventListener(name, seen, { passive: true })
-    const watch = window.setInterval(() => {
-      if (!busy) return
-      busy = false
+    const every = everySeconds * 1000
+    let last = Date.now() // the screen has just read the visit
+    let pending = false
+    const send = () => {
+      last = Date.now()
+      pending = false
       callback.current()
-    }, everySeconds * 1000)
+    }
+    const seen = () => {
+      if (Date.now() - last >= every) send()
+      else pending = true
+    }
+    const stop = listen(seen)
+    const watch = window.setInterval(() => {
+      if (pending && Date.now() - last >= every) send()
+    }, IDLE_CHECK_MS)
     return () => {
       window.clearInterval(watch)
-      for (const name of ACTIVITY) window.removeEventListener(name, seen)
+      stop()
     }
   }, [everySeconds])
 }
@@ -47,10 +74,9 @@ export function useIdleTimeout(seconds: number | undefined, onIdle: () => void):
   useEffect(() => {
     if (!seconds) return undefined
     let last = Date.now()
-    const seen = () => {
+    const stop = listen(() => {
       last = Date.now()
-    }
-    for (const name of ACTIVITY) window.addEventListener(name, seen, { passive: true })
+    })
     const watch = window.setInterval(() => {
       if (Date.now() - last < seconds * 1000) return
       window.clearInterval(watch) // once: the booth is going back to its start
@@ -58,7 +84,7 @@ export function useIdleTimeout(seconds: number | undefined, onIdle: () => void):
     }, IDLE_CHECK_MS)
     return () => {
       window.clearInterval(watch)
-      for (const name of ACTIVITY) window.removeEventListener(name, seen)
+      stop()
     }
   }, [seconds])
 }
