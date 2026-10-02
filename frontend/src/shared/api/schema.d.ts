@@ -433,6 +433,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/booth/decorations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Catalog
+         * @description The filters (with the colour matrices the server applies) and the stickers on offer.
+         */
+        get: operations["catalog_api_booth_decorations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/decorations/stickers/{key}.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sticker */
+        get: operations["sticker_api_booth_decorations_stickers__key__png_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/booth/frames": {
         parameters: {
             query?: never;
@@ -581,6 +618,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/booth/sessions/{session_id}/decorate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Decorate Layout
+         * @description The finished photos as they will be composed, so the booth previews the decoration on
+         *     the very slots, crops and frame the server uses.
+         */
+        get: operations["decorate_layout_api_booth_sessions__session_id__decorate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/booth/sessions/{session_id}/delivery": {
         parameters: {
             query?: never;
@@ -636,6 +694,26 @@ export interface paths {
          * @description Confirm the frame: it fixes the template, the photo count and the outputs.
          */
         post: operations["choose_frame_api_booth_sessions__session_id__frame_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/sessions/{session_id}/frame.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Frame File
+         * @description The frame this visit pinned, for its own booth screen. Never another frame.
+         */
+        get: operations["frame_file_api_booth_sessions__session_id__frame_png_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -985,6 +1063,58 @@ export interface components {
             what: string;
         };
         /**
+         * DecorateLayoutResponse
+         * @description The finished photos as the renderer will compose them, for the decorating preview.
+         */
+        DecorateLayoutResponse: {
+            /**
+             * Frame Url
+             * @description The visit's own frame, laid over the photos unchanged.
+             */
+            frame_url: string;
+            /**
+             * Mirror
+             * @description The photos are shown mirrored, as they will be made.
+             */
+            mirror: boolean;
+            /** Outputs */
+            outputs: components["schemas"]["DecorateOutputResponse"][];
+        };
+        /** DecorateOutputResponse */
+        DecorateOutputResponse: {
+            /** Height */
+            height: number;
+            /** Output Index */
+            output_index: number;
+            /** Slots */
+            slots: components["schemas"]["SlotPhotoResponse"][];
+            /** Width */
+            width: number;
+        };
+        /**
+         * DecorationBody
+         * @description What the guest added: a filter for the photos and stickers on top. Files never change.
+         */
+        DecorationBody: {
+            /**
+             * Filter
+             * @default none
+             * @example sepia
+             */
+            filter: string;
+            /** Stickers */
+            stickers?: components["schemas"]["PlacedStickerBody"][];
+        };
+        /** DecorationCatalogResponse */
+        DecorationCatalogResponse: {
+            /** Filters */
+            filters: components["schemas"]["FilterResponse"][];
+            /** Max Stickers Per Photo */
+            max_stickers_per_photo: number;
+            /** Stickers */
+            stickers: components["schemas"]["StickerResponse"][];
+        };
+        /**
          * DeliveryLinkResponse
          * @description The take-home link. Shown on the booth screen only; it is the guest's key to the photos.
          */
@@ -1077,6 +1207,24 @@ export interface components {
             tokens: {
                 [key: string]: string;
             };
+        };
+        /** FilterResponse */
+        FilterResponse: {
+            /**
+             * Key
+             * @example sepia
+             */
+            key: string;
+            /**
+             * Label
+             * @example Sepia
+             */
+            label: string;
+            /**
+             * Matrix
+             * @description Three rows (red, green, blue out) of four numbers: red, green and blue in, then an offset, on 0..1 sRGB values. The booth previews exactly what the server applies.
+             */
+            matrix: number[];
         };
         /** FrameMenuResponse */
         FrameMenuResponse: {
@@ -1348,6 +1496,42 @@ export interface components {
             /** Ok */
             ok: boolean;
         };
+        /**
+         * PlacedStickerBody
+         * @description One sticker on one finished photo. Positions are fractions of that photo.
+         */
+        PlacedStickerBody: {
+            /**
+             * Output
+             * @description Which finished photo (1 = the first strip).
+             */
+            output: number;
+            /**
+             * Rotation
+             * @description Degrees clockwise.
+             */
+            rotation: number;
+            /**
+             * Size
+             * @description The sticker's width, of the photo's width.
+             */
+            size: number;
+            /**
+             * Sticker
+             * @example heart
+             */
+            sticker: string;
+            /**
+             * X
+             * @description The sticker's centre, across the photo.
+             */
+            x: number;
+            /**
+             * Y
+             * @description The sticker's centre, down the photo.
+             */
+            y: number;
+        };
         /** PresetInfo */
         PresetInfo: {
             /** Description */
@@ -1570,6 +1754,8 @@ export interface components {
         };
         /** RenderBody */
         RenderBody: {
+            /** @description The guest's decoration; none makes the photos as taken. */
+            decoration?: components["schemas"]["DecorationBody"] | null;
             /**
              * Idempotency Key
              * @description Repeat the same key to retry safely; the photos are made once.
@@ -1642,6 +1828,29 @@ export interface components {
             y: number;
         };
         /**
+         * SlotPhotoResponse
+         * @description Where one photo lies on a finished photo, in that photo's own pixels.
+         */
+        SlotPhotoResponse: {
+            /** Capture Id */
+            capture_id: string;
+            /** Height */
+            height: number;
+            /** Shot Index */
+            shot_index: number;
+            /**
+             * Version
+             * @description Changes when the photo does.
+             */
+            version: string | null;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /**
          * StartScreenResponse
          * @description Presentation data of the participant start screen, nothing else.
          */
@@ -1679,6 +1888,25 @@ export interface components {
             idempotency_key: string;
             /** Profile Id */
             profile_id: string;
+        };
+        /** StickerResponse */
+        StickerResponse: {
+            /** Height */
+            height: number;
+            /**
+             * Key
+             * @example heart
+             */
+            key: string;
+            /**
+             * Label
+             * @example Heart
+             */
+            label: string;
+            /** Url */
+            url: string;
+            /** Width */
+            width: number;
         };
         /** TemplateLinks */
         TemplateLinks: {
@@ -2815,6 +3043,57 @@ export interface operations {
             };
         };
     };
+    catalog_api_booth_decorations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecorationCatalogResponse"];
+                };
+            };
+        };
+    };
+    sticker_api_booth_decorations_stickers__key__png_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     frame_menu_api_booth_frames_get: {
         parameters: {
             query?: never;
@@ -3046,6 +3325,37 @@ export interface operations {
             };
         };
     };
+    decorate_layout_api_booth_sessions__session_id__decorate_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecorateLayoutResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delivery_link_api_booth_sessions__session_id__delivery_post: {
         parameters: {
             query?: never;
@@ -3130,6 +3440,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BoothSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    frame_file_api_booth_sessions__session_id__frame_png_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": unknown;
                 };
             };
             /** @description Validation Error */

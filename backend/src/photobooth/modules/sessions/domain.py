@@ -124,6 +124,15 @@ class OutputNotFoundError(SessionError):
         super().__init__("that finished photo is not part of this booth session")
 
 
+class DecorationRefusedError(SessionError):
+    """The guest's decoration breaks the rules (an unknown filter or sticker, out of range)."""
+
+
+class FrameFileNotFoundError(SessionError):
+    def __init__(self) -> None:
+        super().__init__("this visit's frame is not available")
+
+
 class SessionState(StrEnum):
     STARTED = "started"
     ELIGIBILITY_OK = "eligibility_ok"
@@ -411,6 +420,28 @@ class RenderPhoto:
 
 
 @dataclass(frozen=True)
+class SlotPhoto:
+    """Where one photo lies on a finished photo, in the finished photo's own pixels."""
+
+    capture_id: str
+    shot_index: int
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class OutputLayout:
+    """One finished photo (a print, or one strip of a 2x6) as the renderer will compose it."""
+
+    output_index: int
+    width: int
+    height: int
+    slots: tuple[SlotPhoto, ...]
+
+
+@dataclass(frozen=True)
 class RenderRequest:
     template_key: str
     template_version: int
@@ -491,6 +522,20 @@ class OutputRenderer(Protocol):
     """
 
     def render(self, request: RenderRequest) -> list[RenderedFile]: ...
+
+    def layout(
+        self, template_key: str, template_version: int, photos: Sequence[tuple[str, int]]
+    ) -> list[OutputLayout]:
+        """Where each photo (capture id, shot index) lies on each finished photo, exactly as
+        `render` will place it. Raises RenderFailedError when the template is gone."""
+        ...
+
+
+class DecorationRules(Protocol):
+    """Checks a guest's decoration (the decorations module) and returns the text it is stored
+    as: None for no decoration. Raises DecorationRefusedError."""
+
+    def prepare(self, raw: object, outputs: int) -> str | None: ...
 
 
 class SessionFrames(Protocol):

@@ -89,4 +89,8 @@ def test_openapi_lists_only_expected_public_paths(kiosk_client: TestClient) -> N
         "/api/booth/sessions/{session_id}/render",
         "/api/booth/sessions/{session_id}/outputs/{output_id}.jpg",
         "/api/booth/sessions/{session_id}/delivery",
+        "/api/booth/sessions/{session_id}/decorate",
+        "/api/booth/sessions/{session_id}/frame.png",
+        "/api/booth/decorations",
+        "/api/booth/decorations/stickers/{key}.png",
     }

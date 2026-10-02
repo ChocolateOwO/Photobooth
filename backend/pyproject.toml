@@ -36,7 +36,7 @@ photobooth = "photobooth.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-photobooth = ["templates_data/*.json", "frames_data/builtin/*.png"]
+photobooth = ["templates_data/*.json", "frames_data/builtin/*.png", "stickers_data/builtin/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "../scripts/tests"]
@@ -103,6 +103,7 @@ containers = [
     "photobooth.modules.themes",
     "photobooth.modules.booth",
     "photobooth.modules.delivery",
+    "photobooth.modules.decorations",
 ]
 layers = ["api", "service", "domain"]
 exhaustive = false
@@ -132,6 +133,8 @@ source_modules = [
     "photobooth.modules.rendering.service",
     "photobooth.modules.delivery.api",
     "photobooth.modules.delivery.service",
+    "photobooth.modules.decorations.api",
+    "photobooth.modules.decorations.service",
 ]
 forbidden_modules = [
     "photobooth.modules.system.repository",
@@ -152,6 +155,7 @@ forbidden_modules = [
     "photobooth.modules.themes.extractor",
     "photobooth.modules.delivery.repository",
     "photobooth.modules.delivery.qr",
+    "photobooth.modules.decorations.builtin",
     "segno",
     "PIL",
     "argon2",
@@ -174,6 +178,7 @@ source_modules = [
     "photobooth.modules.themes.domain",
     "photobooth.modules.booth.domain",
     "photobooth.modules.delivery.domain",
+    "photobooth.modules.decorations.domain",
 ]
 forbidden_modules = [
     "fastapi",
@@ -325,6 +330,26 @@ source_modules = ["photobooth.modules.delivery"]
 forbidden_modules = [
     "photobooth.modules.sessions",
     "photobooth.modules.booth",
+    "photobooth.modules.rendering",
+    "photobooth.modules.frames",
+    "photobooth.modules.assets",
+    "photobooth.modules.storage",
+    "photobooth.modules.event_profiles",
+    "photobooth.modules.auth",
+    "photobooth.modules.kiosk",
+    "photobooth.modules.system",
+    "photobooth.modules.templates",
+    "photobooth.modules.themes",
+]
+
+[[tool.importlinter.contracts]]
+name = "Decorations know nothing of the rest of the app"
+type = "forbidden"
+source_modules = ["photobooth.modules.decorations"]
+forbidden_modules = [
+    "photobooth.modules.sessions",
+    "photobooth.modules.booth",
+    "photobooth.modules.delivery",
     "photobooth.modules.rendering",
     "photobooth.modules.frames",
     "photobooth.modules.assets",

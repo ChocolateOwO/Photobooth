@@ -28,17 +28,20 @@ from photobooth.modules.sessions.domain import (
     CaptureRefusedError,
     CaptureStatus,
     Clock,
+    DecorationRules,
     DeliveryLink,
     DeliveryLinks,
     DeviceOperation,
     EligibilityProvider,
     EligibilityRefusedError,
+    FrameFileNotFoundError,
     IdempotencyReuseError,
     NoActiveEventError,
     Operation,
     OperationFailedError,
     OperationStatus,
     OutputAsset,
+    OutputLayout,
     OutputNotFoundError,
     OutputRenderer,
     OutputStatus,
@@ -122,6 +125,7 @@ class BoothSessionService:
         renderer: OutputRenderer,
         frames: SessionFrames,
         links: DeliveryLinks,
+        decorations: DecorationRules,
         clock: Clock | None = None,
     ) -> None:
         self._repository = repository
@@ -133,6 +137,7 @@ class BoothSessionService:
         self._renderer = renderer
         self._frames = frames
         self._links = links
+        self._decorations = decorations
         self._clock = clock or SystemClock()
         self._locks = SessionLocks()
         self._device_locks = SessionLocks()
@@ -437,25 +442,63 @@ class BoothSessionService:
 
     # ---- finished photos and delivery ---------------------------------------------------------
 
+    def decorate_layout(self, device_id: str, session_id: str) -> tuple[OutputLayout, ...]:
+        """Where each photo of the visit lies on each finished photo, for the booth's decorating
+        preview: the very slots, crops and order the renderer will use."""
+        with self._locks.held(session_id):
+            session = self._load(device_id, session_id)
+            if session.state is not SessionState.REVIEWING or session.selection is None:
+                raise TransitionRefusedError("this visit is not choosing its decorations")
+            selection = session.selection
+            captures = self._counted_captures(session)
+            return tuple(
+                self._renderer.layout(
+                    selection.template_key,
+                    selection.template_version,
+                    [(capture.id, capture.shot_index) for capture in captures],
+                )
+            )
+
+    def frame_file(self, device_id: str, session_id: str) -> bytes:
+        """The frame this visit pinned, for its own booth screen (the decorating preview lays it
+        over the photos exactly as the renderer does). Never another frame."""
+        with self._locks.held(session_id):
+            session = self._load(device_id, session_id, allow_closed=True)
+            selection = session.selection
+            if selection is None:
+                raise FrameFileNotFoundError()
+            try:
+                data = self._frames.frame_png(selection.frame_id)
+            except RenderFailedError as exc:
+                raise FrameFileNotFoundError() from exc
+            if hashlib.sha256(data).hexdigest() != selection.frame_sha256:
+                raise FrameFileNotFoundError()
+            return data
+
     def render(
         self,
         device_id: str,
         session_id: str,
         idempotency_key: str,
-        decoration: str | None = None,
+        decoration: object | None = None,
     ) -> RenderOutcome:
-        """Make the finished photos from the visit's own photos and its pinned frame.
+        """Make the finished photos from the visit's own photos, its pinned frame and the
+        guest's decoration (checked here; None or an empty one makes them as they were taken).
 
         Exactly once: the same key replays the first answer, and a second request with another
         key (a double tap, a reload) finds the photos already made. Rendering runs on the single
         render worker; when it is full nothing is recorded and the same request may be retried.
+        The original photos and the frame file are only read, never changed.
         """
         with self._locks.held(session_id):
-            self._owned(device_id, session_id)
+            owned = self._owned(device_id, session_id)
+            if owned.selection is None:
+                raise TransitionRefusedError("this session is not ready for its finished photos")
+            prepared = self._decorations.prepare(decoration, owned.selection.outputs)
             request_fingerprint = _fingerprint(
                 "render-request",
                 session_id,
-                hashlib.sha256((decoration or "").encode()).hexdigest(),
+                hashlib.sha256((prepared or "").encode()).hexdigest(),
             )
             replay = self._replay_render(session_id, idempotency_key, request_fingerprint)
             if replay is not None:
@@ -471,7 +514,7 @@ class BoothSessionService:
                 raise TransitionRefusedError("this session is not ready for its finished photos")
             selection = session.selection
             captures = self._counted_captures(session)
-            fingerprint = render_fingerprint(selection, captures, session.mirror, decoration)
+            fingerprint = render_fingerprint(selection, captures, session.mirror, prepared)
 
             try:
                 frame_png = self._frames.frame_png(selection.frame_id)
@@ -492,7 +535,7 @@ class BoothSessionService:
                         frame_png=frame_png,
                         mirror=session.mirror,
                         photos=photos,
-                        decoration=decoration,
+                        decoration=prepared,
                     )
                 )
             except RenderFailedError as exc:
@@ -532,7 +575,7 @@ class BoothSessionService:
                         height=file.height,
                         byte_size=len(file.data),
                         rendered_at=now,
-                        decoration=decoration,
+                        decoration=prepared,
                     )
                 )
             self._repository.start_render(operation, outputs, now)

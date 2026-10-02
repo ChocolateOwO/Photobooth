@@ -7,7 +7,10 @@
 - POST /api/booth/sessions/{id}/captures         send one photo (idempotent per key)
 - POST /api/booth/sessions/{id}/retake           take a photo (or the set) again
 - POST /api/booth/sessions/{id}/finish           every photo is in; the guest reviews them
-- POST /api/booth/sessions/{id}/render           make the finished photos (idempotent per key)
+- GET  /api/booth/sessions/{id}/decorate         the finished photos' layout, for decorating
+- GET  /api/booth/sessions/{id}/frame.png        the visit's own frame (unchanged)
+- POST /api/booth/sessions/{id}/render           make the finished photos, decorated as the guest
+                                                 chose (idempotent per key)
 - GET  /api/booth/sessions/{id}/outputs/{o}.jpg  one finished photo, for this booth screen
 - POST /api/booth/sessions/{id}/delivery         the take-home link and its QR code
 - POST /api/booth/sessions/{id}/give-up          the participant leaves (or is done)
@@ -29,7 +32,9 @@ from photobooth.modules.sessions.domain import (
     BoothSession,
     CaptureNotFoundError,
     CaptureRefusedError,
+    DecorationRefusedError,
     EligibilityRefusedError,
+    FrameFileNotFoundError,
     FrameNotOfferedError,
     IdempotencyReuseError,
     NoActiveEventError,
@@ -48,6 +53,8 @@ from photobooth.modules.sessions.schemas import (
     BoothSessionResponse,
     CaptureResponse,
     ChooseFrameBody,
+    DecorateLayoutResponse,
+    DecorateOutputResponse,
     DeliveryLinkResponse,
     RenderBody,
     RetakeBody,
@@ -236,10 +243,15 @@ async def render(
     session_id: SessionId, body: RenderBody, service: Service, device: Device
 ) -> BoothSessionResponse:
     """Make the finished photos (300 DPI sRGB JPEG) from this visit's own photos and frame."""
+    decoration = body.decoration.model_dump() if body.decoration is not None else None
     try:
-        outcome = await run_in_threadpool(service.render, device, session_id, body.idempotency_key)
+        outcome = await run_in_threadpool(
+            service.render, device, session_id, body.idempotency_key, decoration
+        )
     except SessionNotFoundError as exc:
         raise _not_found(exc) from exc
+    except DecorationRefusedError as exc:
+        raise _refused(exc) from exc
     except RenderBusyError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -273,6 +285,48 @@ def output_photo(
     except (SessionNotFoundError, OutputNotFoundError) as exc:
         raise _not_found(exc) from exc
     return Response(content=data, media_type="image/jpeg", headers=_IMAGE_HEADERS)
+
+
+@router.get("/{session_id}/decorate", response_model=DecorateLayoutResponse)
+def decorate_layout(
+    session_id: SessionId, service: Service, device: Device, response: Response
+) -> DecorateLayoutResponse:
+    """The finished photos as they will be composed, so the booth previews the decoration on
+    the very slots, crops and frame the server uses."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        layouts = service.decorate_layout(device, session_id)
+        session = service.read(device, session_id)
+    except SessionNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except (SessionClosedError, TransitionRefusedError) as exc:
+        raise _conflict(exc) from exc
+    except RenderFailedError as exc:
+        raise _conflict(exc) from exc
+    versions = {
+        shot.capture_id: shot.version for shot in service.progress(session_id) if shot.capture_id
+    }
+    selection = session.selection
+    return DecorateLayoutResponse(
+        mirror=session.mirror,
+        frame_url=f"/api/booth/sessions/{session_id}/frame.png"
+        + (f"?v={selection.frame_sha256[:16]}" if selection else ""),
+        outputs=[DecorateOutputResponse.of(layout, versions) for layout in layouts],
+    )
+
+
+@router.get(
+    "/{session_id}/frame.png",
+    response_class=Response,
+    responses={200: {"content": {"image/png": {}}}},
+)
+def frame_file(session_id: SessionId, service: Service, device: Device) -> Response:
+    """The frame this visit pinned, for its own booth screen. Never another frame."""
+    try:
+        data = service.frame_file(device, session_id)
+    except (SessionNotFoundError, FrameFileNotFoundError) as exc:
+        raise _not_found(exc) from exc
+    return Response(content=data, media_type="image/png", headers=_IMAGE_HEADERS)
 
 
 @router.post("/{session_id}/delivery", response_model=DeliveryLinkResponse)

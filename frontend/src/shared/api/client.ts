@@ -13,6 +13,12 @@ export type CaptureResult = components['schemas']['CaptureResponse']
 export type ShotState = components['schemas']['ShotResponse']
 export type OutputState = components['schemas']['OutputResponse']
 export type DeliveryLink = components['schemas']['DeliveryLinkResponse']
+export type DecorationCatalog = components['schemas']['DecorationCatalogResponse']
+export type DecorationFilter = components['schemas']['FilterResponse']
+export type StickerOffer = components['schemas']['StickerResponse']
+export type DecorateLayout = components['schemas']['DecorateLayoutResponse']
+export type DecorateOutput = components['schemas']['DecorateOutputResponse']
+export type DecorationRequest = components['schemas']['DecorationBody']
 
 export class ApiError extends Error {
   readonly status: number
@@ -151,9 +157,18 @@ export function createApiClient(
     finishCaptures: (sessionId: string) =>
       postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/finish`),
     /** Make the finished photos. The same key never makes them twice (safe to retry). */
-    renderOutputs: (sessionId: string, idempotencyKey: string) =>
+    /** The filters and stickers the booth offers, with the numbers the server applies. */
+    decorations: () => getJson<DecorationCatalog>('/api/booth/decorations'),
+    /** The finished photos as the server will compose them, for the decorating preview. */
+    decorateLayout: (sessionId: string) =>
+      getJson<DecorateLayout>(`/api/booth/sessions/${sessionId}/decorate`),
+    /**
+     * Make the finished photos, decorated as the guest chose (once: a retry reuses the key).
+     */
+    renderOutputs: (sessionId: string, idempotencyKey: string, decoration?: DecorationRequest) =>
       postJson<BoothSessionState>(`/api/booth/sessions/${sessionId}/render`, {
         idempotency_key: idempotencyKey,
+        ...(decoration ? { decoration } : {}),
       }),
     /** One finished photo of this visit, for the booth screen (a same-origin <img> source). */
     outputImageUrl: (sessionId: string, outputId: string, version?: string) =>

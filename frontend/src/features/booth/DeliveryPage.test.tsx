@@ -14,20 +14,25 @@ import {
 import { DeliveryPage } from './DeliveryPage'
 
 /**
- * The end of a visit: the booth asks for the finished photos exactly once (retrying the same
- * request while the render worker is busy), shows them beside the take-home QR code, and goes
- * back to its start when the guest is done or walks away.
+ * The end of a visit: the finished photos (made when the guest confirmed their decorations)
+ * beside the take-home QR code; back to the start when the guest is done or walks away. This
+ * screen never makes photos: a visit still decorating goes back to decorating.
  */
 
 const SESSION_ID = '33333333-3333-4333-8333-333333333333'
 const URL = 'http://192.168.1.20:8113/d/' + 'T'.repeat(43)
 
+const DELIVERED_OUTPUTS: NonNullable<BoothSessionState['outputs']> = [
+  { id: 'out-1', output_index: 1, width: 600, height: 1800, version: 'v1' },
+  { id: 'out-2', output_index: 2, width: 600, height: 1800, version: 'v2' },
+]
+
 function visit(overrides: Partial<BoothSessionState> = {}): BoothSessionState {
   return {
     id: SESSION_ID,
     is_test: false,
-    state: 'reviewing',
-    state_version: 4,
+    state: 'delivered',
+    state_version: 5,
     countdown_seconds: 3,
     mirror: true,
     retake_mode: 'per_photo',
@@ -38,15 +43,10 @@ function visit(overrides: Partial<BoothSessionState> = {}): BoothSessionState {
     layout_label: '2×6',
     frame_id: 'fs',
     shots: [],
-    outputs: [],
+    outputs: DELIVERED_OUTPUTS,
     ...overrides,
   }
 }
-
-const DELIVERED_OUTPUTS: NonNullable<BoothSessionState['outputs']> = [
-  { id: 'out-1', output_index: 1, width: 600, height: 1800, version: 'v1' },
-  { id: 'out-2', output_index: 2, width: 600, height: 1800, version: 'v2' },
-]
 
 const LINK: DeliveryLink = {
   url: URL,
@@ -68,34 +68,27 @@ function json(body: unknown, status = 200): Response {
 }
 
 interface Booth {
-  renders: string[]
+  renders: number
   links: number
   gaveUp: number
   current: BoothSessionState
 }
 
-function server(start: BoothSessionState, busyFirst = 0, failRender = false): {
+function server(start: BoothSessionState, failLink = false): {
   booth: Booth
   fetcher: (path: string, init?: RequestInit) => Promise<Response>
 } {
-  const booth: Booth = { renders: [], links: 0, gaveUp: 0, current: start }
-  let busy = busyFirst
-  const fetcher = async (path: string, init?: RequestInit): Promise<Response> => {
+  const booth: Booth = { renders: 0, links: 0, gaveUp: 0, current: start }
+  const fetcher = async (path: string): Promise<Response> => {
     if (path === '/api/booth/frames') return json(MENU)
     if (path === '/api/booth/sessions/current') return json(booth.current)
     if (path.endsWith('/render')) {
-      const body = JSON.parse(String(init?.body)) as { idempotency_key: string }
-      booth.renders.push(body.idempotency_key)
-      if (busy > 0) {
-        busy -= 1
-        return json({ detail: 'busy' }, 503)
-      }
-      if (failRender) return json({ detail: 'the photos could not be made' }, 409)
-      booth.current = { ...booth.current, state: 'delivered', outputs: DELIVERED_OUTPUTS }
-      return json(booth.current)
+      booth.renders += 1
+      return json({ detail: 'this screen never makes photos' }, 500)
     }
     if (path.endsWith('/delivery')) {
       booth.links += 1
+      if (failLink) return json({ detail: 'the finished photos are not ready yet' }, 409)
       return json(LINK)
     }
     if (path.endsWith('/give-up')) {
@@ -117,6 +110,7 @@ function renderDone(fetcher: (path: string, init?: RequestInit) => Promise<Respo
           <Routes>
             <Route path="/booth/done" element={<DeliveryPage />} />
             <Route path="/booth/capture" element={<p>the camera screen</p>} />
+            <Route path="/booth/decorate" element={<p>the decorate screen</p>} />
             <Route path="/booth" element={<p>the start screen</p>} />
           </Routes>
         </MemoryRouter>
@@ -134,7 +128,7 @@ afterEach(() => {
 })
 
 describe('DeliveryPage (the finished photos)', () => {
-  it('asks for the finished photos once and shows them beside the take-home QR code', async () => {
+  it('shows the finished photos beside the take-home QR code', async () => {
     const { booth, fetcher } = server(visit())
     renderDone(fetcher)
     expect(screen.getByTestId('booth-shell')).toBeInTheDocument()
@@ -144,7 +138,7 @@ describe('DeliveryPage (the finished photos)', () => {
       `/api/booth/sessions/${SESSION_ID}/outputs/out-1.jpg?v=v1`,
       `/api/booth/sessions/${SESSION_ID}/outputs/out-2.jpg?v=v2`,
     ])
-    expect(booth.renders).toHaveLength(1)
+    expect(booth.renders).toBe(0)
     expect(booth.links).toBe(1)
 
     const qr = screen.getByTestId('delivery-qr')
@@ -156,49 +150,33 @@ describe('DeliveryPage (the finished photos)', () => {
     expect(screen.getByText(/The link works until/)).toBeInTheDocument()
   })
 
-  it('asks a busy render worker again with the very same request', async () => {
-    const { booth, fetcher } = server(visit(), 2)
+  it('sends a visit that is still decorating back to decorating, making nothing', async () => {
+    const { booth, fetcher } = server(visit({ state: 'reviewing', outputs: [] }))
     renderDone(fetcher)
-    expect(await screen.findByTestId('making-photos')).toHaveTextContent('Making your photos')
-    await act(async () => {
-      vi.advanceTimersByTime(1600)
-    })
-    await act(async () => {
-      vi.advanceTimersByTime(1600)
-    })
-    await screen.findByTestId('finished-photos')
-    expect(booth.renders).toHaveLength(3)
-    expect(new Set(booth.renders).size).toBe(1) // one key: the photos can only be made once
+    expect(await screen.findByText('the decorate screen')).toBeInTheDocument()
+    expect(booth.renders).toBe(0)
+    expect(booth.links).toBe(0)
   })
 
-  it('a reload of a delivered visit shows it again without making anything', async () => {
-    const { booth, fetcher } = server(visit({ state: 'delivered', outputs: DELIVERED_OUTPUTS }))
+  it('says so when the photos can not be shown, and starts over', async () => {
+    const { booth, fetcher } = server(visit(), true)
     renderDone(fetcher)
-    await screen.findByTestId('finished-photos')
-    expect(booth.renders).toEqual([])
-    expect(booth.links).toBe(1)
-  })
-
-  it('says so when the photos can not be made, and starts over', async () => {
-    const { booth, fetcher } = server(visit(), 0, true)
-    renderDone(fetcher)
-    expect(await screen.findByRole('alert')).toHaveTextContent('could not be made')
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be shown')
     await userEvent.click(screen.getByRole('button', { name: 'Start over' }))
     expect(await screen.findByText('the start screen')).toBeInTheDocument()
     expect(booth.gaveUp).toBe(1) // the visit it knew about is closed, not left behind
   })
 
   it('leaves a failure screen by itself when nobody is there (P8-006)', async () => {
-    const { booth, fetcher } = server(visit({ inactivity_timeout_s: 30 }), 0, true)
+    const { booth, fetcher } = server(visit({ inactivity_timeout_s: 30 }), true)
     renderDone(fetcher)
-    expect(await screen.findByRole('alert')).toHaveTextContent('could not be made')
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be shown')
     await act(async () => {
       vi.advanceTimersByTime(31_000)
     })
     expect(await screen.findByText('the start screen')).toBeInTheDocument()
     await waitFor(() => expect(booth.gaveUp).toBe(1))
   })
-
   it('Done ends the visit and the booth is ready for the next guest', async () => {
     const { booth, fetcher } = server(visit())
     renderDone(fetcher)
@@ -223,7 +201,7 @@ describe('DeliveryPage (the finished photos)', () => {
     const { booth, fetcher } = server(visit({ state: 'capturing', taken: 3 }))
     renderDone(fetcher)
     expect(await screen.findByText('the camera screen')).toBeInTheDocument()
-    expect(booth.renders).toEqual([])
+    expect(booth.renders).toBe(0)
   })
 
   it('wears the event theme', async () => {

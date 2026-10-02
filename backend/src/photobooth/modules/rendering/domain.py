@@ -82,12 +82,35 @@ def plan_outputs(template: PhotoTemplate, captures: Sequence[CaptureRef]) -> lis
 
 
 @dataclass(frozen=True)
+class StickerPlacement:
+    """A sticker on a finished photo. `x`, `y` (its centre) and `size` (its width) are fractions of
+    the photo; `rotation` is degrees clockwise. Its height follows the sticker's own proportions."""
+
+    png: bytes
+    x: float
+    y: float
+    size: float
+    rotation: float
+
+
+@dataclass(frozen=True)
+class Decoration:
+    """What a guest added to one finished photo. The original photos and the frame never change:
+    `color_matrix` (3 rows of r, g, b, offset on 0..1 values) colours the photos only, and the
+    stickers lie on top of the frame in order."""
+
+    color_matrix: tuple[float, ...] | None = None
+    stickers: tuple[StickerPlacement, ...] = ()
+
+
+@dataclass(frozen=True)
 class RenderJob:
     template: PhotoTemplate
     plan: OutputPlan
     images: Mapping[str, bytes]  # capture_id -> encoded image
     frame_png: bytes | None = None
     mirror: bool = False
+    decoration: Decoration | None = None
 
 
 @dataclass(frozen=True)

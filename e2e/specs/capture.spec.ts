@@ -198,8 +198,16 @@ for (const layout of LAYOUTS) {
     await expect(page.getByRole('dialog')).toHaveCount(0)
 
     await page.getByRole('button', { name: 'These are good' }).click()
-    // The camera step is over: the finished photos are made and offered to take home.
-    await expect(page).toHaveURL(/\/booth\/done$/)
+    // The camera step is over: the guest may decorate, then the finished photos are made and
+    // offered to take home.
+    await expect(page).toHaveURL(/\/booth\/decorate$/)
+    await expect(page.getByTestId('decorated-photo')).toHaveCount(layout.key === 'strip_2x6' ? 2 : 1)
+    await page.getByRole('button', { name: 'Finish' }).click()
+    await page
+      .getByRole('dialog', { name: 'Finish your photos?' })
+      .getByRole('button', { name: 'Make my photos' })
+      .click()
+    await expect(page).toHaveURL(/\/booth\/done$/, { timeout: 30_000 })
     await expect(page.getByTestId('finished-photos').getByRole('img')).toHaveCount(
       layout.key === 'strip_2x6' ? 2 : 1,
     )

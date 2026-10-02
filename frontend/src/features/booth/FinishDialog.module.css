@@ -1,0 +1,57 @@
+/* The question before the finished photos are made, on the dimmed event overlay. Event colours only. */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background-color: color-mix(in srgb, var(--ev-overlay) 80%, transparent);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(520px, 100%);
+  max-height: 100%;
+  padding: clamp(18px, 3vh, 32px);
+  border-radius: 24px;
+  background-color: var(--ev-surface);
+  color: var(--ev-body);
+  text-align: center;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.title {
+  margin: 0;
+  color: var(--ev-heading);
+  font-size: clamp(22px, 3.4vh, 34px);
+}
+
+.text {
+  margin: 0;
+  font-size: clamp(16px, 2.2vh, 20px);
+}
+
+/* One answer per line, the main one first, both easy to hit. */
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 10px;
+}
+
+.actions button {
+  min-height: 64px;
+}
+
+@media (max-height: 560px) {
+  .actions button {
+    min-height: 48px;
+  }
+}

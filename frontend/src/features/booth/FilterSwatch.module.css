@@ -1,0 +1,9 @@
+/* A filter button's picture: the guest's first photo in its own shape. */
+
+.swatch {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  pointer-events: none;
+}

@@ -50,6 +50,9 @@ from photobooth.modules.booth.domain import (
     layout_label,
 )
 from photobooth.modules.booth.service import BoothService
+from photobooth.modules.decorations.builtin import PackagedStickerLibrary
+from photobooth.modules.decorations.domain import DecorationError
+from photobooth.modules.decorations.service import DecorationService
 from photobooth.modules.delivery.api import DeliveryBudgets
 from photobooth.modules.delivery.domain import (
     DeliverableFile,
@@ -67,7 +70,14 @@ from photobooth.modules.frames.repository import SqlFrameRepository
 from photobooth.modules.frames.service import FrameService
 from photobooth.modules.frames.validator import PillowFrameValidator
 from photobooth.modules.kiosk.service import KioskPairingService
-from photobooth.modules.rendering.domain import CaptureRef, RenderBusyError, RenderError
+from photobooth.modules.rendering.domain import (
+    CaptureRef,
+    Decoration,
+    RenderBusyError,
+    RenderError,
+    StickerPlacement,
+    plan_outputs,
+)
 from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
 from photobooth.modules.rendering.service import RenderService
@@ -77,13 +87,16 @@ from photobooth.modules.sessions.domain import (
     MIN_CAPTURE_SIDE,
     CaptureFacts,
     CaptureRefusedError,
+    DecorationRefusedError,
     DeliveryLink,
     EligibilityDecision,
     LayoutOffer,
+    OutputLayout,
     OutputStatus,
     RenderedFile,
     RenderFailedError,
     RenderRequest,
+    SlotPhoto,
     TransitionRefusedError,
 )
 from photobooth.modules.sessions.domain import ProfileSnapshot as SessionProfileSnapshot
@@ -96,7 +109,7 @@ from photobooth.modules.storage.local import LocalStorageProvider
 from photobooth.modules.system.domain import AppMetaRepository
 from photobooth.modules.system.repository import SqlAppMetaRepository
 from photobooth.modules.system.service import SystemIdentity, SystemService
-from photobooth.modules.templates.domain import TemplateNotFoundError
+from photobooth.modules.templates.domain import PhotoTemplate, TemplateNotFoundError
 from photobooth.modules.templates.imaging import PillowTemplateArtist
 from photobooth.modules.templates.repository import JsonTemplateRepository
 from photobooth.modules.templates.service import TemplateSpecService
@@ -357,25 +370,94 @@ class _Eligibility:
 
 
 class _SessionRenderer:
-    """Adapter: a visit's finished photos, rendered on the single render worker."""
+    """Adapter: a visit's finished photos, rendered on the single render worker, with the
+    guest's decoration turned into what the renderer applies (matrix numbers, sticker files)."""
 
-    def __init__(self, renderer: RenderService, templates: TemplateSpecService) -> None:
+    def __init__(
+        self,
+        renderer: RenderService,
+        templates: TemplateSpecService,
+        decorations: DecorationService,
+    ) -> None:
         self._renderer = renderer
         self._templates = templates
+        self._decorations = decorations
 
-    def render(self, request: RenderRequest) -> list[RenderedFile]:
+    def _template(self, key: str, version: int) -> PhotoTemplate:
         try:
-            template = self._templates.get(request.template_key, request.template_version)
+            return self._templates.get(key, version)
         except TemplateNotFoundError as exc:
             raise RenderFailedError("template_missing") from exc
+
+    def layout(
+        self, template_key: str, template_version: int, photos: Sequence[tuple[str, int]]
+    ) -> list[OutputLayout]:
+        template = self._template(template_key, template_version)
+        captures = [CaptureRef(capture_id=cid, shot_index=shot) for cid, shot in photos]
+        try:
+            plans = plan_outputs(template, captures)
+        except RenderError as exc:
+            raise RenderFailedError("render_failed") from exc
+        return [
+            OutputLayout(
+                output_index=plan.output_index,
+                width=template.width_px,
+                height=template.height_px,
+                slots=tuple(
+                    SlotPhoto(
+                        capture_id=assignment.capture.capture_id,
+                        shot_index=assignment.capture.shot_index,
+                        x=assignment.slot.rect.x,
+                        y=assignment.slot.rect.y,
+                        width=assignment.slot.rect.w,
+                        height=assignment.slot.rect.h,
+                    )
+                    for assignment in plan.assignments
+                ),
+            )
+            for plan in plans
+        ]
+
+    def _decorations_for(
+        self, template: PhotoTemplate, stored: str | None
+    ) -> dict[int, Decoration]:
+        decorations: dict[int, Decoration] = {}
+        for index in range(1, template.outputs_per_session + 1):
+            try:
+                chosen = self._decorations.for_output(stored, index)
+            except DecorationError as exc:  # a sticker that is no longer offered
+                raise RenderFailedError("decoration_missing") from exc
+            decorations[index] = Decoration(
+                color_matrix=chosen.matrix,
+                stickers=tuple(
+                    StickerPlacement(
+                        png=art.png,
+                        x=art.placed.x,
+                        y=art.placed.y,
+                        size=art.placed.size,
+                        rotation=art.placed.rotation,
+                    )
+                    for art in chosen.stickers
+                ),
+            )
+        return decorations
+
+    def render(self, request: RenderRequest) -> list[RenderedFile]:
+        template = self._template(request.template_key, request.template_version)
         photos = {photo.capture_id: photo.data for photo in request.photos}
         captures = [
             CaptureRef(capture_id=photo.capture_id, shot_index=photo.shot_index)
             for photo in request.photos
         ]
+        decorations = self._decorations_for(template, request.decoration)
         try:
             future = self._renderer.submit_session(
-                template, captures, _PhotoSource(photos), request.frame_png, request.mirror
+                template,
+                captures,
+                _PhotoSource(photos),
+                request.frame_png,
+                request.mirror,
+                decorations,
             )
             rendered = future.result()
         except RenderBusyError as exc:
@@ -392,6 +474,19 @@ class _SessionRenderer:
             )
             for output in rendered
         ]
+
+
+class _DecorationRules:
+    """Adapter: the decorations module checks a guest's decoration for the sessions module."""
+
+    def __init__(self, decorations: DecorationService) -> None:
+        self._decorations = decorations
+
+    def prepare(self, raw: object, outputs: int) -> str | None:
+        try:
+            return self._decorations.prepare(raw, outputs)
+        except DecorationError as exc:
+            raise DecorationRefusedError(str(exc)) from exc
 
 
 class _PhotoSource:
@@ -625,6 +720,8 @@ class Container:
             SegnoQrEncoder(),
         )
         self.registry.register(DeliveryService, self.delivery_service)
+        self.decoration_service = DecorationService(PackagedStickerLibrary())
+        self.registry.register(DecorationService, self.decoration_service)
         self.registry.register(
             DeliveryBudgets,
             DeliveryBudgets(requests=RequestBudget(limit=120), archives=RequestBudget(limit=10)),
@@ -636,9 +733,12 @@ class Container:
             _CaptureFiles(self.storage),
             _Eligibility(AllowAllEligibility()),
             boot_id=self.boot_id,
-            renderer=_SessionRenderer(self.render_service, self.template_service),
+            renderer=_SessionRenderer(
+                self.render_service, self.template_service, self.decoration_service
+            ),
             frames=_SessionFrames(self.frame_service),
             links=_SessionLinks(self.delivery_service),
+            decorations=_DecorationRules(self.decoration_service),
         )
         self.registry.register(BoothSessionService, self.session_service)
         self.registry.register(AdminAuthenticator, AdminAuthGate(self.auth_service))

@@ -5,12 +5,13 @@ from __future__ import annotations
 import hashlib
 import threading
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import Future
 
 from photobooth.modules.rendering.domain import (
     CaptureRef,
     CaptureSource,
+    Decoration,
     PhotoRenderer,
     RenderedOutput,
     RenderError,
@@ -50,8 +51,12 @@ class RenderService:
         source: CaptureSource,
         frame_png: bytes | None = None,
         mirror: bool = False,
+        decorations: Mapping[int, Decoration] | None = None,
     ) -> list[RenderedOutput]:
-        """Render every output of a session; each capture appears in exactly one output."""
+        """Render every output of a session; each capture appears in exactly one output.
+
+        `decorations` holds what the guest added to each output (by output index); an output
+        without one is made exactly as it was taken."""
         outputs: list[RenderedOutput] = []
         for plan in plan_outputs(template, captures):
             images = {capture_id: source.read(capture_id) for capture_id in plan.capture_ids}
@@ -63,6 +68,7 @@ class RenderService:
                         images=images,
                         frame_png=frame_png,
                         mirror=mirror,
+                        decoration=(decorations or {}).get(plan.output_index),
                     )
                 )
             )
@@ -75,12 +81,13 @@ class RenderService:
         source: CaptureSource,
         frame_png: bytes | None = None,
         mirror: bool = False,
+        decorations: Mapping[int, Decoration] | None = None,
     ) -> Future[list[RenderedOutput]]:
         """A guest's finished photos, rendered on the single render worker (never beside another
         render). Raises RenderBusyError at once when the worker is full; nothing has started."""
         plan_outputs(template, captures)  # refuse a wrong capture set before queueing anything
         return self._scheduler.submit(
-            lambda: self.render_session(template, captures, source, frame_png, mirror)
+            lambda: self.render_session(template, captures, source, frame_png, mirror, decorations)
         )
 
     def render_sample(

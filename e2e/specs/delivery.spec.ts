@@ -38,7 +38,13 @@ async function takePhotos(page: Page, size: string): Promise<void> {
     timeout: 60_000,
   })
   await page.getByRole('button', { name: 'These are good' }).click()
-  await expect(page).toHaveURL(/\/booth\/done$/)
+  await expect(page).toHaveURL(/\/booth\/decorate$/)
+  await page.getByRole('button', { name: 'Finish' }).click()
+  await page
+    .getByRole('dialog', { name: 'Finish your photos?' })
+    .getByRole('button', { name: 'Make my photos' })
+    .click()
+  await expect(page).toHaveURL(/\/booth\/done$/, { timeout: 30_000 })
   await expect(page.getByTestId('delivery-qr')).toBeVisible({ timeout: 30_000 })
 }
 

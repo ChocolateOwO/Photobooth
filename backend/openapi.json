@@ -224,6 +224,120 @@
         "title": "ContrastRuleInfo",
         "type": "object"
       },
+      "DecorateLayoutResponse": {
+        "description": "The finished photos as the renderer will compose them, for the decorating preview.",
+        "properties": {
+          "frame_url": {
+            "description": "The visit's own frame, laid over the photos unchanged.",
+            "title": "Frame Url",
+            "type": "string"
+          },
+          "mirror": {
+            "description": "The photos are shown mirrored, as they will be made.",
+            "title": "Mirror",
+            "type": "boolean"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/DecorateOutputResponse"
+            },
+            "title": "Outputs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "mirror",
+          "frame_url",
+          "outputs"
+        ],
+        "title": "DecorateLayoutResponse",
+        "type": "object"
+      },
+      "DecorateOutputResponse": {
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "output_index": {
+            "title": "Output Index",
+            "type": "integer"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/SlotPhotoResponse"
+            },
+            "title": "Slots",
+            "type": "array"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "output_index",
+          "width",
+          "height",
+          "slots"
+        ],
+        "title": "DecorateOutputResponse",
+        "type": "object"
+      },
+      "DecorationBody": {
+        "additionalProperties": false,
+        "description": "What the guest added: a filter for the photos and stickers on top. Files never change.",
+        "properties": {
+          "filter": {
+            "default": "none",
+            "examples": [
+              "sepia"
+            ],
+            "pattern": "^[a-z0-9_]{1,32}$",
+            "title": "Filter",
+            "type": "string"
+          },
+          "stickers": {
+            "items": {
+              "$ref": "#/components/schemas/PlacedStickerBody"
+            },
+            "maxItems": 64,
+            "title": "Stickers",
+            "type": "array"
+          }
+        },
+        "title": "DecorationBody",
+        "type": "object"
+      },
+      "DecorationCatalogResponse": {
+        "properties": {
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/FilterResponse"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "max_stickers_per_photo": {
+            "title": "Max Stickers Per Photo",
+            "type": "integer"
+          },
+          "stickers": {
+            "items": {
+              "$ref": "#/components/schemas/StickerResponse"
+            },
+            "title": "Stickers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "filters",
+          "stickers",
+          "max_stickers_per_photo"
+        ],
+        "title": "DecorationCatalogResponse",
+        "type": "object"
+      },
       "DeliveryLinkResponse": {
         "description": "The take-home link. Shown on the booth screen only; it is the guest's key to the photos.",
         "properties": {
@@ -443,6 +557,41 @@
           "palette"
         ],
         "title": "ExtractedTheme",
+        "type": "object"
+      },
+      "FilterResponse": {
+        "properties": {
+          "key": {
+            "examples": [
+              "sepia"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "examples": [
+              "Sepia"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "matrix": {
+            "description": "Three rows (red, green, blue out) of four numbers: red, green and blue in, then an offset, on 0..1 sRGB values. The booth previews exactly what the server applies.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 12,
+            "minItems": 12,
+            "title": "Matrix",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "matrix"
+        ],
+        "title": "FilterResponse",
         "type": "object"
       },
       "FrameMenuResponse": {
@@ -996,6 +1145,65 @@
         "title": "PingResponse",
         "type": "object"
       },
+      "PlacedStickerBody": {
+        "additionalProperties": false,
+        "description": "One sticker on one finished photo. Positions are fractions of that photo.",
+        "properties": {
+          "output": {
+            "description": "Which finished photo (1 = the first strip).",
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Output",
+            "type": "integer"
+          },
+          "rotation": {
+            "description": "Degrees clockwise.",
+            "maximum": 3600.0,
+            "minimum": -3600.0,
+            "title": "Rotation",
+            "type": "number"
+          },
+          "size": {
+            "description": "The sticker's width, of the photo's width.",
+            "maximum": 1.0,
+            "minimum": 0.05,
+            "title": "Size",
+            "type": "number"
+          },
+          "sticker": {
+            "examples": [
+              "heart"
+            ],
+            "pattern": "^[a-z0-9_]{1,32}$",
+            "title": "Sticker",
+            "type": "string"
+          },
+          "x": {
+            "description": "The sticker's centre, across the photo.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "The sticker's centre, down the photo.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "sticker",
+          "output",
+          "x",
+          "y",
+          "size",
+          "rotation"
+        ],
+        "title": "PlacedStickerBody",
+        "type": "object"
+      },
       "PresetInfo": {
         "properties": {
           "description": {
@@ -1450,6 +1658,17 @@
       "RenderBody": {
         "additionalProperties": false,
         "properties": {
+          "decoration": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecorationBody"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The guest's decoration; none makes the photos as taken."
+          },
           "idempotency_key": {
             "description": "Repeat the same key to retry safely; the photos are made once.",
             "pattern": "^[A-Za-z0-9_-]{8,64}$",
@@ -1624,6 +1843,58 @@
         "title": "SlotModel",
         "type": "object"
       },
+      "SlotPhotoResponse": {
+        "description": "Where one photo lies on a finished photo, in that photo's own pixels.",
+        "properties": {
+          "capture_id": {
+            "title": "Capture Id",
+            "type": "string"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "shot_index": {
+            "title": "Shot Index",
+            "type": "integer"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Changes when the photo does.",
+            "title": "Version"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          },
+          "x": {
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "capture_id",
+          "shot_index",
+          "version",
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "SlotPhotoResponse",
+        "type": "object"
+      },
       "StartScreenResponse": {
         "description": "Presentation data of the participant start screen, nothing else.",
         "properties": {
@@ -1701,6 +1972,45 @@
           "profile_id"
         ],
         "title": "StartTestBody",
+        "type": "object"
+      },
+      "StickerResponse": {
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "key": {
+            "examples": [
+              "heart"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "examples": [
+              "Heart"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "url",
+          "width",
+          "height"
+        ],
+        "title": "StickerResponse",
         "type": "object"
       },
       "TemplateLinks": {
@@ -3445,6 +3755,67 @@
         ]
       }
     },
+    "/api/booth/decorations": {
+      "get": {
+        "description": "The filters (with the colour matrices the server applies) and the stickers on offer.",
+        "operationId": "catalog_api_booth_decorations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecorationCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Catalog",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/decorations/stickers/{key}.png": {
+      "get": {
+        "operationId": "sticker_api_booth_decorations_stickers__key__png_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9_]{1,32}$",
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sticker",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
     "/api/booth/frames": {
       "get": {
         "operationId": "frame_menu_api_booth_frames_get",
@@ -3775,6 +4146,50 @@
         ]
       }
     },
+    "/api/booth/sessions/{session_id}/decorate": {
+      "get": {
+        "description": "The finished photos as they will be composed, so the booth previews the decoration on\nthe very slots, crops and frame the server uses.",
+        "operationId": "decorate_layout_api_booth_sessions__session_id__decorate_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecorateLayoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decorate Layout",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
     "/api/booth/sessions/{session_id}/delivery": {
       "post": {
         "description": "The guest's take-home link and QR code. A reload shows the same code while it is\nremembered; after a restart a new code replaces the old one.",
@@ -3912,6 +4327,46 @@
           }
         },
         "summary": "Choose Frame",
+        "tags": [
+          "booth"
+        ]
+      }
+    },
+    "/api/booth/sessions/{session_id}/frame.png": {
+      "get": {
+        "description": "The frame this visit pinned, for its own booth screen. Never another frame.",
+        "operationId": "frame_file_api_booth_sessions__session_id__frame_png_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Frame File",
         "tags": [
           "booth"
         ]

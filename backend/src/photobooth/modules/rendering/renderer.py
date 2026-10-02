@@ -10,10 +10,12 @@ from PIL import Image, ImageCms, ImageDraw, ImageFont, ImageOps
 
 from photobooth.modules.rendering.domain import (
     JPEG_MEDIA_TYPE,
+    Decoration,
     PhotoRenderer,
     RenderedOutput,
     RenderError,
     RenderJob,
+    StickerPlacement,
 )
 
 MAX_INPUT_PIXELS = 50_000_000  # decompression-bomb guard for captures and frames
@@ -92,11 +94,58 @@ def _open(data: bytes, what: str) -> Image.Image:
     return image
 
 
+def _filtered(photo: Image.Image, matrix: tuple[float, ...] | None) -> Image.Image:
+    """A filter's colour matrix on a photo. Offsets are given on 0..1 values (as the booth's SVG
+    feColorMatrix takes them) and become 0..255 here; Pillow clamps every result."""
+    if matrix is None:
+        return photo
+    scaled = tuple(
+        value * 255 if column == 3 else value
+        for row in range(3)
+        for column, value in enumerate(matrix[row * 4 : row * 4 + 4])
+    )
+    return photo.convert("RGB", matrix=scaled)
+
+
+def _paste_clipped(canvas: Image.Image, art: Image.Image, left: int, top: int) -> None:
+    """Lay `art` on the canvas at (left, top), keeping only what falls on the canvas."""
+    src_left, src_top = max(0, -left), max(0, -top)
+    dest_left, dest_top = max(0, left), max(0, top)
+    width = min(art.width - src_left, canvas.width - dest_left)
+    height = min(art.height - src_top, canvas.height - dest_top)
+    if width <= 0 or height <= 0:
+        return
+    canvas.alpha_composite(
+        art,
+        dest=(dest_left, dest_top),
+        source=(src_left, src_top, src_left + width, src_top + height),
+    )
+
+
+def _place_sticker(canvas: Image.Image, sticker: StickerPlacement) -> None:
+    """A sticker as the booth's preview draws it: `size` of the photo's width, centred on (x, y),
+    turned `rotation` degrees clockwise, on top of everything before it."""
+    art = to_srgb(_open(sticker.png, "sticker"), "sticker", keep_alpha=True)
+    width = max(1, round(sticker.size * canvas.width))
+    height = max(1, round(width * art.height / art.width))
+    # Premultiplied while scaling and turning, so transparent pixels never leave a dark fringe.
+    scaled = art.convert("RGBa").resize((width, height), Image.Resampling.LANCZOS)
+    if sticker.rotation:
+        # Pillow turns counter-clockwise; the booth (SVG rotate) turns clockwise.
+        scaled = scaled.rotate(-sticker.rotation, resample=Image.Resampling.BICUBIC, expand=True)
+    placed = scaled.convert("RGBA")
+    left = round(sticker.x * canvas.width - placed.width / 2)
+    top = round(sticker.y * canvas.height - placed.height / 2)
+    _paste_clipped(canvas, placed, left, top)
+
+
 class PillowPhotoRenderer(PhotoRenderer):
-    """Cover-crops each capture into its slot, overlays the frame, exports sRGB JPEG with DPI."""
+    """Cover-crops each capture into its slot, applies the guest's filter to the photos, overlays
+    the frame, lays the guest's stickers on top and exports sRGB JPEG with DPI."""
 
     def render(self, job: RenderJob) -> RenderedOutput:
         template = job.template
+        decoration = job.decoration or Decoration()
         canvas = Image.new("RGB", (template.width_px, template.height_px), CANVAS_BACKGROUND)
 
         for assignment in job.plan.assignments:
@@ -116,7 +165,7 @@ class PillowPhotoRenderer(PhotoRenderer):
             fitted = ImageOps.fit(
                 photo, (rect.w, rect.h), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5)
             )
-            canvas.paste(fitted, (rect.x, rect.y))
+            canvas.paste(_filtered(fitted, decoration.color_matrix), (rect.x, rect.y))
 
         if job.frame_png is not None:
             frame = _open(job.frame_png, "frame")
@@ -127,6 +176,12 @@ class PillowPhotoRenderer(PhotoRenderer):
                 )
             frame_rgba = to_srgb(frame, "frame", keep_alpha=True)
             canvas = Image.alpha_composite(canvas.convert("RGBA"), frame_rgba).convert("RGB")
+
+        if decoration.stickers:
+            layered = canvas.convert("RGBA")
+            for sticker in decoration.stickers:
+                _place_sticker(layered, sticker)
+            canvas = layered.convert("RGB")
 
         buffer = io.BytesIO()
         canvas.save(

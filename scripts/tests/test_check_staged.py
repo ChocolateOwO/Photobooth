@@ -116,6 +116,18 @@ def test_binary_outside_allowed_dirs_rejected_but_fixture_allowed(repo: Path) ->
 
 
 @pytest.mark.parametrize(
+    "rel",
+    [
+        "backend/src/photobooth/frames_data/builtin/x.png",
+        "backend/src/photobooth/stickers_data/builtin/x.png",
+    ],
+)
+def test_packaged_builtin_images_are_allowed(repo: Path, rel: str) -> None:
+    _stage(repo, rel, b"\x89PNG\r\n\x1a\n\x00\x00")
+    assert _run(repo).returncode == 0
+
+
+@pytest.mark.parametrize(
     "rel", ["data/db/photobooth.sqlite", "config/photobooth.env", "frontend/node_modules/x.js"]
 )
 def test_runtime_and_generated_paths_rejected(repo: Path, rel: str) -> None:

@@ -1,0 +1,559 @@
+{
+ "about": "Filter parity: the server (Pillow) and the booth (SVG feColorMatrix in sRGB) must turn each input colour into the expected one, within 1 step of 255. The matrices are the API's: 3 rows of r, g, b weights and an offset, on 0..1 values.",
+ "filters": {
+  "none": [
+   1,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0
+  ],
+  "mono": [
+   0.299,
+   0.587,
+   0.114,
+   0,
+   0.299,
+   0.587,
+   0.114,
+   0,
+   0.299,
+   0.587,
+   0.114,
+   0
+  ],
+  "sepia": [
+   0.393,
+   0.769,
+   0.189,
+   0,
+   0.349,
+   0.686,
+   0.168,
+   0,
+   0.272,
+   0.534,
+   0.131,
+   0
+  ],
+  "warm": [
+   1.08,
+   0,
+   0,
+   0.02,
+   0,
+   1.0,
+   0,
+   0.01,
+   0,
+   0,
+   0.86,
+   0
+  ],
+  "cool": [
+   0.9,
+   0,
+   0,
+   0,
+   0,
+   1.0,
+   0,
+   0.01,
+   0,
+   0,
+   1.1,
+   0.03
+  ],
+  "bright": [
+   1.12,
+   0,
+   0,
+   -0.01000000000000005,
+   0,
+   1.12,
+   0,
+   -0.01000000000000005,
+   0,
+   0,
+   1.12,
+   -0.01000000000000005
+  ]
+ },
+ "cases": [
+  {
+   "filter": "none",
+   "input": [
+    0,
+    0,
+    0
+   ],
+   "expected": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "filter": "none",
+   "input": [
+    255,
+    255,
+    255
+   ],
+   "expected": [
+    255,
+    255,
+    255
+   ]
+  },
+  {
+   "filter": "none",
+   "input": [
+    200,
+    100,
+    50
+   ],
+   "expected": [
+    200,
+    100,
+    50
+   ]
+  },
+  {
+   "filter": "none",
+   "input": [
+    30,
+    160,
+    220
+   ],
+   "expected": [
+    30,
+    160,
+    220
+   ]
+  },
+  {
+   "filter": "none",
+   "input": [
+    128,
+    128,
+    128
+   ],
+   "expected": [
+    128,
+    128,
+    128
+   ]
+  },
+  {
+   "filter": "none",
+   "input": [
+    250,
+    240,
+    10
+   ],
+   "expected": [
+    250,
+    240,
+    10
+   ]
+  },
+  {
+   "filter": "mono",
+   "input": [
+    0,
+    0,
+    0
+   ],
+   "expected": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "filter": "mono",
+   "input": [
+    255,
+    255,
+    255
+   ],
+   "expected": [
+    255,
+    255,
+    255
+   ]
+  },
+  {
+   "filter": "mono",
+   "input": [
+    200,
+    100,
+    50
+   ],
+   "expected": [
+    124,
+    124,
+    124
+   ]
+  },
+  {
+   "filter": "mono",
+   "input": [
+    30,
+    160,
+    220
+   ],
+   "expected": [
+    128,
+    128,
+    128
+   ]
+  },
+  {
+   "filter": "mono",
+   "input": [
+    128,
+    128,
+    128
+   ],
+   "expected": [
+    128,
+    128,
+    128
+   ]
+  },
+  {
+   "filter": "mono",
+   "input": [
+    250,
+    240,
+    10
+   ],
+   "expected": [
+    217,
+    217,
+    217
+   ]
+  },
+  {
+   "filter": "sepia",
+   "input": [
+    0,
+    0,
+    0
+   ],
+   "expected": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "filter": "sepia",
+   "input": [
+    255,
+    255,
+    255
+   ],
+   "expected": [
+    255,
+    255,
+    239
+   ]
+  },
+  {
+   "filter": "sepia",
+   "input": [
+    200,
+    100,
+    50
+   ],
+   "expected": [
+    165,
+    147,
+    114
+   ]
+  },
+  {
+   "filter": "sepia",
+   "input": [
+    30,
+    160,
+    220
+   ],
+   "expected": [
+    176,
+    157,
+    122
+   ]
+  },
+  {
+   "filter": "sepia",
+   "input": [
+    128,
+    128,
+    128
+   ],
+   "expected": [
+    173,
+    154,
+    120
+   ]
+  },
+  {
+   "filter": "sepia",
+   "input": [
+    250,
+    240,
+    10
+   ],
+   "expected": [
+    255,
+    254,
+    197
+   ]
+  },
+  {
+   "filter": "warm",
+   "input": [
+    0,
+    0,
+    0
+   ],
+   "expected": [
+    5,
+    3,
+    0
+   ]
+  },
+  {
+   "filter": "warm",
+   "input": [
+    255,
+    255,
+    255
+   ],
+   "expected": [
+    255,
+    255,
+    219
+   ]
+  },
+  {
+   "filter": "warm",
+   "input": [
+    200,
+    100,
+    50
+   ],
+   "expected": [
+    221,
+    103,
+    43
+   ]
+  },
+  {
+   "filter": "warm",
+   "input": [
+    30,
+    160,
+    220
+   ],
+   "expected": [
+    38,
+    163,
+    189
+   ]
+  },
+  {
+   "filter": "warm",
+   "input": [
+    128,
+    128,
+    128
+   ],
+   "expected": [
+    143,
+    131,
+    110
+   ]
+  },
+  {
+   "filter": "warm",
+   "input": [
+    250,
+    240,
+    10
+   ],
+   "expected": [
+    255,
+    243,
+    9
+   ]
+  },
+  {
+   "filter": "cool",
+   "input": [
+    0,
+    0,
+    0
+   ],
+   "expected": [
+    0,
+    3,
+    8
+   ]
+  },
+  {
+   "filter": "cool",
+   "input": [
+    255,
+    255,
+    255
+   ],
+   "expected": [
+    230,
+    255,
+    255
+   ]
+  },
+  {
+   "filter": "cool",
+   "input": [
+    200,
+    100,
+    50
+   ],
+   "expected": [
+    180,
+    103,
+    63
+   ]
+  },
+  {
+   "filter": "cool",
+   "input": [
+    30,
+    160,
+    220
+   ],
+   "expected": [
+    27,
+    163,
+    250
+   ]
+  },
+  {
+   "filter": "cool",
+   "input": [
+    128,
+    128,
+    128
+   ],
+   "expected": [
+    115,
+    131,
+    148
+   ]
+  },
+  {
+   "filter": "cool",
+   "input": [
+    250,
+    240,
+    10
+   ],
+   "expected": [
+    225,
+    243,
+    19
+   ]
+  },
+  {
+   "filter": "bright",
+   "input": [
+    0,
+    0,
+    0
+   ],
+   "expected": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "filter": "bright",
+   "input": [
+    255,
+    255,
+    255
+   ],
+   "expected": [
+    255,
+    255,
+    255
+   ]
+  },
+  {
+   "filter": "bright",
+   "input": [
+    200,
+    100,
+    50
+   ],
+   "expected": [
+    221,
+    109,
+    53
+   ]
+  },
+  {
+   "filter": "bright",
+   "input": [
+    30,
+    160,
+    220
+   ],
+   "expected": [
+    31,
+    177,
+    244
+   ]
+  },
+  {
+   "filter": "bright",
+   "input": [
+    128,
+    128,
+    128
+   ],
+   "expected": [
+    141,
+    141,
+    141
+   ]
+  },
+  {
+   "filter": "bright",
+   "input": [
+    250,
+    240,
+    10
+   ],
+   "expected": [
+    255,
+    255,
+    9
+   ]
+  }
+ ]
+}

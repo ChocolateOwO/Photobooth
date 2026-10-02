@@ -126,8 +126,12 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
           booth.go('frames', { replace: true }) // no frame chosen yet
           return
         }
-        if (current.state === 'reviewing' || current.state === 'delivered') {
-          booth.go('done', { replace: true }) // the photos are taken: the finished ones are next
+        if (current.state === 'reviewing') {
+          booth.go('decorate', { replace: true }) // the photos are taken: decorating comes next
+          return
+        }
+        if (current.state === 'delivered') {
+          booth.go('done', { replace: true }) // the finished photos are made
           return
         }
         setSession(current)
@@ -367,7 +371,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
       await api.finishCaptures(session.id)
       clearTimers()
       stopCamera() // the camera light goes out as soon as the photos are done
-      booth.go('done') // the finished photos and the take-home link come next
+      booth.go('decorate') // decorating, then the finished photos and the take-home link
     } catch {
       setProblem({ text: 'The booth could not finish the session.', kind: 'session' })
     } finally {

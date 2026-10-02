@@ -1,0 +1,236 @@
+/* Decorating the finished photos: the photos beside the stickers and filters. Event colours only. */
+
+.screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(6px, 1.4vh, 16px);
+  padding: clamp(10px, 2vh, 24px) clamp(10px, 2.4vw, 28px);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.header {
+  flex: 0 0 auto;
+  text-align: center;
+}
+
+.header h1,
+.making h1 {
+  font-size: clamp(20px, 3.8vh, 40px);
+}
+
+.header p {
+  margin: 4px 0 0;
+}
+
+.making {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
+}
+
+.spinner {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 6px solid var(--ev-surface);
+  border-top-color: var(--ev-primary-bg);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+/* The photos get the most room: beside the tools on a wide screen, above them on a tall one. */
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+  gap: clamp(12px, 2.4vw, 32px);
+}
+
+@media (orientation: portrait) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+
+.outputs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(8px, 1.6vw, 20px);
+}
+
+.output {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  outline: 4px solid transparent;
+  outline-offset: 4px;
+}
+
+/* With two strips, the one new stickers go on is marked. */
+.outputs[data-count='2'] .output[data-active] {
+  outline-color: var(--ev-primary-bg);
+}
+
+.tools {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: clamp(10px, 1.6vh, 18px);
+  border-radius: 20px;
+  background-color: var(--ev-surface);
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.tab {
+  flex: 1 1 0;
+  min-height: 56px;
+  border: 2px solid var(--ev-input-border);
+  border-radius: 999px;
+  background-color: transparent;
+  color: var(--ev-body);
+  font: inherit;
+  font-size: clamp(16px, 2.2vh, 22px);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tab[aria-selected='true'] {
+  border-color: var(--ev-primary-bg);
+  background-color: var(--ev-primary-bg);
+  color: var(--ev-primary-text);
+}
+
+.panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.panel p {
+  margin: 0 0 8px;
+}
+
+.stickers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 8px;
+}
+
+.stickerButton {
+  aspect-ratio: 1 / 1;
+  min-height: 64px;
+  padding: 8px;
+  border: 2px solid var(--ev-input-border);
+  border-radius: 16px;
+  background-color: var(--ev-background);
+  cursor: pointer;
+}
+
+.stickerButton img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.stickerButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+}
+
+.filterButton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 64px;
+  padding: 8px;
+  border: 3px solid var(--ev-input-border);
+  border-radius: 16px;
+  background-color: var(--ev-background);
+  color: var(--ev-body);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.filterButton[aria-checked='true'] {
+  border-color: var(--ev-primary-bg);
+}
+
+
+/* The chosen sticker's controls: five equal buttons that always fit their words. */
+.selection {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.selection button {
+  min-height: 56px;
+  min-width: 0;
+  padding-inline: 4px;
+  font-size: clamp(13px, 1.9vh, 18px);
+  white-space: nowrap;
+}
+
+.actions {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.actions button {
+  min-height: 64px;
+  min-width: 160px;
+}
+
+
+@media (max-height: 560px) {
+  .actions button,
+  .tab {
+    min-height: 48px;
+  }
+}

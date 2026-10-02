@@ -14,7 +14,7 @@ import type { BoothSessionState, FrameMenu } from '../../shared/api/client'
  */
 
 /** The screens of a visit, in the order they come. */
-export type BoothStep = 'start' | 'frames' | 'capture' | 'done'
+export type BoothStep = 'start' | 'frames' | 'capture' | 'decorate' | 'done'
 
 export interface BoothServices {
   /** An organizer trying the booth from Admin, rather than a guest at the event. */
@@ -31,6 +31,7 @@ const BOOTH_PATHS: Record<BoothStep, string> = {
   start: '/booth',
   frames: '/booth/frames',
   capture: '/booth/capture',
+  decorate: '/booth/decorate',
   done: '/booth/done',
 }
 

@@ -17,6 +17,7 @@ import {
 } from '../../booth/boothServices'
 import { BoothStartPage } from '../../booth/BoothStartPage'
 import { CapturePage } from '../../booth/CapturePage'
+import { DecoratePage } from '../../booth/DecoratePage'
 import { DeliveryPage } from '../../booth/DeliveryPage'
 import { FrameSelectPage } from '../../booth/FrameSelectPage'
 import { useProfiles } from '../api/hooks'
@@ -85,6 +86,7 @@ function TestBooth({ profileId, onExit }: { profileId: string; onExit: () => voi
       {step === 'start' && <BoothStartPage />}
       {step === 'frames' && <FrameSelectPage />}
       {step === 'capture' && <CapturePage />}
+      {step === 'decorate' && <DecoratePage />}
       {step === 'done' && <DeliveryPage />}
       <TestChrome onExit={onExit} />
     </BoothServicesContext.Provider>

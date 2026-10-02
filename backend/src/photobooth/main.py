@@ -26,6 +26,7 @@ from photobooth.modules.assets.api import router as assets_router
 from photobooth.modules.auth.api import router as admin_auth_router
 from photobooth.modules.booth.admin_api import router as booth_test_menu_router
 from photobooth.modules.booth.api import router as booth_frames_router
+from photobooth.modules.decorations.api import router as decorations_router
 from photobooth.modules.delivery.api import router as delivery_router
 from photobooth.modules.event_profiles.api import router as profiles_router
 from photobooth.modules.frames.api import router as frames_router
@@ -69,6 +70,7 @@ def create_kiosk_app(registry: ServiceRegistry, options: KioskAppOptions) -> Fas
     app.include_router(themes_router)
     app.include_router(booth_frames_router)
     app.include_router(booth_sessions_router)
+    app.include_router(decorations_router)
     # "Test booth" is served under one prefix by the two modules it belongs to.
     app.include_router(booth_test_menu_router)
     app.include_router(booth_test_sessions_router)

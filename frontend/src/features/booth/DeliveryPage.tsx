@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import {
-  ApiError,
-  type BoothSessionState,
-  type DeliveryLink,
-} from '../../shared/api/client'
+import { type BoothSessionState, type DeliveryLink } from '../../shared/api/client'
 import { useApiClient } from '../../shared/api/ApiClientContext'
 import {
   EventButton,
@@ -21,25 +17,13 @@ import styles from './DeliveryPage.module.css'
 /**
  * The end of a visit: the finished photos and the QR code that takes them home.
  *
- * Arriving here with the photos taken, the booth asks the server to make the finished photos
- * (once, whatever happens: the request carries one key that a retry reuses), then shows them next
- * to the take-home link. The link lives only on this screen and in the guest's phone; the booth
+ * The finished photos were made when the guest confirmed their decorations; this screen shows them
+ * next to the take-home link. The link lives only on this screen and in the guest's phone; the booth
  * never stores it. When the guest is done, or walks away, the booth goes back to its start.
  */
 
-/** How often a busy render worker is asked again, and how long to wait in between. */
-const BUSY_RETRIES = 8
-const BUSY_WAIT_MS = 1500
 /** How often the booth checks whether anybody is still there. */
 const IDLE_CHECK_MS = 1000
-
-function newKey(): string {
-  return crypto.randomUUID().replaceAll('-', '')
-}
-
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
 
 function until(iso: string): string {
   const moment = new Date(iso)
@@ -52,7 +36,7 @@ function until(iso: string): string {
   })
 }
 
-type Stage = 'making' | 'ready' | 'failed'
+type Stage = 'loading' | 'ready' | 'failed'
 
 export function DeliveryPage() {
   const api = useApiClient()
@@ -60,19 +44,17 @@ export function DeliveryPage() {
   const booth = useBoothServices()
   const [session, setSession] = useState<BoothSessionState | null>(null)
   const [link, setLink] = useState<DeliveryLink | null>(null)
-  const [stage, setStage] = useState<Stage>('making')
+  const [stage, setStage] = useState<Stage>('loading')
   const [problem, setProblem] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
-  // One key for this screen's request: a retry after a lost answer never makes a second set.
-  const renderKey = useRef(newKey())
   const activity = useRef(0)
 
-  // ---- the finished photos, then the link -----------------------------------------------
+  // ---- the visit, then its link --------------------------------------------------------
   useEffect(() => {
     let alive = true
     void (async () => {
       try {
-        let current = await api.currentSession()
+        const current = await api.currentSession()
         if (!alive) return
         if (!current) {
           booth.go('start', { replace: true })
@@ -86,27 +68,13 @@ export function DeliveryPage() {
           booth.go('capture', { replace: true })
           return
         }
+        if (current.state === 'reviewing') {
+          // The finished photos are not made yet: the guest is still choosing decorations.
+          booth.go('decorate', { replace: true })
+          return
+        }
         // Known from here on: whatever happens next, the booth can close this visit and its
         // inactivity time still sends the booth back to the start.
-        setSession(current)
-        if (current.state === 'reviewing') {
-          for (let attempt = 0; ; attempt++) {
-            try {
-              current = await api.renderOutputs(current.id, renderKey.current)
-              break
-            } catch (error) {
-              // The render worker is making somebody else's photos: nothing was recorded, so
-              // the very same request is simply asked again a moment later.
-              if (error instanceof ApiError && error.status === 503 && attempt < BUSY_RETRIES) {
-                await wait(BUSY_WAIT_MS)
-                if (!alive) return
-                continue
-              }
-              throw error
-            }
-          }
-        }
-        if (!alive) return
         setSession(current)
         const issued = await api.deliveryLink(current.id)
         if (!alive) return
@@ -115,7 +83,7 @@ export function DeliveryPage() {
       } catch {
         if (!alive) return
         setStage('failed')
-        setProblem('Sorry, your photos could not be made. Please start over.')
+        setProblem('Sorry, your photos could not be shown. Please start over.')
       }
     })()
     return () => {
@@ -165,10 +133,10 @@ export function DeliveryPage() {
   return (
     <BoothShell>
       <EventScreen tokens={tokens} className={styles.screen} label="Your photos">
-        {stage === 'making' && (
-          <div className={styles.making} role="status" data-testid="making-photos">
+        {stage === 'loading' && (
+          <div className={styles.making} role="status" data-testid="loading-photos">
             <span className={styles.spinner} aria-hidden="true" />
-            <EventHeading level={1}>Making your photos…</EventHeading>
+            <EventHeading level={1}>Getting your photos…</EventHeading>
           </div>
         )}
 

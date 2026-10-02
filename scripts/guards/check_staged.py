@@ -27,6 +27,7 @@ BINARY_ALLOWED_PREFIXES = (
     "e2e/fixtures/",
     "frontend/public/",
     "backend/src/photobooth/frames_data/builtin/",
+    "backend/src/photobooth/stickers_data/builtin/",
 )
 
 # ---- path rules -------------------------------------------------------------------------------

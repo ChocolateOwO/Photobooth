@@ -14,6 +14,7 @@ from photobooth.modules.sessions.domain import (
     CaptureOutcome,
     DeliveryLink,
     OutputAsset,
+    OutputLayout,
     ShotProgress,
 )
 
@@ -56,12 +57,84 @@ class RetakeBody(BaseModel):
     )
 
 
+class PlacedStickerBody(BaseModel):
+    """One sticker on one finished photo. Positions are fractions of that photo."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sticker: str = Field(pattern=r"^[a-z0-9_]{1,32}$", examples=["heart"])
+    output: int = Field(ge=1, le=16, description="Which finished photo (1 = the first strip).")
+    x: float = Field(ge=0, le=1, description="The sticker's centre, across the photo.")
+    y: float = Field(ge=0, le=1, description="The sticker's centre, down the photo.")
+    size: float = Field(ge=0.05, le=1, description="The sticker's width, of the photo's width.")
+    rotation: float = Field(ge=-3600, le=3600, description="Degrees clockwise.")
+
+
+class DecorationBody(BaseModel):
+    """What the guest added: a filter for the photos and stickers on top. Files never change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    filter: str = Field(default="none", pattern=r"^[a-z0-9_]{1,32}$", examples=["sepia"])
+    stickers: list[PlacedStickerBody] = Field(default_factory=list, max_length=64)
+
+
 class RenderBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     idempotency_key: IdempotencyKey = Field(
         description="Repeat the same key to retry safely; the photos are made once."
     )
+    decoration: DecorationBody | None = Field(
+        default=None, description="The guest's decoration; none makes the photos as taken."
+    )
+
+
+class SlotPhotoResponse(BaseModel):
+    """Where one photo lies on a finished photo, in that photo's own pixels."""
+
+    capture_id: str
+    shot_index: int
+    version: str | None = Field(description="Changes when the photo does.")
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+class DecorateOutputResponse(BaseModel):
+    output_index: int
+    width: int
+    height: int
+    slots: list[SlotPhotoResponse]
+
+    @classmethod
+    def of(cls, layout: OutputLayout, versions: dict[str, str | None]) -> DecorateOutputResponse:
+        return cls(
+            output_index=layout.output_index,
+            width=layout.width,
+            height=layout.height,
+            slots=[
+                SlotPhotoResponse(
+                    capture_id=slot.capture_id,
+                    shot_index=slot.shot_index,
+                    version=versions.get(slot.capture_id),
+                    x=slot.x,
+                    y=slot.y,
+                    width=slot.width,
+                    height=slot.height,
+                )
+                for slot in layout.slots
+            ],
+        )
+
+
+class DecorateLayoutResponse(BaseModel):
+    """The finished photos as the renderer will compose them, for the decorating preview."""
+
+    mirror: bool = Field(description="The photos are shown mirrored, as they will be made.")
+    frame_url: str = Field(description="The visit's own frame, laid over the photos unchanged.")
+    outputs: list[DecorateOutputResponse]
 
 
 class OutputResponse(BaseModel):

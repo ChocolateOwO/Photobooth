@@ -1,0 +1,30 @@
+/* One finished photo while it is decorated. Event colours only. */
+
+.photo {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: 100%;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--ev-overlay) 40%, transparent);
+  touch-action: none; /* the booth handles the fingers itself: no page zoom or scroll */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sticker {
+  cursor: grab;
+}
+
+.sticker:active {
+  cursor: grabbing;
+}
+
+.selection {
+  fill: none;
+  stroke: var(--ev-primary-bg);
+  stroke-width: 4px;
+  stroke-dasharray: 10 6;
+  pointer-events: none;
+}
