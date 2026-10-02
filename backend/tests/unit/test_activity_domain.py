@@ -44,3 +44,21 @@ def test_every_type_has_its_keys_and_its_actor() -> None:
     # No type may carry anything that could hold a token, a name or typed text.
     for keys in PAYLOAD_KEYS.values():
         assert not keys & {"token", "url", "name", "username", "password", "path", "ip", "text"}
+
+
+def test_each_field_has_its_own_shape() -> None:
+    """P10-R4: the right key with the wrong kind of value is dropped."""
+    token = "Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0fGh2"
+    assert clean(ActivityType.RENDER_OK, {"outputs": "secret"}) == {}
+    assert clean(ActivityType.RENDER_OK, {"outputs": True}) == {}
+    assert clean(ActivityType.RENDER_OK, {"filter": token}) == {}
+    assert clean(ActivityType.LINK_SHOWN, {"renewed": "false"}) == {}
+    assert clean(ActivityType.CAPTURE_FAILED, {"reason": "192.168.1.42"}) == {}
+    assert clean(ActivityType.CAPTURE_FAILED, {"reason": "File_not_stored"}) == {}
+    assert clean(ActivityType.SESSION_ENDED, {"state": "vanished"}) == {}
+    assert clean(ActivityType.DOWNLOAD, {"kind": "pdf", "output": -1}) == {}
+    assert clean(ActivityType.ADMIN_FRAME_DELETED, {"target": token}) == {}
+    assert clean(ActivityType.SESSION_ENDED, {"state": "completed", "reason": "next_guest"}) == {
+        "state": "completed",
+        "reason": "next_guest",
+    }

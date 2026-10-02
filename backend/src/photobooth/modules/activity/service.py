@@ -166,7 +166,8 @@ class ActivityService:
     def search(
         self, where: ActivityFilter, limit: int = 50, before: tuple[datetime, str] | None = None
     ) -> list[ActivityRecord]:
-        return self._repository.search(where, max(1, min(limit, 200)), before)
+        # Up to 200 a page, plus one to tell whether another page follows (P10-R5).
+        return self._repository.search(where, max(1, min(limit, 201)), before)
 
     def history(
         self, where: VisitFilter, limit: int = 50, offset: int = 0

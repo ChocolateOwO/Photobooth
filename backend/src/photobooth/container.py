@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import secrets
 import socket
 import threading
@@ -123,6 +124,8 @@ from photobooth.modules.templates.service import TemplateSpecService
 from photobooth.modules.themes.domain import ThemeSourceError
 from photobooth.modules.themes.extractor import PillowPaletteExtractor
 from photobooth.modules.themes.service import ThemeService
+
+_log = logging.getLogger(__name__)
 
 
 class _FrameUsage:
@@ -616,14 +619,17 @@ class _SessionActivity:
         self._activity = activity
 
     def record(self, kind: str, session: BoothSession, /, **facts: str | int | bool) -> None:
-        if session.is_test:
-            return
-        self._activity.record(
-            ActivityType(kind),
-            session_id=session.id,
-            profile_id=session.event_profile_id,
-            payload=facts,
-        )
+        try:
+            if session.is_test:
+                return
+            self._activity.record(
+                ActivityType(kind),
+                session_id=session.id,
+                profile_id=session.event_profile_id,
+                payload=facts,
+            )
+        except Exception as exc:
+            _log.warning("activity %s not recorded (%s)", kind, type(exc).__name__)
 
 
 class _LinkActivity:
@@ -634,15 +640,18 @@ class _LinkActivity:
         self._sessions = sessions
 
     def record(self, kind: str, session_id: str, /, **facts: str | int | bool) -> None:
-        session = self._sessions.get(session_id)
-        if session is None or session.is_test:
-            return
-        self._activity.record(
-            ActivityType(kind),
-            session_id=session_id,
-            profile_id=session.event_profile_id,
-            payload=facts,
-        )
+        try:
+            session = self._sessions.get(session_id)
+            if session is None or session.is_test:
+                return
+            self._activity.record(
+                ActivityType(kind),
+                session_id=session_id,
+                profile_id=session.event_profile_id,
+                payload=facts,
+            )
+        except Exception as exc:
+            _log.warning("activity %s not recorded (%s)", kind, type(exc).__name__)
 
 
 class _ActivityVisits:

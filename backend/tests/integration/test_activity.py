@@ -298,6 +298,122 @@ def test_a_new_link_after_a_restart_is_recorded_as_renewed(
     ]
 
 
+# ---- inspection fixes (P10-R1 .. R6) ----------------------------------------------------------
+
+
+def test_a_guest_gets_their_photos_even_when_the_record_can_not_be_kept(
+    kiosk_client: TestClient,
+    container: Container,
+    guests: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P10-R1: a failing lookup inside the link recorder never turns a download into a 404."""
+    device, session = reviewing(kiosk_client, container, STRIP)
+    made = kiosk_client.post(
+        f"{SESSIONS}/{session['id']}/render",
+        json={"idempotency_key": "render-key-1"},
+        headers=device,
+    )
+    assert made.status_code == 200
+    token = token_of(link(kiosk_client, device, session["id"])["url"])
+
+    def broken(_session_id: str) -> None:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(container.session_repository, "get", broken)
+    assert guests.get(f"/d/{token}").status_code == 200
+    assert guests.get(f"/d/{token}/all.zip").status_code == 200
+
+
+def test_a_render_settled_after_the_fact_is_recorded_once(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P10-R2: the finishing step failed; the render settled at the next read counts once."""
+    device, session = reviewing(kiosk_client, container, STRIP)
+    who = _device_of(kiosk_client, container)
+    repository = container.session_service._repository
+    real = repository.finalize_render
+    calls = {"n": 0}
+
+    def flaky(operation_id: str, fingerprint: str) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("database went away for a moment")
+        return real(operation_id, fingerprint)
+
+    monkeypatch.setattr(repository, "finalize_render", flaky)
+    with pytest.raises(RuntimeError):
+        container.session_service.render(who, session["id"], "render-a-key", {"filter": "mono"})
+    assert kiosk_client.get(f"{SESSIONS}/current", headers=device).json()["state"] == "delivered"
+    kiosk_client.get(f"{SESSIONS}/current", headers=device)  # settled once, recorded once
+    timeline = kiosk_client.get(f"{ADMIN}/history/{session['id']}", headers=device).json()
+    rendered = [r for r in timeline["timeline"] if r["type"] == "render_ok"]
+    assert [r["payload"] for r in rendered] == [{"outputs": 2, "filter": "mono", "stickers": 0}]
+
+
+def test_a_photo_that_could_not_be_stored_is_recorded_and_its_retry_is_no_retake(
+    kiosk_client: TestClient, container: Container, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P10-R2 / P10-R3."""
+    from tests.integration.test_booth_sessions import PRINT34, choose, send
+
+    admin, device = booth(kiosk_client, container)
+    activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
+    visit = start(kiosk_client, device)
+    choose(kiosk_client, device, visit["id"], PRINT34)
+    files = container.session_service._files
+    real_put = files.put
+    calls = {"n": 0}
+
+    def flaky(key: str, data: bytes) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("disk full for a moment")
+        real_put(key, data)
+
+    monkeypatch.setattr(files, "put", flaky)
+    with pytest.raises(OSError):
+        send(kiosk_client, device, visit["id"], 1)
+    assert send(kiosk_client, device, visit["id"], 1, attempt=2).status_code == 200
+    detail = kiosk_client.get(f"{ADMIN}/history/{visit['id']}", headers=device).json()
+    failed = [r for r in detail["timeline"] if r["type"] == "capture_failed"]
+    assert [r["payload"] for r in failed] == [
+        {"shot": 1, "attempt": 1, "reason": "file_not_stored"}
+    ]
+    assert detail["visit"]["retakes"] == 0  # a retried upload is not a retake
+
+
+def test_a_full_page_of_activity_still_says_more_follow(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """P10-R5."""
+    from photobooth.modules.activity.domain import ActivityType
+
+    _admin, device = booth(kiosk_client, container)
+    for _ in range(205):
+        container.activity_service.record(ActivityType.ADMIN_TESTS_CLEARED, admin_username="a")
+    page = kiosk_client.get(f"{ADMIN}/activity?limit=200", headers=device).json()
+    assert len(page["records"]) == 200 and page["more"] is True
+
+
+@pytest.mark.parametrize("path", ["history", "statistics", "activity"])
+def test_a_time_without_a_time_zone_is_refused_not_a_crash(
+    kiosk_client: TestClient, container: Container, path: str
+) -> None:
+    """P10-R6."""
+    _admin, device = booth(kiosk_client, container)
+    answer = kiosk_client.get(
+        f"{ADMIN}/{path}", params={"since": "2026-10-02T00:00:00"}, headers=device
+    )
+    assert answer.status_code == 422
+
+
+def _device_of(client: TestClient, container: Container) -> str:
+    from tests.integration.test_outputs_delivery import device_id
+
+    return device_id(client, container)
+
+
 def _everything() -> Any:
     from photobooth.modules.activity.domain import ActivityFilter
 

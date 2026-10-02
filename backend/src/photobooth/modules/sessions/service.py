@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import threading
 import uuid
 from collections.abc import Iterator, Sequence
@@ -67,6 +68,8 @@ from photobooth.modules.sessions.domain import (
     may_move,
     output_key,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SystemClock:
@@ -228,12 +231,8 @@ class BoothSessionService:
             else:
                 with self._locks.held(previous.id):
                     created = self._repository.create(session, operation)
-                ended = self._repository.get(previous.id)
-                if ended is not None and ended.closed:
-                    self._activity.record(
-                        "session_ended", ended, state=str(ended.state), reason="next_guest"
-                    )
-            self._activity.record("session_started", created)
+                self._record_ended_by_next_guest(previous.id)
+            self._record("session_started", created)
             return created
 
     def current(self, device_id: str) -> BoothSession | None:
@@ -304,7 +303,7 @@ class BoothSessionService:
             chosen = self._repository.select_frame(
                 session_id, session.state_version, selection, self._clock.now()
             )
-            self._activity.record(
+            self._record(
                 "frame_chosen",
                 chosen,
                 layout=selection.template_key,
@@ -351,7 +350,7 @@ class BoothSessionService:
             try:
                 facts = self._images.inspect(data)
             except CaptureRefusedError:
-                self._activity.record(
+                self._record(
                     "capture_failed", session, shot=shot_index, attempt=attempt_no, reason="refused"
                 )
                 raise
@@ -390,11 +389,18 @@ class BoothSessionService:
             except Exception:
                 self._repository.fail_capture(operation.id, "file_not_stored")
                 self._collect_files()
+                self._record(
+                    "capture_failed",
+                    session,
+                    shot=shot_index,
+                    attempt=attempt_no,
+                    reason="file_not_stored",
+                )
                 raise
             outcome = self._repository.finalize_capture(operation.id, facts)
             if outcome.capture.status is not CaptureStatus.OK:
                 self._collect_files()
-                self._activity.record(
+                self._record(
                     "capture_failed",
                     outcome.session,
                     shot=shot_index,
@@ -402,9 +408,7 @@ class BoothSessionService:
                     reason=outcome.capture.failure_reason or "not_kept",
                 )
             else:
-                self._activity.record(
-                    "capture_ok", outcome.session, shot=shot_index, attempt=attempt_no
-                )
+                self._record("capture_ok", outcome.session, shot=shot_index, attempt=attempt_no)
             return outcome
 
     def retake(
@@ -447,7 +451,7 @@ class BoothSessionService:
             again = self._repository.allocate_retake(
                 session_id, session.state_version, wanted, self._clock.now()
             )
-            self._activity.record("retake", again, shots=len(wanted))
+            self._record("retake", again, shots=len(wanted))
             return again
 
     def finish_capturing(self, device_id: str, session_id: str) -> BoothSession:
@@ -461,9 +465,7 @@ class BoothSessionService:
             finished = self._repository.finish_capturing(
                 session_id, session.state_version, self._clock.now()
             )
-            self._activity.record(
-                "photos_confirmed", finished, photos=finished.successful_capture_count
-            )
+            self._record("photos_confirmed", finished, photos=finished.successful_capture_count)
             return finished
 
     def give_up(self, device_id: str, session_id: str) -> BoothSession:
@@ -488,7 +490,7 @@ class BoothSessionService:
                 and closed.closed
                 and closed.state_version > session.state_version
             ):
-                self._activity.record(
+                self._record(
                     "session_ended",
                     closed,
                     state=str(closed.state),
@@ -621,9 +623,9 @@ class BoothSessionService:
                 ended = self._repository.close(
                     session_id, SessionState.ERROR, self._clock.now(), exc.code
                 )
-                self._activity.record("render_failed", session, reason=exc.code)
+                self._record("render_failed", session, reason=exc.code)
                 if ended is not None and ended.closed:
-                    self._activity.record("session_ended", ended, state="error", reason=exc.code)
+                    self._record("session_ended", ended, state="error", reason=exc.code)
                 raise
 
             now = self._clock.now()
@@ -668,12 +670,13 @@ class BoothSessionService:
             except Exception:
                 self._repository.fail_render(operation.id, "file_not_stored")
                 self._collect_files()
+                self._record("render_failed", session, reason="file_not_stored")
                 raise
             outcome = self._repository.finalize_render(operation.id, fingerprint)
             if any(output.status is not OutputStatus.OK for output in outcome.outputs):
                 self._collect_files()
             else:
-                self._activity.record(
+                self._record(
                     "render_ok",
                     outcome.session,
                     outputs=len(outcome.outputs),
@@ -717,7 +720,7 @@ class BoothSessionService:
                 raise TransitionRefusedError("the finished photos are not ready yet")
             link = self._links.ensure(session_id)
             if link.new:  # a reload showing the same code again is not news
-                self._activity.record("link_shown", session, renewed=link.renewed)
+                self._record("link_shown", session, renewed=link.renewed)
             return link
 
     def clear_old_tests(self, keep_for_seconds: int = 3600) -> int:
@@ -762,10 +765,30 @@ class BoothSessionService:
                 self._record_timeout(settled, at)
         return closed
 
+    def _record(
+        self, kind: str, session: BoothSession | None, /, **facts: str | int | bool
+    ) -> None:
+        """Keep an activity record; whatever goes wrong, the visit goes on (P10-R1)."""
+        if session is None:
+            return
+        try:
+            self._activity.record(kind, session, **facts)
+        except Exception as exc:
+            logger.warning("activity %s not recorded (%s)", kind, type(exc).__name__)
+
+    def _record_ended_by_next_guest(self, previous_id: str) -> None:
+        try:
+            ended = self._repository.get(previous_id)
+        except Exception as exc:
+            logger.warning("activity session_ended not recorded (%s)", type(exc).__name__)
+            return
+        if ended is not None and ended.closed:
+            self._record("session_ended", ended, state=str(ended.state), reason="next_guest")
+
     def _record_timeout(self, settled: BoothSession, at: datetime) -> None:
         """A visit this very call ended for inactivity (not one somebody had already ended)."""
         if settled.closed and settled.completed_at == at:
-            self._activity.record("reset_timeout", settled, state=str(settled.state))
+            self._record("reset_timeout", settled, state=str(settled.state))
 
     def pinned_frames(self) -> set[str]:
         """Frames a visit in progress depends on (its own and the ones its event offered)."""
@@ -807,9 +830,25 @@ class BoothSessionService:
             and capture.sha256 is not None
             and self._files.exists(stored)
         ):
-            self._repository.finalize_capture(operation.id, self._facts_of(capture))
+            outcome = self._repository.finalize_capture(operation.id, self._facts_of(capture))
+            ok = outcome.capture.status is CaptureStatus.OK
+            self._record(
+                "capture_ok" if ok else "capture_failed",
+                outcome.session,
+                shot=outcome.capture.shot_index,
+                attempt=outcome.capture.attempt_no,
+                **({} if ok else {"reason": outcome.capture.failure_reason or "not_kept"}),
+            )
         else:
             self._repository.fail_capture(operation.id, "file_not_stored")
+            if capture is not None:
+                self._record(
+                    "capture_failed",
+                    self._repository.get(operation.session_id),
+                    shot=capture.shot_index,
+                    attempt=capture.attempt_no,
+                    reason="file_not_stored",
+                )
 
     def _settle_render(self, operation: Operation) -> None:
         """Finish a render whose publisher is gone: it counts only if every file is there, intact,
@@ -823,6 +862,7 @@ class BoothSessionService:
         intact = bool(mine) and all(self._intact(output) for output in mine)
         if session is None or session.selection is None or not intact:
             self._repository.fail_render(operation.id, "file_not_stored")
+            self._record("render_failed", session, reason="file_not_stored")
             return
         current = render_fingerprint(
             session.selection,
@@ -830,7 +870,17 @@ class BoothSessionService:
             session.mirror,
             mine[0].decoration,
         )
-        self._repository.finalize_render(operation.id, current)
+        outcome = self._repository.finalize_render(operation.id, current)
+        # A render settled after the fact is recorded like one finished in its own request.
+        if outcome.outputs and all(o.status is OutputStatus.OK for o in outcome.outputs):
+            self._record(
+                "render_ok",
+                outcome.session,
+                outputs=len(outcome.outputs),
+                **_decoration_facts(mine[0].decoration),
+            )
+        else:
+            self._record("render_failed", outcome.session, reason="settled_failed")
 
     def _read_photo(self, capture: CaptureAsset) -> bytes:
         """An original photo for rendering; however storage fails, it is a missing photo."""

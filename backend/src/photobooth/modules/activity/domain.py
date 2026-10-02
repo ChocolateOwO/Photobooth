@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -105,23 +105,64 @@ ACTOR_OF: Mapping[ActivityType, Actor] = {
 PayloadValue = str | int | bool
 Payload = Mapping[str, PayloadValue]
 
-# A word: an id, a code, a layout key, a filter name. No spaces, no paths, no URLs.
-_WORD = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+# A short lowercase code word: a reason, a layout key, a filter name. A take-home token (43
+# mixed-case characters) can never match, nor can a path, an address or text anybody typed.
+_CODE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_STATES = frozenset(
+    {
+        "eligibility_ok",
+        "capturing",
+        "reviewing",
+        "delivered",
+        "completed",
+        "cancelled",
+        "abandoned",
+        "error",
+    }
+)
+
+
+def _count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 10_000
+
+
+def _flag(value: object) -> bool:
+    return isinstance(value, bool)
+
+
+def _code(value: object) -> bool:
+    return isinstance(value, str) and bool(_CODE.match(value))
+
+
+# The schema of every payload field (P10-R4): what each value may be, and nothing else.
+FIELD_RULES: Mapping[str, Callable[[object], bool]] = {
+    "shot": _count,
+    "attempt": _count,
+    "captures": _count,
+    "outputs": _count,
+    "photos": _count,
+    "shots": _count,
+    "stickers": _count,
+    "output": _count,
+    "renewed": _flag,
+    "reason": _code,
+    "layout": _code,
+    "filter": _code,
+    "state": lambda value: value in _STATES,
+    "kind": lambda value: value in {"file", "zip"},
+    "target": lambda value: isinstance(value, str) and bool(_UUID.match(value)),
+}
 
 
 def clean(kind: ActivityType, payload: Mapping[str, object]) -> dict[str, PayloadValue]:
-    """Only the allowlisted keys of this type, only short words, whole numbers and flags."""
+    """Only the keys this type allows, each only in the shape its field allows."""
     allowed = PAYLOAD_KEYS[kind]
     kept: dict[str, PayloadValue] = {}
     for key, value in payload.items():
-        if key not in allowed:
-            continue
-        if (
-            isinstance(value, bool)
-            or (isinstance(value, int) and -1_000_000 <= value <= 1_000_000)
-            or (isinstance(value, str) and _WORD.match(value) and "/" not in value)
-        ):
-            kept[key] = value
+        rule = FIELD_RULES.get(key)
+        if key in allowed and rule is not None and rule(value):
+            kept[key] = value  # type: ignore[assignment]  # the rule checked the type
     return kept
 
 

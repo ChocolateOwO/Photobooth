@@ -33,6 +33,8 @@ describe('activity in plain words', () => {
     expect(say(record('admin_login_failed', { reason: 'throttled' }))).toBe(
       'Sign-in refused: too many attempts',
     )
+    expect(say(record('link_shown', { renewed: true }))).toBe('Showed a new take-home QR code')
+    expect(say(record('link_shown', { renewed: false }))).toBe('Showed the take-home QR code')
     expect(say(record('something_new'))).toBe('something_new')
   })
 

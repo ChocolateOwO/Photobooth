@@ -876,18 +876,21 @@ class SqlSessionRepository(SessionRepository):
             ids = [row.id for row in rows]
             for start in range(0, len(ids), 500):
                 chunk = ids[start : start + 500]
-                for sid, count in db.execute(
-                    select(CaptureAssetRow.session_id, func.count())
+                # A retake is a good photo taken again: every good photo of a shot after its
+                # first. A failed upload tried again is not one (P10-R3).
+                for sid, _shot, count in db.execute(
+                    select(
+                        CaptureAssetRow.session_id, CaptureAssetRow.shot_index, func.count()
+                    )
                     .where(
                         CaptureAssetRow.session_id.in_(chunk),
-                        CaptureAssetRow.attempt_no > 1,
                         CaptureAssetRow.status.in_(
                             [str(CaptureStatus.OK), str(CaptureStatus.REPLACED)]
                         ),
                     )
-                    .group_by(CaptureAssetRow.session_id)
+                    .group_by(CaptureAssetRow.session_id, CaptureAssetRow.shot_index)
                 ).all():
-                    retakes[sid] = int(count)
+                    retakes[sid] = retakes.get(sid, 0) + max(0, int(count) - 1)
                 for output in db.scalars(
                     select(OutputAssetRow).where(
                         OutputAssetRow.session_id.in_(chunk),

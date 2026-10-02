@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from pydantic import AwareDatetime
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from photobooth.core.admin_gate import require_admin
@@ -71,9 +72,9 @@ def activity(
     service: Service,
     types: Annotated[list[ActivityType] | None, Query(alias="type")] = None,
     actors: Annotated[list[Actor] | None, Query(alias="actor")] = None,
-    since: datetime | None = None,
-    until: datetime | None = None,
-    before_at: datetime | None = None,
+    since: AwareDatetime | None = None,
+    until: AwareDatetime | None = None,
+    before_at: AwareDatetime | None = None,
     before_id: Annotated[str | None, Query(max_length=36)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> ActivityPage:
@@ -95,8 +96,8 @@ def history(
     service: Service,
     profile_id: ProfileFilter = None,
     state: Annotated[list[VisitState] | None, Query()] = None,
-    since: datetime | None = None,
-    until: datetime | None = None,
+    since: AwareDatetime | None = None,
+    until: AwareDatetime | None = None,
     offset: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> HistoryPage:
@@ -121,8 +122,8 @@ def visit_detail(session_id: SessionId, service: Service) -> VisitDetailResponse
 def statistics(
     service: Service,
     profile_id: ProfileFilter = None,
-    since: datetime | None = None,
-    until: datetime | None = None,
+    since: AwareDatetime | None = None,
+    until: AwareDatetime | None = None,
 ) -> StatisticsResponse:
     _period(since, until)
     return StatisticsResponse.of(

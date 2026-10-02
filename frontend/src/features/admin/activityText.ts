@@ -110,7 +110,7 @@ export function describe(record: ActivityRecord): string {
     case 'render_failed':
       return `Finished photos could not be made (${endReason(word(p, 'reason')) ?? 'error'})`
     case 'link_shown':
-      return word(p, 'renewed') ? 'Showed a new take-home QR code' : 'Showed the take-home QR code'
+      return p.renewed === true ? 'Showed a new take-home QR code' : 'Showed the take-home QR code'
     case 'session_ended':
       return `Visit ended: ${stateName(word(p, 'state') ?? '')}${
         endReason(word(p, 'reason')) ? ` (${endReason(word(p, 'reason'))})` : ''
