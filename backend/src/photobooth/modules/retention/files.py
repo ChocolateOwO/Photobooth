@@ -1,28 +1,35 @@
 """This instance's own files that retention may delete: temporary files, backups, rotated logs.
 
-Every folder must lie inside the instance root, and every file is taken only when its real path
-(after links and junctions) is still inside its folder, so a cleanup can never reach Main, another
-instance or anything else on the machine. Nothing is followed into subfolders except the storage
-folder's own tree for temporary files.
+Every folder must lie inside the instance root, and a file is a candidate only when it is a
+regular file (not a link or junction) whose real path is still inside its folder, so a cleanup
+can never reach Main, another instance or anything else on the machine. The same checked list is
+used both to pick the backup that must be kept and to delete, so nothing outside can ever take
+the newest backup's place (P11-004). One file that will not go (open elsewhere, locked by
+antivirus) is counted as failed and the rest go on (P11-010).
 """
 
 from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 
 from photobooth.modules.retention.domain import RetentionError
 
 # A temporary file the storage writes before it moves a photo into place (left by a crash).
-_TEMP = re.compile(r"^\..+\.[0-9a-f]{12}\.tmp$")
-# Backups made by the backup command: <instance>-<stamp>-<revision>.sqlite
+_STORAGE_TEMP = re.compile(r"^\..+\.[0-9a-f]{12}\.tmp$")
+# A backup copy the backup command never finished (left by a crash) and the ledger's own
+# temporary file. Their age (temp_hours) is far beyond any backup still being written (P11-005).
+_BACKUP_TEMP = re.compile(r"^(?:[a-z]+-.+\.sqlite\.partial|\.BACKUPS\.json\.[0-9a-f]{12}\.tmp)$")
+# Backups made by the backup command: <instance>-<stamp>-<id>-<revision>.sqlite
 _BACKUP = re.compile(r"^[a-z]+-.+\.sqlite$")
-# Rotated application logs (photobooth.log.1 ...) and launcher logs; never the log being written.
-_ROTATED = re.compile(r"^[A-Za-z0-9_.-]+\.log(\.\d+)?$")
-_CURRENT_LOG = "photobooth.log"
+# Only the application log's own rotated generations: never the log being written, never a
+# launcher's console log (held open by the running launcher) (P11-006).
+_ROTATED = re.compile(r"^photobooth\.log\.\d+$")
+
+Counted = tuple[int, int, int]
 
 
 def _real(path: Path) -> Path:
@@ -38,9 +45,9 @@ class InstanceFolders:
         storage: Path,
         backups: Path,
         logs: Path,
-        forget_backups: Callable[[set[str]], None],
+        reconcile_backups: Callable[[], None],
     ) -> None:
-        self._forget_backups = forget_backups
+        self._reconcile_backups = reconcile_backups
         root = _real(instance_root)
         self._folders: dict[str, Path] = {}
         for name, folder in (("storage", storage), ("backups", backups), ("logs", logs)):
@@ -51,49 +58,74 @@ class InstanceFolders:
 
     # ---- the port --------------------------------------------------------------------------
 
-    def temp(self, before: datetime, dry_run: bool) -> tuple[int, int]:
-        folder = self._folders["storage"]
-        found = [p for p in folder.rglob("*.tmp") if _TEMP.match(p.name)] if folder.is_dir() else []
-        return self._take("storage", found, before, dry_run)
+    def temp(self, before: datetime, dry_run: bool) -> Counted:
+        storage = self._folders["storage"]
+        found = [
+            *self._checked("storage", storage.rglob("*.tmp") if storage.is_dir() else []),
+            *self._matching("backups", _BACKUP_TEMP),
+        ]
+        return self._take(
+            [p for p in found if _STORAGE_TEMP.match(p.name) or _BACKUP_TEMP.match(p.name)],
+            before,
+            dry_run,
+        )
 
-    def backups(self, before: datetime, dry_run: bool) -> tuple[int, int]:
-        found = self._files("backups", _BACKUP)
-        if not found:
-            return 0, 0
-        newest = max(found, key=lambda p: p.stat().st_mtime)
-        older = [p for p in found if p != newest]  # the newest backup always stays
-        counted = self._take("backups", older, before, dry_run)
-        if counted[0] and not dry_run:
-            self._forget_backups({p.name for p in older if not p.exists()})
+    def backups(self, before: datetime, dry_run: bool) -> Counted:
+        found = self._matching("backups", _BACKUP)
+        counted: Counted = (0, 0, 0)
+        if found:
+            newest = max(found, key=lambda p: p.stat().st_mtime)
+            counted = self._take([p for p in found if p != newest], before, dry_run)
+        if not dry_run:
+            # Drop ledger entries whose file is gone, whether this run or an earlier one deleted
+            # it (an earlier ledger update may have failed) (P11-007).
+            self._reconcile_backups()
         return counted
 
-    def app_logs(self, before: datetime, dry_run: bool) -> tuple[int, int]:
-        found = [p for p in self._files("logs", _ROTATED) if p.name != _CURRENT_LOG]
-        return self._take("logs", found, before, dry_run)
+    def app_logs(self, before: datetime, dry_run: bool) -> Counted:
+        return self._take(self._matching("logs", _ROTATED), before, dry_run)
 
     # ---- internals -------------------------------------------------------------------------
 
-    def _files(self, name: str, pattern: re.Pattern[str]) -> list[Path]:
+    def _matching(self, name: str, pattern: re.Pattern[str]) -> list[Path]:
         folder = self._folders[name]
         if not folder.is_dir():
             return []
-        return [p for p in folder.iterdir() if p.is_file() and pattern.match(p.name)]
+        return self._checked(name, (p for p in folder.iterdir() if pattern.match(p.name)))
 
-    def _take(
-        self, name: str, candidates: list[Path], before: datetime, dry_run: bool
-    ) -> tuple[int, int]:
+    def _checked(self, name: str, paths: Iterable[Path]) -> list[Path]:
+        """Only regular files (no links or junctions) whose real path stays in the folder."""
         folder = self._folders[name]
+        kept: list[Path] = []
+        for path in paths:
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                real = _real(path)
+            except OSError:
+                continue
+            if folder in real.parents and real.parent == _real(path.parent):
+                kept.append(path)
+        return kept
+
+    def _take(self, candidates: list[Path], before: datetime, dry_run: bool) -> Counted:
         limit = before.timestamp()
-        items = size = 0
+        items = size = failed = 0
         for path in candidates:
-            real = _real(path)
-            if folder not in real.parents or path.is_symlink():
-                continue  # never anything that leads outside this folder
-            stat = path.stat()
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
             if stat.st_mtime >= limit:
                 continue
             if not dry_run:
-                path.unlink(missing_ok=True)
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    failed += 1  # held open or locked: tried again next time
+                    continue
             items += 1
             size += stat.st_size
-        return items, size
+        return items, size, failed

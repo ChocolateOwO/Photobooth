@@ -10,6 +10,7 @@ import socket
 import threading
 import time
 from collections.abc import Mapping, Sequence
+from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 
 from photobooth import API_VERSION, __version__
@@ -642,19 +643,19 @@ class _VisitRetention:
     def __init__(self, sessions: BoothSessionService) -> None:
         self._sessions = sessions
 
-    def purge_originals(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+    def purge_originals(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
         return self._sessions.purge_originals(before, dry_run)
 
-    def purge_outputs(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+    def purge_outputs(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
         return self._sessions.purge_outputs(before, dry_run)
 
-    def anonymize_visits(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+    def anonymize_visits(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
         return self._sessions.anonymize_visits(before, dry_run)
 
-    def delete_visits(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+    def delete_visits(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
         return self._sessions.delete_visits(before, dry_run)
 
-    def delete_event_visits(self, profile_id: str, dry_run: bool) -> tuple[int, int]:
+    def delete_event_visits(self, profile_id: str, dry_run: bool) -> tuple[int, int, int]:
         try:
             return self._sessions.delete_event_visits(profile_id, dry_run)
         except TransitionRefusedError as exc:
@@ -673,6 +674,9 @@ class _EventRemoval:
         except ProfileNotFoundError as exc:
             raise EventNotFoundError() from exc
         return profile.deleted_at is not None
+
+    def locked(self, profile_id: str) -> AbstractContextManager[None]:
+        return self._profiles.held()
 
     def remove(self, profile_id: str) -> None:
         if not self._profiles.remove_deleted(profile_id):
@@ -956,7 +960,7 @@ class Container:
                 settings.storage_dir,
                 settings.backups_dir,
                 settings.logs_dir,
-                SqliteBackupService(settings.backups_dir).forget,
+                SqliteBackupService(settings.backups_dir).reconcile,
             ),
             _EventRemoval(self.profile_service),
         )

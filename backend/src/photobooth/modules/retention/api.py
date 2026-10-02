@@ -19,7 +19,12 @@ from starlette.concurrency import run_in_threadpool
 
 from photobooth.core.admin_gate import require_admin
 from photobooth.core.web import provide, require_device
-from photobooth.modules.retention.domain import EventNotFoundError, RetentionError, Trigger
+from photobooth.modules.retention.domain import (
+    EventNotFoundError,
+    PolicyChangedError,
+    RetentionError,
+    Trigger,
+)
 from photobooth.modules.retention.schemas import (
     EventRemovalResponse,
     RetentionPolicyBody,
@@ -74,7 +79,17 @@ def save_policy(body: RetentionPolicyBody, service: Service) -> RetentionPolicyR
 @router.post("/run", response_model=RetentionReportResponse)
 async def run(body: RunBody, service: Service) -> RetentionReportResponse:
     _confirmed(body.dry_run, body.confirm)
-    report = await run_in_threadpool(service.run, Trigger.MANUAL, body.dry_run)
+    if not body.dry_run and body.policy_revision is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="say which policy the check was made under (policy_revision)",
+        )
+    try:
+        report = await run_in_threadpool(
+            service.run, Trigger.MANUAL, body.dry_run, body.policy_revision
+        )
+    except PolicyChangedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return RetentionReportResponse.of(report)
 
 
@@ -91,7 +106,9 @@ async def remove_event(
 ) -> EventRemovalResponse:
     _confirmed(body.dry_run, body.confirm)
     try:
-        visits, size = await run_in_threadpool(service.remove_event, profile_id, body.dry_run)
+        visits, size, _failed = await run_in_threadpool(
+            service.remove_event, profile_id, body.dry_run
+        )
     except EventNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except RetentionError as exc:

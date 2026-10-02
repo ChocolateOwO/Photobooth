@@ -749,15 +749,15 @@ class BoothSessionService:
     # Only visits that are over are ever touched, each one while it is locked (so it can not be
     # in the middle of anything), and files always go before the rows that name them.
 
-    def purge_originals(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+    def purge_originals(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
         """The camera's photos of visits that ended before `before`."""
         return self._purge_files("captures", before, dry_run)
 
-    def purge_outputs(self, before: datetime, dry_run: bool) -> tuple[int, int]:
-        """The finished photos of visits that ended before `before`; their links end too."""
+    def purge_outputs(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
+        """The finished photos of visits that ended before `before`; their links end first."""
         return self._purge_files("outputs", before, dry_run)
 
-    def anonymize_visits(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+    def anonymize_visits(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
         """Visits that ended before `before` no longer name the device that made them."""
         changed = 0
         for session_id in self._repository.ended_visits(before):
@@ -767,13 +767,13 @@ class BoothSessionService:
                     continue
                 if dry_run or self._repository.anonymize_visit(session_id):
                     changed += 1
-        return changed, 0
+        return changed, 0, 0
 
-    def delete_visits(self, before: datetime, dry_run: bool) -> tuple[int, int]:
+    def delete_visits(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
         """Visits that ended before `before`, with everything about them, permanently."""
         return self._delete_visits(self._repository.ended_visits(before), dry_run)
 
-    def delete_event_visits(self, profile_id: str, dry_run: bool) -> tuple[int, int]:
+    def delete_event_visits(self, profile_id: str, dry_run: bool) -> tuple[int, int, int]:
         """Every visit of one event, for its permanent deletion. Refused while one is going."""
         visits = self._repository.event_visits(profile_id)
         going = sum(1 for _sid, over in visits if not over)
@@ -782,10 +782,15 @@ class BoothSessionService:
                 f"{going} visit{'s' if going > 1 else ''} of this event "
                 f"{'are' if going > 1 else 'is'} still going"
             )
-        return self._delete_visits([sid for sid, _over in visits], dry_run)
+        counted = self._delete_visits([sid for sid, _over in visits], dry_run)
+        if counted[2]:
+            raise TransitionRefusedError(
+                "some files of this event could not be deleted; try again in a moment"
+            )
+        return counted
 
-    def _purge_files(self, kind: str, before: datetime, dry_run: bool) -> tuple[int, int]:
-        items = size = 0
+    def _purge_files(self, kind: str, before: datetime, dry_run: bool) -> tuple[int, int, int]:
+        items = size = failed = 0
         for session_id in self._repository.ended_visits(before):
             with self._locks.held(session_id):
                 if not self._repository.is_over(session_id):
@@ -793,35 +798,45 @@ class BoothSessionService:
                 kept = self._repository.kept_files(session_id, kind)
                 if not kept:
                     continue
+                if not dry_run and kind == "outputs":
+                    # The guest's way in goes first, so a file that will not go is unreachable.
+                    self._links.revoke(session_id)
                 gone: list[str] = []
                 for row_id, key in kept:
-                    size += self._files.size(key)
-                    items += 1
+                    bytes_here = self._files.size(key)
                     if not dry_run:
-                        self._files.delete(key)
+                        try:
+                            self._files.delete(key)
+                        except Exception:
+                            failed += 1  # stays marked as kept: tried again next time
+                            continue
                         gone.append(row_id)
+                    items += 1
+                    size += bytes_here
                 if not dry_run:
                     self._repository.mark_files_gone(kind, gone, self._clock.now())
-                    if kind == "outputs":
-                        self._links.revoke(session_id)
-        return items, size
+        return items, size, failed
 
-    def _delete_visits(self, session_ids: Sequence[str], dry_run: bool) -> tuple[int, int]:
-        count = size = 0
+    def _delete_visits(self, session_ids: Sequence[str], dry_run: bool) -> tuple[int, int, int]:
+        count = size = failed = 0
         for session_id in session_ids:
             with self._locks.held(session_id):
                 if not self._repository.is_over(session_id):
                     continue
                 keys = self._repository.visit_keys(session_id)
-                size += sum(self._files.size(key) for key in keys)
+                bytes_here = sum(self._files.size(key) for key in keys)
+                if not dry_run:
+                    self._links.revoke(session_id)
+                    try:
+                        for key in keys:
+                            self._files.delete(key)
+                    except Exception:
+                        failed += 1  # the rows stay, so the files are found again next time
+                        continue
+                    self._repository.delete_visit(session_id)
                 count += 1
-                if dry_run:
-                    continue
-                self._links.revoke(session_id)
-                for key in keys:
-                    self._files.delete(key)
-                self._repository.delete_visit(session_id)
-        return count, size
+                size += bytes_here
+        return count, size, failed
 
     # ---- keeping the booth honest --------------------------------------------------------
 
@@ -834,7 +849,7 @@ class BoothSessionService:
         now = self._clock.now()
         for session_id, idle_since in self._repository.inactive_sessions(now):
             with self._locks.held(session_id):
-                at = self._clock.now()
+                at = self._ended_at(session_id, idle_since)
                 settled = self._repository.close(
                     session_id, SessionState.ABANDONED, at, "inactivity", idle_since=idle_since
                 )
@@ -862,6 +877,16 @@ class BoothSessionService:
             return
         if ended is not None and ended.closed:
             self._record("session_ended", ended, state=str(ended.state), reason="next_guest")
+
+    def _ended_at(self, session_id: str, idle_since: datetime) -> datetime:
+        """When an idle visit really ended: its last activity plus its event's timeout, or now
+        if that is sooner. A visit found long after (a restored backup, a booth that was off)
+        keeps its true end, so retention counts its time from then, not from now (P11-002)."""
+        now = self._clock.now()
+        session = self._repository.get(session_id)
+        if session is None:
+            return now
+        return min(now, idle_since + timedelta(seconds=session.profile.inactivity_timeout_s))
 
     def _record_timeout(self, settled: BoothSession, at: datetime) -> None:
         """A visit this very call ended for inactivity (not one somebody had already ended)."""
@@ -1104,7 +1129,7 @@ class BoothSessionService:
         if idle < session.profile.inactivity_timeout_s:
             return session
         # Closed only while nobody has touched the visit since it was read (P67-008).
-        at = self._clock.now()
+        at = self._ended_at(session.id, session.last_activity_at)
         settled = self._repository.close(
             session.id,
             SessionState.ABANDONED,

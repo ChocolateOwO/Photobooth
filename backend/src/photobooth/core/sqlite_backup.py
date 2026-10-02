@@ -137,12 +137,16 @@ class SqliteBackupService:
                 f"({exc}); re-run the ledger update before relying on {LEDGER_FILENAME}"
             ) from exc
 
-    def forget(self, names: set[str]) -> None:
-        """Drop deleted backups (by file name) from the ledger, under the same lock as writers."""
-        if not names or not self.ledger_path.is_file():
+    def reconcile(self) -> None:
+        """Drop ledger entries whose backup file is gone (deleted by retention, or by hand),
+        under the same lock as writers. Safe to repeat."""
+        if not self.ledger_path.is_file():
             return
         with ExclusiveFileLock(self._dir / LEDGER_LOCK_FILENAME):
-            kept = [asdict(r) for r in self.read_ledger() if Path(r.path).name not in names]
+            records = self.read_ledger()
+            kept = [asdict(r) for r in records if (self._dir / Path(r.path).name).is_file()]
+            if len(kept) == len(records):
+                return
             tmp = self._dir / f".{LEDGER_FILENAME}.{secrets.token_hex(6)}.tmp"
             tmp.write_text(json.dumps(kept, indent=2, ensure_ascii=False), encoding="utf-8")
             os.replace(tmp, self.ledger_path)

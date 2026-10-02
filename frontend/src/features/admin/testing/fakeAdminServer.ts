@@ -165,9 +165,11 @@ export class FakeAdminServer {
   }
   /** What a cleanup counts (dry run) or deletes; every request body is kept for the tests. */
   retentionCounts: RetentionReport['counts'] = [
-    { category: 'originals', items: 4, bytes: 4_200_000 },
-    { category: 'outputs', items: 0, bytes: 0 },
+    { category: 'originals', items: 4, bytes: 4_200_000, failed: 0 },
+    { category: 'outputs', items: 0, bytes: 0, failed: 0 },
   ]
+  /** Problems a cleanup reports (categories that could not run, files that would not go). */
+  retentionErrors: string[] = []
   retentionRequests: unknown[] = []
   retentionRuns: RetentionRun[] = []
   /** Visits each deleted event still has; removal requests are kept for the tests. */
@@ -505,6 +507,9 @@ export class FakeAdminServer {
         this.retentionRequests.push(body)
         const dryRun = body.dry_run !== false
         if (!dryRun && body.confirm !== 'DELETE') return json({ detail: 'confirm' }, 422)
+        if (!dryRun && body.policy_revision !== this.retentionPolicy.revision) {
+          return json({ detail: 'the policy changed since the check' }, 409)
+        }
         const report: RetentionReport = {
           dry_run: dryRun,
           trigger: 'manual',
@@ -512,7 +517,8 @@ export class FakeAdminServer {
           finished_at: '2026-10-03T00:00:01Z',
           policy_revision: this.retentionPolicy.revision,
           counts: this.retentionCounts,
-          errors: [],
+          errors: this.retentionErrors,
+          complete: this.retentionErrors.length === 0,
         }
         this.retentionRuns = [{ id: `run-${this.retentionRuns.length}`, ...report }, ...this.retentionRuns]
         return json(report)

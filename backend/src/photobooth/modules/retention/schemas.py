@@ -83,12 +83,16 @@ class RunBody(BaseModel):
 
     dry_run: bool = True
     confirm: str | None = Field(default=None, max_length=16)
+    policy_revision: int | None = Field(
+        default=None, ge=1, description="The policy the dry run showed; required to delete."
+    )
 
 
 class CountResponse(BaseModel):
     category: str
     items: int
     bytes: int
+    failed: int = Field(default=0, description="Found but not deleted; tried again next time.")
 
 
 class RetentionReportResponse(BaseModel):
@@ -99,6 +103,7 @@ class RetentionReportResponse(BaseModel):
     policy_revision: int
     counts: list[CountResponse]
     errors: list[str]
+    complete: bool = Field(description="Every category ran and every file found could go.")
 
     @classmethod
     def of(cls, report: RetentionReport) -> RetentionReportResponse:
@@ -109,10 +114,11 @@ class RetentionReportResponse(BaseModel):
             finished_at=report.finished_at,
             policy_revision=report.policy_revision,
             counts=[
-                CountResponse(category=c.value, items=t.items, bytes=t.bytes)
+                CountResponse(category=c.value, items=t.items, bytes=t.bytes, failed=t.failed)
                 for c, t in report.counts.items()
             ],
             errors=list(report.errors),
+            complete=not report.errors,
         )
 
 
@@ -138,6 +144,7 @@ class RetentionRunResponse(BaseModel):
                     category=category,
                     items=int(tally.get("items", 0)),
                     bytes=int(tally.get("bytes", 0)),
+                    failed=int(tally.get("failed", 0)),
                 )
                 for category, tally in run.counts.items()
             ],

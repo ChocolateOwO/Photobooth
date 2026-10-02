@@ -54,7 +54,11 @@ describe('Retention', () => {
     await userEvent.click(within(dialog).getByRole('checkbox'))
     await userEvent.click(go)
     expect(await screen.findByRole('status')).toHaveTextContent('Deleted 4 items.')
-    expect(server.retentionRequests.at(-1)).toEqual({ dry_run: false, confirm: 'DELETE' })
+    expect(server.retentionRequests.at(-1)).toEqual({
+      dry_run: false,
+      confirm: 'DELETE',
+      policy_revision: 1,
+    })
     expect(await screen.findByTestId('retention-runs')).toHaveTextContent('By hand')
   })
 
@@ -70,7 +74,7 @@ describe('Retention', () => {
 
   it('says when nothing is past its time', async () => {
     const server = signedIn()
-    server.retentionCounts = [{ category: 'originals', items: 0, bytes: 0 }]
+    server.retentionCounts = [{ category: 'originals', items: 0, bytes: 0, failed: 0 }]
     renderAdmin('/admin/retention', { server })
     await userEvent.click(await screen.findByRole('button', { name: 'Check what would be deleted' }))
     expect(await screen.findByText('Nothing is past its time.')).toBeInTheDocument()
@@ -78,6 +82,31 @@ describe('Retention', () => {
   })
 })
 
+describe('Retention after the inspection (P11-008, P11-009)', () => {
+  it('an incomplete check offers no deletion and says what could not be checked', async () => {
+    const server = signedIn()
+    server.retentionCounts = [{ category: 'originals', items: 0, bytes: 0, failed: 0 }]
+    server.retentionErrors = ['outputs: OperationalError']
+    renderAdmin('/admin/retention', { server })
+    await userEvent.click(await screen.findByRole('button', { name: 'Check what would be deleted' }))
+    expect(await screen.findByText(/Some things could not be checked: outputs/)).toBeInTheDocument()
+    expect(screen.queryByText('Nothing is past its time.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete these now' })).not.toBeInTheDocument()
+  })
+
+  it('a policy changed after the check is refused, and the check is dropped', async () => {
+    const server = signedIn()
+    renderAdmin('/admin/retention', { server })
+    await userEvent.click(await screen.findByRole('button', { name: 'Check what would be deleted' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete these now' }))
+    server.retentionPolicy = { ...server.retentionPolicy, revision: 2 } // changed elsewhere
+    const dialog = screen.getByRole('dialog', { name: 'Delete permanently?' })
+    await userEvent.click(within(dialog).getByRole('checkbox'))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete permanently' }))
+    expect(await screen.findByText(/The policy changed since the check/)).toBeInTheDocument()
+    expect(screen.queryByTestId('retention-counts')).not.toBeInTheDocument()
+  })
+})
 describe('Deleting an event for good', () => {
   it('counts its visits first and needs the box ticked', async () => {
     const server = signedIn()

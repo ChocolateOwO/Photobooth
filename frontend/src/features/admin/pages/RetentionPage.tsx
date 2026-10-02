@@ -180,6 +180,15 @@ function Cleanup() {
   const [understood, setUnderstood] = useState(false)
   const [done, setDone] = useState<RetentionReport | null>(null)
 
+  const failure =
+    run.error instanceof AdminApiError
+      ? run.error.status === 409
+        ? 'The policy changed since the check. Check again before deleting.'
+        : run.error.messages.join(' ')
+      : run.error
+        ? 'The booth did not answer. Try again.'
+        : null
+
   const look = () => {
     setDone(null)
     run.mutate(
@@ -202,10 +211,21 @@ function Cleanup() {
           Check what would be deleted
         </PillButton>
       </div>
+      {failure && (
+        <p role="alert" className={styles.error}>
+          {failure}
+        </p>
+      )}
       {preview && (
         <>
           <ReportTable report={preview} />
-          {total(preview) === 0 ? (
+          {!preview.complete ? (
+            // An incomplete check is not a basis for deleting anything (P11-009).
+            <p role="alert" className={styles.error}>
+              Some things could not be checked: {preview.errors.join(', ')}. Check again before
+              deleting.
+            </p>
+          ) : total(preview) === 0 ? (
             <p className={styles.ok}>Nothing is past its time.</p>
           ) : (
             <div className={styles.actions}>
@@ -217,9 +237,11 @@ function Cleanup() {
         </>
       )}
       {done && (
-        <p className={styles.ok} role="status">
+        <p className={done.complete ? styles.ok : styles.error} role="status">
           Deleted {total(done)} item{total(done) === 1 ? '' : 's'}.
-          {done.errors.length ? ` Some could not be deleted: ${done.errors.join(', ')}.` : ''}
+          {done.errors.length
+            ? ` Some could not be deleted and will be tried again: ${done.errors.join(', ')}.`
+            : ''}
         </p>
       )}
       {confirming && preview && (
@@ -245,10 +267,17 @@ function Cleanup() {
                 disabled={!understood || run.isPending}
                 onClick={() =>
                   run.mutate(
-                    { dryRun: false },
+                    // Only under the policy the check showed: a changed policy is refused.
+                    { dryRun: false, policyRevision: preview.policy_revision },
                     {
                       onSuccess: (report) => {
                         setDone(report)
+                        setPreview(null)
+                        setConfirming(false)
+                        setUnderstood(false)
+                      },
+                      onError: () => {
+                        // Whatever went wrong, the shown check is no longer to be trusted.
                         setPreview(null)
                         setConfirming(false)
                         setUnderstood(false)
@@ -327,8 +356,9 @@ export function RetentionPage() {
           The retention policy could not be loaded.
         </p>
       )}
-      {policy.data && <PolicyForm key={policy.data.revision} policy={policy.data} />}
-      <Cleanup />
+      {policy.data && <PolicyForm key={`policy-${policy.data.revision}`} policy={policy.data} />}
+      {/* A new policy starts a new check: an earlier one may no longer be true (P11-008). */}
+      {policy.data && <Cleanup key={`cleanup-${policy.data.revision}`} />}
       <Runs runs={runs.data ?? []} />
     </div>
   )

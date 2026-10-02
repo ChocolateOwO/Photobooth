@@ -2048,6 +2048,11 @@ export interface components {
         };
         /** RetentionReportResponse */
         RetentionReportResponse: {
+            /**
+             * Complete
+             * @description Every category ran and every file found could go.
+             */
+            complete: boolean;
             /** Counts */
             counts: components["schemas"]["photobooth__modules__retention__schemas__CountResponse"][];
             /** Dry Run */
@@ -2104,6 +2109,11 @@ export interface components {
              * @default true
              */
             dry_run: boolean;
+            /**
+             * Policy Revision
+             * @description The policy the dry run showed; required to delete.
+             */
+            policy_revision?: number | null;
         };
         /** SessionResponse */
         SessionResponse: {
@@ -2484,6 +2494,12 @@ export interface components {
             bytes: number;
             /** Category */
             category: string;
+            /**
+             * Failed
+             * @description Found but not deleted; tried again next time.
+             * @default 0
+             */
+            failed: number;
             /** Items */
             items: number;
         };

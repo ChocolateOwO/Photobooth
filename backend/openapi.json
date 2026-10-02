@@ -2093,6 +2093,11 @@
       },
       "RetentionReportResponse": {
         "properties": {
+          "complete": {
+            "description": "Every category ran and every file found could go.",
+            "title": "Complete",
+            "type": "boolean"
+          },
           "counts": {
             "items": {
               "$ref": "#/components/schemas/photobooth__modules__retention__schemas__CountResponse"
@@ -2137,7 +2142,8 @@
           "finished_at",
           "policy_revision",
           "counts",
-          "errors"
+          "errors",
+          "complete"
         ],
         "title": "RetentionReportResponse",
         "type": "object"
@@ -2213,6 +2219,19 @@
             "default": true,
             "title": "Dry Run",
             "type": "boolean"
+          },
+          "policy_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The policy the dry run showed; required to delete.",
+            "title": "Policy Revision"
           }
         },
         "title": "RunBody",
@@ -3216,6 +3235,12 @@
           "category": {
             "title": "Category",
             "type": "string"
+          },
+          "failed": {
+            "default": 0,
+            "description": "Found but not deleted; tried again next time.",
+            "title": "Failed",
+            "type": "integer"
           },
           "items": {
             "title": "Items",

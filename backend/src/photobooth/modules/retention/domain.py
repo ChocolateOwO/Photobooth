@@ -19,6 +19,11 @@ class RetentionError(Exception):
     """The policy or the request breaks a rule."""
 
 
+class PolicyChangedError(RetentionError):
+    def __init__(self) -> None:
+        super().__init__("the policy changed since the check; check again before deleting")
+
+
 class EventNotFoundError(RetentionError):
     def __init__(self) -> None:
         super().__init__("no such event")
@@ -92,6 +97,7 @@ class Category(StrEnum):
 class Tally:
     items: int = 0
     bytes: int = 0
+    failed: int = 0  # found but not deleted (tried again next time)
 
 
 @dataclass(frozen=True)
@@ -105,6 +111,8 @@ class RetentionReport:
     policy_revision: int
     counts: Mapping[Category, Tally]
     errors: Sequence[str] = field(default_factory=tuple)
+    # Categories that could not run at all (not just a file that would not go).
+    broken: Sequence[Category] = field(default_factory=tuple)
 
     @property
     def total(self) -> int:

@@ -108,13 +108,39 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+# Categories that hold guests' data: the booth does not open while one of them can not be cleaned.
+_GUEST_DATA = frozenset({"originals", "outputs", "visits_anonymized", "visits_deleted"})
+
+
+class StartupCleanupError(PhotoboothError):
+    def __init__(self, categories: Sequence[str]) -> None:
+        super().__init__(
+            "the startup cleanup could not run for "
+            + ", ".join(categories)
+            + "; the booth stays closed so no expired photo or visit can be reached. Check the "
+            "log, fix the cause (for example a locked database) and start the booth again."
+        )
+
+
 def prepare_retention(container: Container) -> None:
-    """The startup cleanup; a failure is reported and the booth still opens."""
-    try:
+    """Before the booth opens: visits nobody came back to are ended (with their real end time),
+    then everything past its time is deleted, including whatever a restored older backup brought
+    back. A category of guests' data that can not run at all keeps the booth closed (one retry);
+    a single file that will not go is reported and tried again later (its link is already gone).
+    """
+    container.session_service.close_inactive()
+    for attempt in (1, 2):
         report = container.retention_service.run(Trigger.STARTUP, dry_run=False)
-        log.info("startup cleanup: %s item(s) past their time deleted", report.total)
-    except Exception:
-        log.exception("startup cleanup failed")
+        broken = sorted(c.value for c in report.broken if c.value in _GUEST_DATA)
+        log.info(
+            "startup cleanup: %s item(s) past their time deleted%s",
+            report.total,
+            f"; problems: {', '.join(report.errors)}" if report.errors else "",
+        )
+        if not broken:
+            return
+        if attempt == 2:
+            raise StartupCleanupError(broken)
 
 
 # How often the running booth ends idle visits, settles leftovers and deletes unwanted files.

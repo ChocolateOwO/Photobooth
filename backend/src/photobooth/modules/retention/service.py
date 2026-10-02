@@ -6,12 +6,14 @@ import logging
 import threading
 import uuid
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from photobooth.modules.retention.domain import (
     Category,
     MetadataMode,
+    PolicyChangedError,
     RetentionError,
     RetentionPolicy,
     RetentionReport,
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 # The schedule: a cleanup at most this often while the booth runs (and once at start).
 SCHEDULE_EVERY = timedelta(hours=1)
 
-Counted = tuple[int, int]  # (items, bytes)
+Counted = tuple[int, int, int]  # (items done, their bytes, items that could not be done)
 
 
 class VisitData(Protocol):
@@ -78,6 +80,10 @@ class EventRemoval(Protocol):
 
     def remove(self, profile_id: str) -> None: ...
 
+    def locked(self, profile_id: str) -> AbstractContextManager[None]:
+        """Holds the event still: no restore, activation or change while it is held."""
+        ...
+
 
 class RetentionService:
     def __init__(
@@ -115,12 +121,21 @@ class RetentionService:
 
     # ---- cleaning up ---------------------------------------------------------------------------
 
-    def run(self, trigger: Trigger, dry_run: bool) -> RetentionReport:
-        """Count (dry run) or delete everything past the policy. Every category is tried even
-        when another fails; failures are reported by category and kind, never with a path."""
+    def run(
+        self, trigger: Trigger, dry_run: bool, expected_revision: int | None = None
+    ) -> RetentionReport:
+        """Count (dry run) or delete everything past the policy.
+
+        `expected_revision` is the policy the organizer saw in the dry run: a confirmed cleanup
+        under a policy changed since is refused (P11-008). Every category is tried even when
+        another fails; what was deleted before a failure is still counted, and what could not be
+        deleted is reported per category (never with a path) and tried again next time (P11-010).
+        """
         with self._running:
             started = self._clock()
             policy = self.policy()
+            if expected_revision is not None and expected_revision != policy.revision:
+                raise PolicyChangedError()
             steps: list[tuple[Category, Callable[[], Counted]]] = [
                 (
                     Category.ORIGINALS,
@@ -138,6 +153,7 @@ class RetentionService:
                     Category.ACTIVITY,
                     lambda: (
                         self._activity.purge(cutoff(started, policy.activity_log_days), dry_run),
+                        0,
                         0,
                     ),
                 ),
@@ -171,13 +187,18 @@ class RetentionService:
                 )
             counts: dict[Category, Tally] = {}
             errors: list[str] = []
+            broken: list[Category] = []
             for category, step in steps:
                 try:
-                    items, size = step()
-                    counts[category] = Tally(items=items, bytes=size)
+                    items, size, failed = step()
                 except Exception as exc:
+                    broken.append(category)
                     errors.append(f"{category.value}: {type(exc).__name__}")
                     logger.warning("retention %s failed (%s)", category.value, type(exc).__name__)
+                    continue
+                counts[category] = Tally(items=items, bytes=size, failed=failed)
+                if failed:
+                    errors.append(f"{category.value}: {failed} could not be deleted")
             report = RetentionReport(
                 dry_run=dry_run,
                 trigger=trigger,
@@ -186,6 +207,7 @@ class RetentionService:
                 policy_revision=policy.revision,
                 counts=counts,
                 errors=tuple(errors),
+                broken=tuple(broken),
             )
             self._remember(report)
             return report
@@ -205,9 +227,11 @@ class RetentionService:
     def remove_event(self, profile_id: str, dry_run: bool) -> Counted:
         """A deleted event profile and all its visits, permanently. Refused for a live profile
         or while one of its visits is still going."""
-        if not self._events.deleted(profile_id):
-            raise RetentionError("only a deleted event can be deleted for good")
-        with self._running:
+        # Held for the whole removal: the event can not be restored, activated or changed
+        # between the check and the last deletion (P11-003).
+        with self._events.locked(profile_id), self._running:
+            if not self._events.deleted(profile_id):
+                raise RetentionError("only a deleted event can be deleted for good")
             counted = self._visits.delete_event_visits(profile_id, dry_run)
             if not dry_run:
                 self._events.remove(profile_id)
@@ -223,7 +247,11 @@ class RetentionService:
                     dry_run=report.dry_run,
                     trigger=report.trigger,
                     counts={
-                        category.value: {"items": tally.items, "bytes": tally.bytes}
+                        category.value: {
+                            "items": tally.items,
+                            "bytes": tally.bytes,
+                            "failed": tally.failed,
+                        }
                         for category, tally in report.counts.items()
                     },
                     errors=tuple(report.errors),

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -34,6 +36,7 @@ class EventProfileService:
         new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
     ) -> None:
         self._repository = repository
+        self._hold = threading.RLock()
         self._assets = assets
         self._templates = templates
         self._frames = frames
@@ -134,7 +137,18 @@ class EventProfileService:
                 return candidate
         raise ProfileConflictError("could not find a free copy name")
 
+    @contextmanager
+    def held(self) -> Iterator[None]:
+        """Holds every profile still: nothing is restored or activated while it is held (the
+        permanent deletion of an event holds it from its check to its last deletion)."""
+        with self._hold:
+            yield
+
     def activate(self, profile_id: str) -> EventProfile:
+        with self._hold:
+            return self._activate(profile_id)
+
+    def _activate(self, profile_id: str) -> EventProfile:
         profile = self.get(profile_id)
         if not profile.deleted:
             if not profile.settings.enabled_layouts:
@@ -148,7 +162,9 @@ class EventProfileService:
 
     def remove_deleted(self, profile_id: str) -> bool:
         """Permanently delete a profile that was deleted (retention asks, after its visits)."""
-        return self._repository.remove_deleted(profile_id)
+        with self._hold:
+            return self._repository.remove_deleted(profile_id)
 
     def restore(self, profile_id: str) -> EventProfile:
-        return self._repository.restore(profile_id, self._clock())
+        with self._hold:
+            return self._repository.restore(profile_id, self._clock())

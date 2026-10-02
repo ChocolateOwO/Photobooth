@@ -415,12 +415,13 @@ export function createAdminApiClient(
     saveRetentionPolicy: (policy: RetentionPolicyUpdate) =>
       send<RetentionPolicy>('PUT', '/api/admin/retention/policy', { json: policy }),
     /** A cleanup: a dry run counts only; deleting sends the confirmation word. */
-    runRetention: (dryRun: boolean) =>
-      send<RetentionReport>(
-        'POST',
-        '/api/admin/retention/run',
-        { json: dryRun ? { dry_run: true } : { dry_run: false, confirm: 'DELETE' } },
-      ),
+    /** Deleting names the policy revision the organizer's check was made under. */
+    runRetention: (dryRun: boolean, policyRevision?: number) =>
+      send<RetentionReport>('POST', '/api/admin/retention/run', {
+        json: dryRun
+          ? { dry_run: true }
+          : { dry_run: false, confirm: 'DELETE', policy_revision: policyRevision },
+      }),
     retentionRuns: () => send<RetentionRun[]>('GET', '/api/admin/retention/runs'),
     /** A deleted event for good, with its visits: a dry run counts only. */
     removeEvent: (profileId: string, dryRun: boolean) =>

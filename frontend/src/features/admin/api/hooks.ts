@@ -300,7 +300,8 @@ export function useRunRetention() {
   const api = useAdminApi()
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ dryRun }: { dryRun: boolean }) => api.runRetention(dryRun),
+    mutationFn: ({ dryRun, policyRevision }: { dryRun: boolean; policyRevision?: number }) =>
+      api.runRetention(dryRun, policyRevision),
     onSuccess: () => void client.invalidateQueries({ queryKey: [...adminKeys.retention(), 'runs'] }),
   })
 }
