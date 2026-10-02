@@ -19,6 +19,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import AwareDatetime
+from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from photobooth.core.admin_gate import require_admin
@@ -203,7 +204,9 @@ class AdminAudit:
             await send(message)
 
         await self._app(scope, receive, watch)
-        self._audit(scope, status_code, bytes(answer))
+        # The record is a database write: done on a worker thread, so a busy database can never
+        # hold up the server's event loop (and every other request) while it waits.
+        await run_in_threadpool(self._audit, scope, status_code, bytes(answer))
 
     def _audit(self, scope: Scope, status_code: int, answer: bytes) -> None:
         route = _route_of(scope)
