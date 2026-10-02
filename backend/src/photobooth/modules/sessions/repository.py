@@ -879,9 +879,7 @@ class SqlSessionRepository(SessionRepository):
                 # A retake is a good photo taken again: every good photo of a shot after its
                 # first. A failed upload tried again is not one (P10-R3).
                 for sid, _shot, count in db.execute(
-                    select(
-                        CaptureAssetRow.session_id, CaptureAssetRow.shot_index, func.count()
-                    )
+                    select(CaptureAssetRow.session_id, CaptureAssetRow.shot_index, func.count())
                     .where(
                         CaptureAssetRow.session_id.in_(chunk),
                         CaptureAssetRow.status.in_(
