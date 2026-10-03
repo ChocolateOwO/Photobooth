@@ -77,9 +77,14 @@ def test_offered_frames_become_sizes_and_nothing_else_changes(thai_root: Path) -
         # The size table points at the rebuilt profiles table.
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
+    # Today's repository reads today's schema: the profiles 0006 rebuilt, carried on to head.
+    migrator.upgrade("head")
     engine = create_sqlite_engine(db)
     try:
         profiles = {p.id: p for p in SqlEventProfileRepository(engine).list_profiles(True)}
+        assert {p.settings.retention_policy_id for p in profiles.values()} == {
+            "00000000-0000-4000-8000-000000000001"
+        }
         assert profiles["p1"].is_active and profiles["p1"].settings.enabled_layouts == (
             "print_4x6",
             "strip_2x6",

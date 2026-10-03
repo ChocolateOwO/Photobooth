@@ -107,6 +107,14 @@ class ProfileSettingsBody(BaseModel):
     inactivity_timeout_s: int = Field(default=120, ge=INACTIVITY_MIN_S, le=INACTIVITY_MAX_S)
     retake_mode: RetakeMode = RetakeMode.PER_PHOTO
     delivery_mode: DeliveryMode = DeliveryMode.LOCAL_LINK
+    retention_policy_id: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        description=(
+            "The retention policy its visits keep (frozen in each visit when it starts). Omit: "
+            "a new profile takes the default policy, an edit keeps its own."
+        ),
+    )
 
     def to_domain(self, default_layouts: tuple[str, ...] = ()) -> ProfileSettings:
         layouts = default_layouts if self.enabled_layouts is None else tuple(self.enabled_layouts)
@@ -125,6 +133,7 @@ class ProfileSettingsBody(BaseModel):
             inactivity_timeout_s=self.inactivity_timeout_s,
             retake_mode=self.retake_mode,
             delivery_mode=self.delivery_mode,
+            retention_policy_id=self.retention_policy_id,
         )
 
     @classmethod
@@ -144,6 +153,7 @@ class ProfileSettingsBody(BaseModel):
             inactivity_timeout_s=settings.inactivity_timeout_s,
             retake_mode=settings.retake_mode,
             delivery_mode=settings.delivery_mode,
+            retention_policy_id=settings.retention_policy_id,
         )
 
 
@@ -152,6 +162,7 @@ class ProfileSettingsResponse(ProfileSettingsBody):
 
     theme: EventThemeBody  # narrowed: never omitted in responses
     enabled_layouts: list[LayoutKey]  # narrowed: always the stored list
+    retention_policy_id: str | None = None  # the stored policy (never omitted once 0012 ran)
 
 
 class ProfileUpdateBody(ProfileSettingsBody):

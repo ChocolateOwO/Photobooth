@@ -1,9 +1,16 @@
 """Retention: how long the booth keeps what guests leave behind, and taking it away for good.
 
-One policy for the booth (it runs one event at a time, and backups and logs belong to the whole
-booth, not to an event). A cleanup first counts what it would delete (a dry run), and deletes
-only on an explicit confirmation, or on its own schedule with the same rules. It never touches a
-visit that is still going, and never a file outside this instance's own folders.
+Two kinds of rule (P11-1, revised by P11-9):
+- A *retention policy* says how long a visit's photos, finished photos, take-home link and visit
+  record are kept. The booth keeps any number of named policies; each Event Profile selects one,
+  and a visit freezes the values of its event's policy when it starts, so changing a policy later
+  never moves the deadline of a visit that already exists.
+- *Housekeeping* covers what belongs to the whole booth, not to an event: unfinished temporary
+  files, the organizers' activity log, database backups and application logs.
+
+A cleanup first counts what it would delete (a dry run), and deletes only on an explicit
+confirmation, or on its own schedule with the same rules. It never touches a visit that is still
+going, and never a file outside this instance's own folders.
 """
 
 from __future__ import annotations
@@ -14,14 +21,39 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
 
+# The policy every Event Profile had when policies became selectable (migration 0012): the
+# booth's single policy until then, under this fixed id. It starts as the default for new events.
+STANDARD_POLICY_ID = "00000000-0000-4000-8000-000000000001"
+POLICY_NAME_MAX = 60
+DAYS_MAX = 3650
+
 
 class RetentionError(Exception):
-    """The policy or the request breaks a rule."""
+    """A policy or the request breaks a rule."""
 
 
 class PolicyChangedError(RetentionError):
     def __init__(self) -> None:
-        super().__init__("the policy changed since the check; check again before deleting")
+        super().__init__("the housekeeping settings changed since the check; check again first")
+
+
+class StaleEditError(RetentionError):
+    def __init__(self) -> None:
+        super().__init__("it was changed meanwhile; reload it and try again")
+
+
+class PolicyNotFoundError(RetentionError):
+    def __init__(self) -> None:
+        super().__init__("no such retention policy")
+
+
+class PolicyNameTakenError(RetentionError):
+    def __init__(self) -> None:
+        super().__init__("another retention policy already has this name")
+
+
+class PolicyInUseError(RetentionError):
+    """A policy an Event Profile selects (deleted profiles included), or the default one."""
 
 
 class EventNotFoundError(RetentionError):
@@ -45,12 +77,42 @@ class Trigger(StrEnum):
 # 7 days, temporary files 24 hours, anonymous visit data kept). The rest are chosen here.
 @dataclass(frozen=True)
 class RetentionPolicy:
+    """One named policy an Event Profile can select."""
+
+    id: str = STANDARD_POLICY_ID
+    name: str = "Standard"
     originals_days: int = 7
     outputs_days: int = 30
     link_days: int = 7
-    temp_hours: int = 24
     metadata_mode: MetadataMode = MetadataMode.KEEP
     metadata_days: int = 90
+    is_default: bool = False
+    revision: int = 1
+    updated_at: datetime | None = None
+
+    def problems(self) -> list[str]:
+        found: list[str] = []
+        if not self.name.strip():
+            found.append("a policy needs a name")
+        elif len(self.name) > POLICY_NAME_MAX:
+            found.append(f"a policy name has at most {POLICY_NAME_MAX} characters")
+        for name in ("originals_days", "outputs_days", "link_days", "metadata_days"):
+            if not 1 <= getattr(self, name) <= DAYS_MAX:
+                found.append(f"{name} must be 1 to {DAYS_MAX} days")
+        if self.link_days > self.outputs_days:
+            found.append("the take-home link can not outlive the finished photos")
+        if self.metadata_mode is not MetadataMode.KEEP and self.metadata_days < max(
+            self.originals_days, self.outputs_days
+        ):
+            found.append("visits can not be anonymized or deleted before their photos are")
+        return found
+
+
+@dataclass(frozen=True)
+class Housekeeping:
+    """What belongs to the whole booth rather than to an event."""
+
+    temp_hours: int = 24
     activity_log_days: int = 90
     backup_days: int = 7
     app_log_days: int = 14
@@ -59,26 +121,11 @@ class RetentionPolicy:
 
     def problems(self) -> list[str]:
         found: list[str] = []
-        for name in (
-            "originals_days",
-            "outputs_days",
-            "link_days",
-            "metadata_days",
-            "activity_log_days",
-            "backup_days",
-            "app_log_days",
-        ):
-            value = getattr(self, name)
-            if not 1 <= value <= 3650:
-                found.append(f"{name} must be 1 to 3650 days")
+        for name in ("activity_log_days", "backup_days", "app_log_days"):
+            if not 1 <= getattr(self, name) <= DAYS_MAX:
+                found.append(f"{name} must be 1 to {DAYS_MAX} days")
         if not 1 <= self.temp_hours <= 720:
             found.append("temp_hours must be 1 to 720 hours")
-        if self.link_days > self.outputs_days:
-            found.append("the take-home link can not outlive the finished photos")
-        if self.metadata_mode is not MetadataMode.KEEP and self.metadata_days < max(
-            self.originals_days, self.outputs_days
-        ):
-            found.append("visits can not be anonymized or deleted before their photos are")
         return found
 
 
@@ -108,7 +155,7 @@ class RetentionReport:
     trigger: Trigger
     started_at: datetime
     finished_at: datetime
-    policy_revision: int
+    housekeeping_revision: int
     counts: Mapping[Category, Tally]
     errors: Sequence[str] = field(default_factory=tuple)
     # Categories that could not run at all (not just a file that would not go).
@@ -132,13 +179,37 @@ class RetentionRun:
 
 class RetentionRepository(ABC):
     @abstractmethod
-    def policy(self) -> RetentionPolicy: ...
+    def policies(self) -> list[RetentionPolicy]:
+        """Every policy, the default first, then by name."""
+
+    @abstractmethod
+    def policy(self, policy_id: str) -> RetentionPolicy | None: ...
+
+    @abstractmethod
+    def add_policy(self, policy: RetentionPolicy, at: datetime) -> RetentionPolicy:
+        """Raises RetentionError when the name is taken."""
 
     @abstractmethod
     def save_policy(
         self, policy: RetentionPolicy, expected_revision: int, at: datetime
     ) -> RetentionPolicy:
-        """Raises RetentionError when somebody else changed it first."""
+        """Raises StaleEditError when somebody else changed it first, RetentionError when the
+        name is taken."""
+
+    @abstractmethod
+    def delete_policy(self, policy_id: str) -> bool: ...
+
+    @abstractmethod
+    def make_default(self, policy_id: str, at: datetime) -> RetentionPolicy | None: ...
+
+    @abstractmethod
+    def housekeeping(self) -> Housekeeping: ...
+
+    @abstractmethod
+    def save_housekeeping(
+        self, housekeeping: Housekeeping, expected_revision: int, at: datetime
+    ) -> Housekeeping:
+        """Raises StaleEditError when somebody else changed it first."""
 
     @abstractmethod
     def add_run(self, run: RetentionRun) -> None: ...

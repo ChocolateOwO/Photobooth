@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
@@ -216,6 +216,29 @@ class LayoutOffer:
 
 
 @dataclass(frozen=True)
+class VisitRetention:
+    """The retention policy of the visit's event, frozen when the visit started (P11-9): how
+    long its photos, finished photos, take-home link and record are kept. Changing the policy
+    later never moves these deadlines. The defaults are the PROVISIONAL plan defaults."""
+
+    policy_id: str = ""
+    policy_name: str = "Standard"
+    originals_days: int = 7
+    outputs_days: int = 30
+    link_days: int = 7
+    records_mode: str = "keep"  # keep | anonymize | delete
+    records_days: int = 90
+
+    def days(self, what: str) -> int:
+        """Days after the visit ended that `what` goes: originals, outputs, anonymize, delete."""
+        if what == "originals":
+            return self.originals_days
+        if what == "outputs":
+            return self.outputs_days
+        return self.records_days
+
+
+@dataclass(frozen=True)
 class ProfileSnapshot:
     """The event as it was when the session started. Never re-read from the profile afterwards."""
 
@@ -227,6 +250,7 @@ class ProfileSnapshot:
     delivery_mode: str
     inactivity_timeout_s: int
     layouts: tuple[LayoutOffer, ...]
+    retention: VisitRetention = field(default_factory=VisitRetention)
 
     def offer(self, frame_id: str) -> LayoutOffer:
         for layout in self.layouts:
@@ -690,8 +714,10 @@ class SessionRepository(ABC):
     # ---- retention ---------------------------------------------------------------------------
 
     @abstractmethod
-    def ended_visits(self, before: datetime) -> list[str]:
-        """Visits that are over and ended before `before`; never one still going."""
+    def expired_visits(self, now: datetime, what: str) -> list[str]:
+        """Visits that are over and whose `what` (originals, outputs, anonymize, delete) is due
+        by `now` under the retention values each visit froze; never one still going. For
+        anonymize and delete, only visits whose frozen policy says so."""
 
     @abstractmethod
     def event_visits(self, profile_id: str) -> list[tuple[str, bool]]:

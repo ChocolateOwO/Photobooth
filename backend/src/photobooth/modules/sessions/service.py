@@ -749,18 +749,18 @@ class BoothSessionService:
     # Only visits that are over are ever touched, each one while it is locked (so it can not be
     # in the middle of anything), and files always go before the rows that name them.
 
-    def purge_originals(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
-        """The camera's photos of visits that ended before `before`."""
-        return self._purge_files("captures", before, dry_run)
+    def purge_originals(self, now: datetime, dry_run: bool) -> tuple[int, int, int]:
+        """The camera's photos of visits whose own originals deadline has passed by `now`."""
+        return self._purge_files("captures", now, dry_run)
 
-    def purge_outputs(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
-        """The finished photos of visits that ended before `before`; their links end first."""
-        return self._purge_files("outputs", before, dry_run)
+    def purge_outputs(self, now: datetime, dry_run: bool) -> tuple[int, int, int]:
+        """The finished photos of visits whose own deadline has passed; their links end first."""
+        return self._purge_files("outputs", now, dry_run)
 
-    def anonymize_visits(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
-        """Visits that ended before `before` no longer name the device that made them."""
+    def anonymize_visits(self, now: datetime, dry_run: bool) -> tuple[int, int, int]:
+        """Visits whose own policy anonymizes them, once due, no longer name their device."""
         changed = 0
-        for session_id in self._repository.ended_visits(before):
+        for session_id in self._repository.expired_visits(now, "anonymize"):
             with self._locks.held(session_id):
                 session = self._repository.get(session_id)
                 if session is None or not session.closed or session.device_id == "anonymous":
@@ -769,9 +769,9 @@ class BoothSessionService:
                     changed += 1
         return changed, 0, 0
 
-    def delete_visits(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
-        """Visits that ended before `before`, with everything about them, permanently."""
-        return self._delete_visits(self._repository.ended_visits(before), dry_run)
+    def delete_visits(self, now: datetime, dry_run: bool) -> tuple[int, int, int]:
+        """Visits whose own policy deletes them, once due, with everything about them."""
+        return self._delete_visits(self._repository.expired_visits(now, "delete"), dry_run)
 
     def delete_event_visits(self, profile_id: str, dry_run: bool) -> tuple[int, int, int]:
         """Every visit of one event, for its permanent deletion. Refused while one is going."""
@@ -789,9 +789,10 @@ class BoothSessionService:
             )
         return counted
 
-    def _purge_files(self, kind: str, before: datetime, dry_run: bool) -> tuple[int, int, int]:
+    def _purge_files(self, kind: str, now: datetime, dry_run: bool) -> tuple[int, int, int]:
         items = size = failed = 0
-        for session_id in self._repository.ended_visits(before):
+        what = "originals" if kind == "captures" else "outputs"
+        for session_id in self._repository.expired_visits(now, what):
             with self._locks.held(session_id):
                 if not self._repository.is_over(session_id):
                     continue  # it came back to life meanwhile: never touched

@@ -16,6 +16,7 @@ import os
 import sqlite3
 import time
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,9 @@ from fastapi.testclient import TestClient
 from photobooth.cli import prepare_retention
 from photobooth.container import Container
 from photobooth.main import create_delivery_app
+from photobooth.modules.event_profiles.domain import ProfileSettings
 from photobooth.modules.retention.domain import (
+    STANDARD_POLICY_ID,
     MetadataMode,
     RetentionError,
     RetentionPolicy,
@@ -46,7 +49,19 @@ from tests.integration.test_booth_sessions import (
 from tests.integration.test_outputs_delivery import link, reviewing, token_of
 
 ADMIN = "/api/admin/retention"
-DELETE = {"dry_run": False, "confirm": "DELETE", "policy_revision": 1}
+REMOVE = {"dry_run": False, "confirm": "DELETE"}
+
+
+def confirmed(container: Container) -> dict[str, Any]:
+    """A confirmed cleanup, under the housekeeping settings the organizer has seen."""
+    return REMOVE | {"housekeeping_revision": container.retention_service.housekeeping().revision}
+
+
+def standard(container: Container, **changes: Any) -> None:
+    """Change the default policy (only visits that start afterwards follow it)."""
+    service = container.retention_service
+    current = service.policy(STANDARD_POLICY_ID)
+    service.update_policy(STANDARD_POLICY_ID, replace(current, **changes), current.revision)
 
 
 @pytest.fixture
@@ -56,9 +71,11 @@ def guests(container: Container) -> Iterator[TestClient]:
         yield client
 
 
-def finished_visit(client: TestClient, container: Container) -> tuple[dict[str, str], str, str]:
+def finished_visit(
+    client: TestClient, container: Container, **profile: Any
+) -> tuple[dict[str, str], str, str]:
     """A guest's visit that is over: photos taken, finished photos made, link shown, Done."""
-    device, session = reviewing(client, container, PRINT34)
+    device, session = reviewing(client, container, PRINT34, **profile)
     made = client.post(
         f"{SESSIONS}/{session['id']}/render",
         json={"idempotency_key": "render-key-1"},
@@ -111,18 +128,24 @@ def test_a_dry_run_counts_and_a_confirmed_run_deletes_photos_past_their_time(
     assert counts(dry.json()) | {"originals": 2, "outputs": 0} == counts(dry.json())
     assert all(stored(container, "captures", sid))  # a dry run changes nothing
 
-    done = kiosk_client.post(f"{ADMIN}/run", json=DELETE, headers=organizer(kiosk_client, device))
+    done = kiosk_client.post(
+        f"{ADMIN}/run", json=confirmed(container), headers=organizer(kiosk_client, device)
+    )
     assert done.status_code == 200 and counts(done.json())["originals"] == 2
     assert not any(stored(container, "captures", sid))
     assert all(stored(container, "outputs", sid))
     assert guests.get(f"/d/{token}").status_code == 200  # the guest still has their photos
 
     later(container, 40)
-    done = kiosk_client.post(f"{ADMIN}/run", json=DELETE, headers=organizer(kiosk_client, device))
+    done = kiosk_client.post(
+        f"{ADMIN}/run", json=confirmed(container), headers=organizer(kiosk_client, device)
+    )
     assert counts(done.json())["outputs"] == 1
     assert not any(stored(container, "outputs", sid))
     assert guests.get(f"/d/{token}").status_code == 404  # the link stops with the photos
-    again = kiosk_client.post(f"{ADMIN}/run", json=DELETE, headers=organizer(kiosk_client, device))
+    again = kiosk_client.post(
+        f"{ADMIN}/run", json=confirmed(container), headers=organizer(kiosk_client, device)
+    )
     assert counts(again.json())["originals"] == counts(again.json())["outputs"] == 0
 
     # The visit is still listed (its counts and times), and every run is on record.
@@ -137,17 +160,13 @@ def test_a_dry_run_counts_and_a_confirmed_run_deletes_photos_past_their_time(
 def test_a_visit_still_going_is_never_touched(
     kiosk_client: TestClient, container: Container
 ) -> None:
+    standard(container, metadata_mode=MetadataMode.DELETE, metadata_days=60)
     admin, device = booth(kiosk_client, container)
     activate(kiosk_client, admin, enabled_layouts=["print_3x4"])
     visit = start(kiosk_client, device)
     choose(kiosk_client, device, visit["id"], PRINT34)
     assert send(kiosk_client, device, visit["id"], 1).status_code == 200
     later(container, 400)
-    service = container.retention_service
-    service.update_policy(
-        RetentionPolicy(metadata_mode=MetadataMode.DELETE, metadata_days=60),
-        service.policy().revision,
-    )
     report = container.retention_service.run(Trigger.MANUAL, dry_run=False)
     assert report.errors == ()
     assert all(stored(container, "captures", visit["id"]))
@@ -158,10 +177,9 @@ def test_a_visit_still_going_is_never_touched(
 def test_visit_records_are_made_anonymous_or_deleted_with_everything_about_them(
     kiosk_client: TestClient, container: Container, mode: MetadataMode
 ) -> None:
+    standard(container, metadata_mode=mode, metadata_days=45)
     device, sid, _token = finished_visit(kiosk_client, container)
     service = container.retention_service
-    policy = service.policy()
-    service.update_policy(RetentionPolicy(metadata_mode=mode, metadata_days=45), policy.revision)
     later(container, 50)
     report = service.run(Trigger.MANUAL, dry_run=False)
     with sqlite3.connect(container.settings.db_path) as conn:
@@ -225,7 +243,7 @@ def test_old_activity_temp_files_backups_and_logs_go_and_nothing_else(
         )
 
     done = kiosk_client.post(
-        f"{ADMIN}/run", json=DELETE, headers=organizer(kiosk_client, device)
+        f"{ADMIN}/run", json=confirmed(container), headers=organizer(kiosk_client, device)
     ).json()
     found = counts(done)
     assert found["temp"] == 1 and found["backups"] == 1 and found["app_logs"] == 1
@@ -256,35 +274,74 @@ def test_retention_only_works_inside_its_own_instance(container: Container, tmp_
 # ---- the policy and the confirmation ---------------------------------------------------------
 
 
-def test_the_policy_is_checked_and_saved_once(
-    kiosk_client: TestClient, container: Container
-) -> None:
+POLICY_FIELDS = (
+    "name",
+    "originals_days",
+    "outputs_days",
+    "link_days",
+    "metadata_mode",
+    "metadata_days",
+    "revision",
+)
+
+
+def body_of(policy: dict[str, Any], **changes: Any) -> dict[str, Any]:
+    return {k: policy[k] for k in POLICY_FIELDS} | changes
+
+
+def test_a_policy_is_checked_and_saved_once(kiosk_client: TestClient, container: Container) -> None:
     _admin, device = booth(kiosk_client, container)
-    current = kiosk_client.get(f"{ADMIN}/policy", headers=device).json()
+    listed = kiosk_client.get(f"{ADMIN}/policies", headers=device).json()
+    assert len(listed) == 1
+    current = listed[0]
     assert current == current | {
+        "id": STANDARD_POLICY_ID,
+        "name": "Standard",
         "originals_days": 7,
         "outputs_days": 30,
         "link_days": 7,
-        "temp_hours": 24,
         "metadata_mode": "keep",
+        "is_default": True,
         "revision": 1,
     }
-    body = {k: v for k, v in current.items() if k != "updated_at"}
-    admin_headers = organizer(kiosk_client, device)
-    bad = kiosk_client.put(f"{ADMIN}/policy", json=body | {"link_days": 40}, headers=admin_headers)
-    assert bad.status_code == 422
+    url = f"{ADMIN}/policies/{STANDARD_POLICY_ID}"
+    headers = organizer(kiosk_client, device)
+    bad = kiosk_client.put(url, json=body_of(current, link_days=40), headers=headers)
+    assert bad.status_code == 422  # the link can not outlive the finished photos
     early = kiosk_client.put(
-        f"{ADMIN}/policy",
-        json=body | {"metadata_mode": "delete", "metadata_days": 10},
-        headers=admin_headers,
+        url, json=body_of(current, metadata_mode="delete", metadata_days=10), headers=headers
     )
     assert early.status_code == 422  # visits never go before their photos
-    saved = kiosk_client.put(f"{ADMIN}/policy", json=body | {"link_days": 3}, headers=admin_headers)
+    saved = kiosk_client.put(url, json=body_of(current, link_days=3), headers=headers)
     assert saved.status_code == 200 and saved.json()["revision"] == 2
-    stale = kiosk_client.put(f"{ADMIN}/policy", json=body, headers=admin_headers)
+    stale = kiosk_client.put(url, json=body_of(current), headers=headers)
     assert stale.status_code == 409
-    lifetime = container.delivery_service._policy.lifetime()
-    assert lifetime == timedelta(days=3)  # new take-home links follow the policy
+
+
+def test_the_housekeeping_settings_are_checked_and_saved_once(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    _admin, device = booth(kiosk_client, container)
+    current = kiosk_client.get(f"{ADMIN}/housekeeping", headers=device).json()
+    assert current == current | {
+        "temp_hours": 24,
+        "activity_log_days": 90,
+        "backup_days": 7,
+        "app_log_days": 14,
+    }
+    body = {k: v for k, v in current.items() if k != "updated_at"}
+    headers = organizer(kiosk_client, device)
+    assert (
+        kiosk_client.put(
+            f"{ADMIN}/housekeeping", json=body | {"temp_hours": 0}, headers=headers
+        ).status_code
+        == 422
+    )
+    saved = kiosk_client.put(
+        f"{ADMIN}/housekeeping", json=body | {"backup_days": 3}, headers=headers
+    )
+    assert saved.status_code == 200 and saved.json()["revision"] == body["revision"] + 1
+    assert kiosk_client.put(f"{ADMIN}/housekeeping", json=body, headers=headers).status_code == 409
 
 
 def test_deleting_needs_the_word_delete_and_an_organizer(
@@ -299,7 +356,7 @@ def test_deleting_needs_the_word_delete_and_an_organizer(
     )
     assert wrong.status_code == 422
     assert kiosk_client.post("/api/admin/auth/logout", headers=headers).status_code == 204
-    assert kiosk_client.get(f"{ADMIN}/policy", headers=device).status_code == 401
+    assert kiosk_client.get(f"{ADMIN}/policies", headers=device).status_code == 401
 
 
 # ---- deleting an event for good ----------------------------------------------------------------
@@ -327,7 +384,7 @@ def test_a_deleted_event_is_deleted_for_good_with_its_visits(
     dry = kiosk_client.post(f"{ADMIN}/events/{pid}/remove", json={"dry_run": True}, headers=headers)
     assert dry.status_code == 200 and dry.json()["visits"] == 1
     assert container.session_repository.get(sid) is not None
-    done = kiosk_client.post(f"{ADMIN}/events/{pid}/remove", json=DELETE, headers=headers)
+    done = kiosk_client.post(f"{ADMIN}/events/{pid}/remove", json=REMOVE, headers=headers)
     assert done.status_code == 200, done.text
     assert container.session_repository.get(sid) is None
     assert kiosk_client.get(f"/api/admin/profiles/{pid}", headers=device).status_code == 404
@@ -542,7 +599,9 @@ def test_partial_backups_ledger_and_symlinks_are_handled(
         ),
         encoding="utf-8",
     )
-    done = kiosk_client.post(f"{ADMIN}/run", json=DELETE, headers=organizer(kiosk_client, device))
+    done = kiosk_client.post(
+        f"{ADMIN}/run", json=confirmed(container), headers=organizer(kiosk_client, device)
+    )
     found = counts(done.json())
     assert found["backups"] == 1 and found["temp"] >= 1
     assert not old.exists() and not partial.exists()
@@ -551,22 +610,200 @@ def test_partial_backups_ledger_and_symlinks_are_handled(
     assert [Path(e["path"]).name for e in ledger] == [newest.name]
 
 
-def test_deleting_needs_the_policy_the_check_was_made_under(
+def test_deleting_needs_the_settings_the_check_was_made_under(
     kiosk_client: TestClient, container: Container
 ) -> None:
-    """P11-008."""
+    """P11-008: the housekeeping settings the dry run showed (visits keep their own values)."""
     _admin, device = booth(kiosk_client, container)
     headers = organizer(kiosk_client, device)
-    unnamed = kiosk_client.post(
-        f"{ADMIN}/run", json={"dry_run": False, "confirm": "DELETE"}, headers=headers
-    )
+    unnamed = kiosk_client.post(f"{ADMIN}/run", json=REMOVE, headers=headers)
     assert unnamed.status_code == 422
     stale = kiosk_client.post(
-        f"{ADMIN}/run",
-        json={"dry_run": False, "confirm": "DELETE", "policy_revision": 7},
-        headers=headers,
+        f"{ADMIN}/run", json=REMOVE | {"housekeeping_revision": 77}, headers=headers
     )
     assert stale.status_code == 409
+
+
+# ---- a policy per Event Profile, frozen in each visit (P11-9) ------------------------------------
+
+
+def test_each_event_keeps_its_own_policy_and_each_visit_its_own_deadlines(
+    kiosk_client: TestClient, container: Container, guests: TestClient
+) -> None:
+    service = container.retention_service
+    short = service.create_policy(
+        RetentionPolicy(name="Two days", originals_days=1, outputs_days=2, link_days=1)
+    )
+    device, quick, token = finished_visit(kiosk_client, container, retention_policy_id=short.id)
+    frozen = container.session_repository.get(quick)
+    assert frozen is not None and frozen.profile.retention.policy_id == short.id
+    assert frozen.profile.retention.originals_days == 1
+    # The take-home link lives as long as the visit's own policy says.
+    issued = container.delivery_tokens.current(quick)
+    assert issued is not None
+    assert issued.expires_at - issued.created_at == timedelta(days=1)
+
+    # Later the organizer lengthens the policy: the visit keeps the deadlines it started with.
+    current = service.policy(short.id)
+    service.update_policy(
+        short.id, replace(current, originals_days=20, outputs_days=30), current.revision
+    )
+    later(container, 3)
+    report = service.run(Trigger.MANUAL, dry_run=False)
+    tallies = {c.value: t.items for c, t in report.counts.items()}
+    assert tallies["originals"] == 2 and tallies["outputs"] == 1
+    assert not any(stored(container, "captures", quick))
+    assert guests.get(f"/d/{token}").status_code == 404
+
+    # A visit of an event with the Standard policy (7 / 30 days) is not due yet.
+    headers = organizer(kiosk_client, device)
+    other = kiosk_client.post(
+        "/api/admin/profiles", json={"name": "Gala", "title": "Hi"}, headers=headers
+    )
+    assert other.status_code == 201, other.text
+    assert other.json()["settings"]["retention_policy_id"] == STANDARD_POLICY_ID
+
+
+def test_policies_are_named_kept_while_used_and_the_default_starts_new_events(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    admin, device = booth(kiosk_client, container)
+    headers = organizer(kiosk_client, device)
+    body = {
+        "name": "Wedding  ",
+        "originals_days": 3,
+        "outputs_days": 14,
+        "link_days": 7,
+        "metadata_mode": "anonymize",
+        "metadata_days": 60,
+    }
+    made = kiosk_client.post(f"{ADMIN}/policies", json=body, headers=headers)
+    assert made.status_code == 201, made.text
+    wedding = made.json()
+    assert wedding["name"] == "Wedding" and not wedding["is_default"] and wedding["used_by"] == 0
+    twice = kiosk_client.post(f"{ADMIN}/policies", json=body | {"name": "wedding"}, headers=headers)
+    assert twice.status_code == 409  # names are unique, whatever their case
+
+    profile = kiosk_client.post(
+        "/api/admin/profiles",
+        json={"name": "Bride", "title": "Hi", "retention_policy_id": wedding["id"]},
+        headers=admin,
+    )
+    assert profile.status_code == 201, profile.text
+    assert profile.json()["settings"]["retention_policy_id"] == wedding["id"]
+    unknown = kiosk_client.post(
+        "/api/admin/profiles",
+        json={
+            "name": "X",
+            "title": "Hi",
+            "retention_policy_id": "11111111-1111-4111-8111-111111111111",
+        },
+        headers=admin,
+    )
+    assert unknown.status_code == 422
+
+    in_use = kiosk_client.delete(f"{ADMIN}/policies/{wedding['id']}", headers=headers)
+    assert in_use.status_code == 409  # the event uses it
+    copy = kiosk_client.post(
+        f"/api/admin/profiles/{profile.json()['id']}/duplicate", json={}, headers=admin
+    )
+    assert copy.status_code == 201, copy.text
+    assert copy.json()["settings"]["retention_policy_id"] == wedding["id"]
+    listed = {p["id"]: p for p in kiosk_client.get(f"{ADMIN}/policies", headers=device).json()}
+    assert listed[wedding["id"]]["used_by"] == 2
+
+    standard_gone = kiosk_client.delete(f"{ADMIN}/policies/{STANDARD_POLICY_ID}", headers=headers)
+    assert standard_gone.status_code == 409  # the default can not be deleted
+    made_default = kiosk_client.post(f"{ADMIN}/policies/{wedding['id']}/default", headers=headers)
+    assert made_default.status_code == 200 and made_default.json()["is_default"]
+    fresh = kiosk_client.post(
+        "/api/admin/profiles", json={"name": "Later", "title": "Hi"}, headers=admin
+    )
+    assert fresh.json()["settings"]["retention_policy_id"] == wedding["id"]
+    defaults = [
+        p for p in kiosk_client.get(f"{ADMIN}/policies", headers=device).json() if p["is_default"]
+    ]
+    assert [p["id"] for p in defaults] == [wedding["id"]]  # exactly one default
+
+    spare = kiosk_client.post(f"{ADMIN}/policies", json=body | {"name": "Spare"}, headers=headers)
+    assert (
+        kiosk_client.delete(f"{ADMIN}/policies/{spare.json()['id']}", headers=headers).status_code
+        == 204
+    )
+    assert (
+        kiosk_client.delete(f"{ADMIN}/policies/{spare.json()['id']}", headers=headers).status_code
+        == 404
+    )
+
+
+def test_an_edit_keeps_the_profiles_policy_unless_it_names_another(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    admin, _device = booth(kiosk_client, container)
+    other = container.retention_service.create_policy(RetentionPolicy(name="Other"))
+    created = kiosk_client.post(
+        "/api/admin/profiles",
+        json={"name": "Keep", "title": "Hi", "retention_policy_id": other.id},
+        headers=admin,
+    ).json()
+    settings = {k: v for k, v in created["settings"].items() if k != "retention_policy_id"}
+    edited = kiosk_client.put(
+        f"/api/admin/profiles/{created['id']}",
+        json=settings | {"revision": created["revision"], "title": "Hello"},
+        headers=admin,
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["settings"]["retention_policy_id"] == other.id
+    moved = kiosk_client.put(
+        f"/api/admin/profiles/{created['id']}",
+        json=settings
+        | {"revision": edited.json()["revision"], "retention_policy_id": STANDARD_POLICY_ID},
+        headers=admin,
+    )
+    assert moved.json()["settings"]["retention_policy_id"] == STANDARD_POLICY_ID
+
+
+def test_a_policy_can_not_be_deleted_while_a_profile_is_choosing_it(
+    container: Container,
+) -> None:
+    """The deletion holds the profiles still from its check to the deletion itself."""
+    import threading
+
+    service = container.retention_service
+    doomed = service.create_policy(RetentionPolicy(name="Doomed"))
+    entered, release = threading.Event(), threading.Event()
+    real = container.profile_service.profiles_using
+
+    def paused(policy_id: str) -> int:
+        entered.set()
+        release.wait(timeout=30)
+        return real(policy_id)
+
+    container.profile_service.profiles_using = paused  # type: ignore[method-assign]
+    deleting = threading.Thread(target=lambda: service.delete_policy(doomed.id))
+    deleting.start()
+    assert entered.wait(timeout=30)
+    outcome: list[Any] = []
+
+    def choose_it() -> None:
+        try:
+            outcome.append(
+                container.profile_service.create(
+                    ProfileSettings(name="Chooser", title="Hi", retention_policy_id=doomed.id)
+                )
+            )
+        except Exception as exc:
+            outcome.append(exc)
+
+    choosing = threading.Thread(target=choose_it)
+    choosing.start()
+    choosing.join(timeout=1.0)
+    assert choosing.is_alive()  # it waits for the deletion
+    release.set()
+    deleting.join(timeout=60)
+    choosing.join(timeout=60)
+    assert service.policies() and doomed.id not in {p.id for p in service.policies()}
+    assert isinstance(outcome[0], Exception)  # the policy it named is gone: refused
 
 
 def organizer(client: TestClient, device: dict[str, str]) -> dict[str, str]:

@@ -93,7 +93,7 @@ from photobooth.modules.rendering.domain import (
 from photobooth.modules.rendering.queue import RenderQueue
 from photobooth.modules.rendering.renderer import PillowPhotoRenderer, PillowSampleImageFactory
 from photobooth.modules.rendering.service import RenderService
-from photobooth.modules.retention.domain import EventNotFoundError, RetentionError
+from photobooth.modules.retention.domain import EventNotFoundError, RetentionError, RetentionPolicy
 from photobooth.modules.retention.files import InstanceFolders
 from photobooth.modules.retention.repository import SqlRetentionRepository
 from photobooth.modules.retention.service import RetentionService
@@ -116,6 +116,7 @@ from photobooth.modules.sessions.domain import (
     SlotPhoto,
     TransitionRefusedError,
     VisitFacts,
+    VisitRetention,
 )
 from photobooth.modules.sessions.domain import ProfileSnapshot as SessionProfileSnapshot
 from photobooth.modules.sessions.domain import RenderBusyError as SessionRenderBusyError
@@ -303,15 +304,67 @@ class _BoothPreviews:
             raise PreviewFailedError("the sample could not be made") from exc
 
 
+class _PolicyValues:
+    """Adapter: a retention policy's values, in the shape a visit freezes them (P11-9)."""
+
+    def __init__(self, policies: SqlRetentionRepository) -> None:
+        self._policies = policies
+
+    def frozen(self, policy_id: str | None) -> VisitRetention:
+        policy = self._policies.policy(policy_id) if policy_id else None
+        if policy is None:  # never expected: a profile's policy can not be deleted
+            policy = next((p for p in self._policies.policies() if p.is_default), RetentionPolicy())
+        return VisitRetention(
+            policy_id=policy.id,
+            policy_name=policy.name,
+            originals_days=policy.originals_days,
+            outputs_days=policy.outputs_days,
+            link_days=policy.link_days,
+            records_mode=policy.metadata_mode.value,
+            records_days=policy.metadata_days,
+        )
+
+
+class _RetentionChoices:
+    """Adapter: the retention policies an Event Profile can select."""
+
+    def __init__(self, policies: SqlRetentionRepository) -> None:
+        self._policies = policies
+
+    def exists(self, policy_id: str) -> bool:
+        return self._policies.policy(policy_id) is not None
+
+    def default_id(self) -> str:
+        return next((p.id for p in self._policies.policies() if p.is_default), "")
+
+
+class _PolicyUsage:
+    """Adapter: which Event Profiles select a retention policy."""
+
+    def __init__(self, profiles: EventProfileService) -> None:
+        self._profiles = profiles
+
+    def profiles_using(self, policy_id: str) -> int:
+        return self._profiles.profiles_using(policy_id)
+
+    def held(self) -> AbstractContextManager[None]:
+        return self._profiles.held()
+
+
 class _SessionEvent:
     """Adapter: the active Event Profile flattened into the snapshot a session keeps."""
 
     def __init__(
-        self, profiles: EventProfileService, frames: FrameService, templates: TemplateSpecService
+        self,
+        profiles: EventProfileService,
+        frames: FrameService,
+        templates: TemplateSpecService,
+        policies: _PolicyValues,
     ) -> None:
         self._profiles = profiles
         self._frames = frames
         self._templates = templates
+        self._policies = policies
 
     def snapshot(self, profile_id: str | None = None) -> SessionProfileSnapshot | None:
         # No profile named: the event the booth is running. Named: a saved profile the organizer
@@ -348,6 +401,8 @@ class _SessionEvent:
             delivery_mode=str(settings.delivery_mode),
             inactivity_timeout_s=settings.inactivity_timeout_s,
             layouts=tuple(layouts),
+            # Frozen now: a later change of the policy never moves this visit's deadlines.
+            retention=self._policies.frozen(settings.retention_policy_id),
         )
 
 
@@ -630,13 +685,15 @@ class _SessionLinks:
 
 
 class _LinkLifetime:
-    """Adapter: a new take-home link works as long as the retention policy says."""
+    """Adapter: a new take-home link works as long as the visit's frozen policy says."""
 
-    def __init__(self, policy: SqlRetentionRepository) -> None:
-        self._policy = policy
+    def __init__(self, sessions: SqlSessionRepository) -> None:
+        self._sessions = sessions
 
-    def lifetime(self) -> timedelta:
-        return timedelta(days=self._policy.policy().link_days)
+    def lifetime(self, session_id: str) -> timedelta:
+        session = self._sessions.get(session_id)
+        days = session.profile.retention.link_days if session else VisitRetention().link_days
+        return timedelta(days=days)
 
 
 class _VisitRetention:
@@ -645,17 +702,17 @@ class _VisitRetention:
     def __init__(self, sessions: BoothSessionService) -> None:
         self._sessions = sessions
 
-    def purge_originals(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
-        return self._sessions.purge_originals(before, dry_run)
+    def purge_originals(self, now: datetime, dry_run: bool) -> tuple[int, int, int]:
+        return self._sessions.purge_originals(now, dry_run)
 
-    def purge_outputs(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
-        return self._sessions.purge_outputs(before, dry_run)
+    def purge_outputs(self, now: datetime, dry_run: bool) -> tuple[int, int, int]:
+        return self._sessions.purge_outputs(now, dry_run)
 
-    def anonymize_visits(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
-        return self._sessions.anonymize_visits(before, dry_run)
+    def anonymize_visits(self, now: datetime, dry_run: bool) -> tuple[int, int, int]:
+        return self._sessions.anonymize_visits(now, dry_run)
 
-    def delete_visits(self, before: datetime, dry_run: bool) -> tuple[int, int, int]:
-        return self._sessions.delete_visits(before, dry_run)
+    def delete_visits(self, now: datetime, dry_run: bool) -> tuple[int, int, int]:
+        return self._sessions.delete_visits(now, dry_run)
 
     def delete_event_visits(self, profile_id: str, dry_run: bool) -> tuple[int, int, int]:
         try:
@@ -911,6 +968,7 @@ class Container:
             ),
         )
         self.profile_repository = SqlEventProfileRepository(self.engine)
+        self.retention_repository = SqlRetentionRepository(self.engine)
         self.session_repository = SqlSessionRepository(self.engine)
         self.frame_service = FrameService(
             SqlFrameRepository(self.engine),
@@ -929,6 +987,7 @@ class Container:
             self.asset_service,
             self.template_service,
             self.frame_service,
+            retention=_RetentionChoices(self.retention_repository),
         )
 
         self.registry = ServiceRegistry()
@@ -954,7 +1013,6 @@ class Container:
         )
         self.registry.register(BoothService, self.booth_service)
         self.delivery_tokens = SqlDeliveryTokenRepository(self.engine)
-        self.retention_repository = SqlRetentionRepository(self.engine)
         self.activity_service = ActivityService(
             SqlActivityRepository(self.engine),
             _ActivityVisits(self.session_repository),
@@ -967,7 +1025,7 @@ class Container:
             _DeliveredOutputs(self.session_repository, self.storage),
             _LinkAddress(settings),
             SegnoQrEncoder(),
-            policy=_LinkLifetime(self.retention_repository),
+            policy=_LinkLifetime(self.session_repository),
             activity=_LinkActivity(self.activity_service, self.session_repository),
         )
         self.registry.register(DeliveryService, self.delivery_service)
@@ -979,7 +1037,12 @@ class Container:
         )
         self.session_service = BoothSessionService(
             self.session_repository,
-            _SessionEvent(self.profile_service, self.frame_service, self.template_service),
+            _SessionEvent(
+                self.profile_service,
+                self.frame_service,
+                self.template_service,
+                _PolicyValues(self.retention_repository),
+            ),
             _CaptureImages(PillowImageInspector()),
             _CaptureFiles(self.storage),
             _Eligibility(AllowAllEligibility()),
@@ -1005,6 +1068,7 @@ class Container:
                 SqliteBackupService(settings.backups_dir).reconcile,
             ),
             _EventRemoval(self.profile_service),
+            usage=_PolicyUsage(self.profile_service),
         )
         self.registry.register(RetentionService, self.retention_service)
         self.registry.register(

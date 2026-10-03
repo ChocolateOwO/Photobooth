@@ -37,6 +37,7 @@ def test_single_linear_head_is_baseline() -> None:
         "0009_outputs_delivery",
         "0010_activity_log",
         "0011_retention",
+        "0012_policy_per_event",
     ]
     migrator = Migrator(Path("unused.sqlite"))
     assert migrator.head_revision() == _all_revisions()[-1]

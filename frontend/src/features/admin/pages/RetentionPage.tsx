@@ -1,7 +1,9 @@
 import { useState } from 'react'
 
 import type {
+  Housekeeping,
   RetentionPolicy,
+  RetentionPolicyBody,
   RetentionReport,
   RetentionRun,
 } from '../../../shared/api/adminClient'
@@ -9,16 +11,25 @@ import { AdminApiError } from '../../../shared/api/adminClient'
 import { Modal } from '../components/ui/Modal'
 import { PillButton } from '../components/ui/Controls'
 import {
-  useRetentionPolicy,
+  useDeleteRetentionPolicy,
+  useHousekeeping,
+  useMakeDefaultRetentionPolicy,
+  useRetentionPolicies,
   useRetentionRuns,
   useRunRetention,
+  useSaveHousekeeping,
   useSaveRetentionPolicy,
 } from '../api/hooks'
 import { when } from '../activityText'
+import { policySummary } from '../retentionText'
 import styles from './RetentionPage.module.css'
 
 /**
  * Retention: how long this booth keeps what guests leave behind, and cleaning it up.
+ *
+ * Each event profile chooses one of the named policies below, and every visit keeps the values
+ * of its event's policy from the moment it starts (P11-9). The booth's own files (backups,
+ * logs, temporary files) follow the housekeeping settings.
  *
  * The booth cleans up by itself every hour and before it opens; organizers can also look first
  * (what would go, nothing is deleted) and then delete now. Deleting can not be undone, so it
@@ -52,90 +63,95 @@ function total(report: Pick<RetentionReport, 'counts'>): number {
   return report.counts.reduce((sum, row) => sum + row.items, 0)
 }
 
-type NumberField = Exclude<keyof RetentionPolicy, 'metadata_mode' | 'revision' | 'updated_at'>
+type PolicyDays = 'originals_days' | 'outputs_days' | 'link_days' | 'metadata_days'
 
-const FIELDS: { key: NumberField; label: string; unit: string; help: string }[] = [
+const POLICY_FIELDS: { key: PolicyDays; label: string; help: string }[] = [
   {
     key: 'originals_days',
     label: 'Original photos',
-    unit: 'days',
     help: 'The photos as the camera took them, after the visit ends.',
   },
   {
     key: 'outputs_days',
     label: 'Finished photos',
-    unit: 'days',
     help: 'The prints and strips; the take-home link stops with them.',
   },
   {
     key: 'link_days',
     label: 'Take-home link works for',
-    unit: 'days',
-    help: 'For links made from now on. Never longer than the finished photos.',
+    help: 'Never longer than the finished photos.',
   },
   {
     key: 'metadata_days',
     label: 'Visit records',
-    unit: 'days',
     help: 'When visits are made anonymous or deleted (see below).',
   },
-  { key: 'activity_log_days', label: 'Activity log', unit: 'days', help: '' },
-  { key: 'backup_days', label: 'Database backups', unit: 'days', help: '' },
-  { key: 'app_log_days', label: 'Application logs', unit: 'days', help: '' },
-  { key: 'temp_hours', label: 'Unfinished temporary files', unit: 'hours', help: '' },
 ]
 
-function ReportTable({ report }: { report: Pick<RetentionReport, 'counts'> }) {
-  return (
-    <table className={styles.table} data-testid="retention-counts">
-      <tbody>
-        {report.counts.map((row) => (
-          <tr key={row.category}>
-            <th scope="row">{CATEGORY_NAMES[row.category] ?? row.category}</th>
-            <td>{row.items}</td>
-            <td className={styles.muted}>{size(row.bytes)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
+type HousekeepingDays = 'activity_log_days' | 'backup_days' | 'app_log_days' | 'temp_hours'
+
+const HOUSEKEEPING_FIELDS: { key: HousekeepingDays; label: string; unit: string }[] = [
+  { key: 'activity_log_days', label: 'Activity log', unit: 'days' },
+  { key: 'backup_days', label: 'Database backups', unit: 'days' },
+  { key: 'app_log_days', label: 'Application logs', unit: 'days' },
+  { key: 'temp_hours', label: 'Unfinished temporary files', unit: 'hours' },
+]
+
+function problemOf(error: unknown): string | null {
+  if (error instanceof AdminApiError) return error.messages.join(' ')
+  return error ? 'The booth did not answer. Try again.' : null
 }
 
-function PolicyForm({ policy }: { policy: RetentionPolicy }) {
-  const save = useSaveRetentionPolicy()
-  // A new revision remounts the form (see the key below), so the draft starts from it.
-  const [draft, setDraft] = useState(policy)
-  const changed = JSON.stringify(draft) !== JSON.stringify(policy)
-  const problem =
-    save.error instanceof AdminApiError ? save.error.messages.join(' ') : save.error ? 'Not saved.' : null
+const NEW_POLICY: RetentionPolicyBody = {
+  name: '',
+  originals_days: 7,
+  outputs_days: 30,
+  link_days: 7,
+  metadata_mode: 'keep',
+  metadata_days: 90,
+  revision: 1,
+}
 
+/** Adds a policy (`policy` null) or changes one. Visits already made keep their deadlines. */
+function PolicyEditor({ policy, onDone }: { policy: RetentionPolicy | null; onDone: () => void }) {
+  const save = useSaveRetentionPolicy()
+  const [draft, setDraft] = useState<RetentionPolicyBody>(policy ?? NEW_POLICY)
+  const problem = problemOf(save.error)
   return (
     <form
       className={styles.panel}
-      aria-label="Retention policy"
+      aria-label={policy ? `Edit ${policy.name}` : 'New retention policy'}
       onSubmit={(event) => {
         event.preventDefault()
-        save.mutate(draft)
+        save.mutate({ id: policy?.id ?? null, policy: draft }, { onSuccess: onDone })
       }}
     >
-      <h2 className={styles.panelTitle}>How long the booth keeps things</h2>
+      <h3 className={styles.panelTitle}>{policy ? `Edit ${policy.name}` : 'New policy'}</h3>
       <div className={styles.fields}>
-        {FIELDS.map((field) => (
+        <label className={styles.field}>
+          <span className={styles.label}>Name</span>
+          <input
+            className={styles.name}
+            value={draft.name}
+            maxLength={60}
+            required
+            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+          />
+        </label>
+        {POLICY_FIELDS.map((field) => (
           <label key={field.key} className={styles.field}>
             <span className={styles.label}>{field.label}</span>
             <span className={styles.inputRow}>
               <input
                 type="number"
                 min={1}
-                max={field.unit === 'hours' ? 720 : 3650}
+                max={3650}
                 value={draft[field.key]}
-                onChange={(event) =>
-                  setDraft({ ...draft, [field.key]: Number(event.target.value) })
-                }
+                onChange={(event) => setDraft({ ...draft, [field.key]: Number(event.target.value) })}
               />
-              <span className={styles.muted}>{field.unit}</span>
+              <span className={styles.muted}>days</span>
             </span>
-            {field.help && <span className={styles.help}>{field.help}</span>}
+            <span className={styles.help}>{field.help}</span>
           </label>
         ))}
         <label className={styles.field}>
@@ -155,6 +171,138 @@ function PolicyForm({ policy }: { policy: RetentionPolicy }) {
           </select>
         </label>
       </div>
+      {policy && policy.used_by > 0 && (
+        <p className={styles.help}>
+          Changes apply to visits that start from now on. Visits already made keep the deadlines
+          they started with.
+        </p>
+      )}
+      {problem && (
+        <p role="alert" className={styles.error}>
+          {problem}
+        </p>
+      )}
+      <div className={styles.actions}>
+        <PillButton type="submit" tone="primary" disabled={save.isPending || !draft.name.trim()}>
+          {policy ? 'Save policy' : 'Add policy'}
+        </PillButton>
+        <PillButton type="button" onClick={onDone}>
+          Cancel
+        </PillButton>
+      </div>
+    </form>
+  )
+}
+
+function Policies({ policies }: { policies: RetentionPolicy[] }) {
+  // The policy being edited: an id, 'new', or none.
+  const [editing, setEditing] = useState<string | null>(null)
+  const remove = useDeleteRetentionPolicy()
+  const makeDefault = useMakeDefaultRetentionPolicy()
+  const problem = problemOf(remove.error) ?? problemOf(makeDefault.error)
+  const edited = policies.find((policy) => policy.id === editing) ?? null
+  return (
+    <section className={styles.panel} aria-label="Retention policies">
+      <h2 className={styles.panelTitle}>Retention policies</h2>
+      <p className={styles.muted}>
+        Each event profile chooses one of these (Event Profiles → Edit → Retention policy). New
+        profiles start with the default. A visit keeps the policy it started with.
+      </p>
+      <ul className={styles.policies} data-testid="retention-policies">
+        {policies.map((policy) => (
+          <li key={policy.id} className={styles.policy} data-testid="retention-policy">
+            <div className={styles.policyText}>
+              <span className={styles.policyName}>
+                {policy.name}
+                {policy.is_default && <span className={styles.badge}>Default</span>}
+              </span>
+              <span className={styles.muted}>{policySummary(policy)}</span>
+              <span className={styles.muted}>
+                Used by {policy.used_by} event profile{policy.used_by === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className={styles.actions}>
+              <PillButton onClick={() => setEditing(policy.id)} aria-label={`Edit ${policy.name}`}>
+                Edit
+              </PillButton>
+              {!policy.is_default && (
+                <PillButton
+                  onClick={() => makeDefault.mutate(policy.id)}
+                  disabled={makeDefault.isPending}
+                  aria-label={`Make ${policy.name} the default`}
+                >
+                  Make default
+                </PillButton>
+              )}
+              {!policy.is_default && policy.used_by === 0 && (
+                <PillButton
+                  tone="danger"
+                  onClick={() => remove.mutate(policy.id)}
+                  disabled={remove.isPending}
+                  aria-label={`Delete ${policy.name}`}
+                >
+                  Delete
+                </PillButton>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {problem && (
+        <p role="alert" className={styles.error}>
+          {problem}
+        </p>
+      )}
+      {editing === null && (
+        <div className={styles.actions}>
+          <PillButton onClick={() => setEditing('new')}>Add policy</PillButton>
+        </div>
+      )}
+      {editing !== null && (
+        <PolicyEditor
+          key={editing === 'new' ? 'new' : `${editing}-${edited?.revision ?? 0}`}
+          policy={editing === 'new' ? null : edited}
+          onDone={() => setEditing(null)}
+        />
+      )}
+    </section>
+  )
+}
+
+function HousekeepingForm({ settings }: { settings: Housekeeping }) {
+  const save = useSaveHousekeeping()
+  // A new revision remounts the form (see the key below), so the draft starts from it.
+  const [draft, setDraft] = useState(settings)
+  const changed = JSON.stringify(draft) !== JSON.stringify(settings)
+  const problem = problemOf(save.error)
+  return (
+    <form
+      className={styles.panel}
+      aria-label="Booth housekeeping"
+      onSubmit={(event) => {
+        event.preventDefault()
+        save.mutate(draft)
+      }}
+    >
+      <h2 className={styles.panelTitle}>Booth housekeeping</h2>
+      <p className={styles.muted}>What belongs to the whole booth rather than to one event.</p>
+      <div className={styles.fields}>
+        {HOUSEKEEPING_FIELDS.map((field) => (
+          <label key={field.key} className={styles.field}>
+            <span className={styles.label}>{field.label}</span>
+            <span className={styles.inputRow}>
+              <input
+                type="number"
+                min={1}
+                max={field.unit === 'hours' ? 720 : 3650}
+                value={draft[field.key]}
+                onChange={(event) => setDraft({ ...draft, [field.key]: Number(event.target.value) })}
+              />
+              <span className={styles.muted}>{field.unit}</span>
+            </span>
+          </label>
+        ))}
+      </div>
       {problem && (
         <p role="alert" className={styles.error}>
           {problem}
@@ -163,13 +311,28 @@ function PolicyForm({ policy }: { policy: RetentionPolicy }) {
       {save.isSuccess && !changed && <p className={styles.ok}>Saved.</p>}
       <div className={styles.actions}>
         <PillButton type="submit" tone="primary" disabled={!changed || save.isPending}>
-          Save policy
+          Save housekeeping
         </PillButton>
-        <PillButton type="button" disabled={!changed} onClick={() => setDraft(policy)}>
+        <PillButton type="button" disabled={!changed} onClick={() => setDraft(settings)}>
           Undo changes
         </PillButton>
       </div>
     </form>
+  )
+}
+function ReportTable({ report }: { report: Pick<RetentionReport, 'counts'> }) {
+  return (
+    <table className={styles.table} data-testid="retention-counts">
+      <tbody>
+        {report.counts.map((row) => (
+          <tr key={row.category}>
+            <th scope="row">{CATEGORY_NAMES[row.category] ?? row.category}</th>
+            <td>{row.items}</td>
+            <td className={styles.muted}>{size(row.bytes)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 
@@ -183,7 +346,7 @@ function Cleanup() {
   const failure =
     run.error instanceof AdminApiError
       ? run.error.status === 409
-        ? 'The policy changed since the check. Check again before deleting.'
+        ? 'The housekeeping settings changed since the check. Check again before deleting.'
         : run.error.messages.join(' ')
       : run.error
         ? 'The booth did not answer. Try again.'
@@ -267,8 +430,8 @@ function Cleanup() {
                 disabled={!understood || run.isPending}
                 onClick={() =>
                   run.mutate(
-                    // Only under the policy the check showed: a changed policy is refused.
-                    { dryRun: false, policyRevision: preview.policy_revision },
+                    // Only under the settings the check showed: changed ones are refused.
+                    { dryRun: false, housekeepingRevision: preview.housekeeping_revision },
                     {
                       onSuccess: (report) => {
                         setDone(report)
@@ -342,7 +505,8 @@ function Runs({ runs }: { runs: RetentionRun[] }) {
 }
 
 export function RetentionPage() {
-  const policy = useRetentionPolicy()
+  const policies = useRetentionPolicies()
+  const housekeeping = useHousekeeping()
   const runs = useRetentionRuns()
   return (
     <div className={styles.container}>
@@ -351,14 +515,20 @@ export function RetentionPage() {
         Guests&apos; photos and visit records are deleted for good once their time is up. Visits
         still going are never touched, and only this booth&apos;s own folders are ever cleaned.
       </p>
-      {policy.isError && (
+      {(policies.isError || housekeeping.isError) && (
         <p role="alert" className={styles.error}>
-          The retention policy could not be loaded.
+          The retention settings could not be loaded.
         </p>
       )}
-      {policy.data && <PolicyForm key={`policy-${policy.data.revision}`} policy={policy.data} />}
-      {/* A new policy starts a new check: an earlier one may no longer be true (P11-008). */}
-      {policy.data && <Cleanup key={`cleanup-${policy.data.revision}`} />}
+      {policies.data && <Policies policies={policies.data} />}
+      {housekeeping.data && (
+        <HousekeepingForm
+          key={`housekeeping-${housekeeping.data.revision}`}
+          settings={housekeeping.data}
+        />
+      )}
+      {/* New settings start a new check: an earlier one may no longer be true (P11-008). */}
+      {housekeeping.data && <Cleanup key={`cleanup-${housekeeping.data.revision}`} />}
       <Runs runs={runs.data ?? []} />
     </div>
   )

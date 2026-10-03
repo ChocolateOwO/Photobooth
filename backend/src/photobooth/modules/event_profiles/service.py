@@ -21,8 +21,19 @@ from photobooth.modules.event_profiles.domain import (
     ProfileNotFoundError,
     ProfileSettings,
     ProfileValidationError,
+    RetentionChoices,
     TemplateCatalog,
 )
+
+
+class _AnyRetention:
+    """No retention module wired (unit tests): any policy id is taken as it is."""
+
+    def exists(self, policy_id: str) -> bool:
+        return True
+
+    def default_id(self) -> str:
+        return ""
 
 
 class EventProfileService:
@@ -34,6 +45,7 @@ class EventProfileService:
         frames: FrameLookup,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
+        retention: RetentionChoices | None = None,
     ) -> None:
         self._repository = repository
         self._hold = threading.RLock()
@@ -42,8 +54,15 @@ class EventProfileService:
         self._frames = frames
         self._clock = clock
         self._new_id = new_id
+        self._retention: RetentionChoices = retention or _AnyRetention()
 
-    def _validate(self, settings: ProfileSettings) -> ProfileSettings:
+    def _validate(
+        self, settings: ProfileSettings, current_policy: str | None = None
+    ) -> ProfileSettings:
+        policy = settings.retention_policy_id
+        if policy is None:
+            # Not sent: an edit keeps its own policy, a new profile takes the default.
+            policy = current_policy or self._retention.default_id()
         normalized = replace(
             settings,
             name=" ".join(settings.name.split()),
@@ -51,6 +70,7 @@ class EventProfileService:
             subtitle=settings.subtitle.strip(),
             start_button_text=settings.start_button_text.strip(),
             theme=settings.theme.normalized(),
+            retention_policy_id=policy,
         )
         problems = normalized.problems()
         catalog = [t.key for t in self._templates.list_latest()]
@@ -70,6 +90,10 @@ class EventProfileService:
             normalized.background_asset_id, "background"
         ):
             problems.append("background_asset_id does not refer to an uploaded background")
+        if normalized.retention_policy_id and not self._retention.exists(
+            normalized.retention_policy_id
+        ):
+            problems.append("retention_policy_id does not refer to a retention policy")
         if problems:
             raise ProfileValidationError(problems)
         return normalized
@@ -94,7 +118,16 @@ class EventProfileService:
     def get_active(self) -> EventProfile | None:
         return self._repository.get_active()
 
+    def profiles_using(self, policy_id: str) -> int:
+        """Port for the retention module: profiles selecting a policy, deleted ones included."""
+        return self._repository.count_using_policy(policy_id)
+
     def create(self, settings: ProfileSettings) -> EventProfile:
+        # Held, so a retention policy can not be deleted while a profile is choosing it.
+        with self._hold:
+            return self._create(settings)
+
+    def _create(self, settings: ProfileSettings) -> EventProfile:
         now = self._clock()
         return self._repository.add(
             EventProfile(
@@ -111,14 +144,18 @@ class EventProfileService:
     def update(
         self, profile_id: str, settings: ProfileSettings, expected_revision: int
     ) -> EventProfile:
-        current = self.get(profile_id)
-        if current.deleted:
-            raise ProfileConflictError("a deleted profile can not be edited; restore it first")
-        if current.is_active and not settings.enabled_layouts:
-            raise ProfileValidationError([NO_SIZES_FOR_ACTIVE])
-        return self._repository.update(
-            profile_id, self._validate(settings), expected_revision, self._clock()
-        )
+        with self._hold:
+            current = self.get(profile_id)
+            if current.deleted:
+                raise ProfileConflictError("a deleted profile can not be edited; restore it first")
+            if current.is_active and not settings.enabled_layouts:
+                raise ProfileValidationError([NO_SIZES_FOR_ACTIVE])
+            return self._repository.update(
+                profile_id,
+                self._validate(settings, current.settings.retention_policy_id),
+                expected_revision,
+                self._clock(),
+            )
 
     def duplicate(self, profile_id: str, name: str | None = None) -> EventProfile:
         source = self.get(profile_id)

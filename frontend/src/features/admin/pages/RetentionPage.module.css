@@ -145,3 +145,50 @@
   height: 22px;
   margin-top: 2px;
 }
+
+.field input.name {
+  width: min(100%, 380px);
+}
+
+.policies {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.policy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background-color: var(--pb-color-bg);
+  min-width: 0;
+}
+
+.policyText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.policyName {
+  font-weight: 600;
+  font-size: 17px;
+}
+
+.badge {
+  margin-left: 8px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--pb-color-muted);
+  color: var(--pb-color-muted);
+  font-size: 13px;
+  font-weight: 600;
+}

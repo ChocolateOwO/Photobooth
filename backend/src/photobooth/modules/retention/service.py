@@ -1,19 +1,23 @@
-"""Retention use cases: keep the policy, count what a cleanup would delete, and delete it."""
+"""Retention use cases: keep the policies, count what a cleanup would delete, and delete it."""
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import uuid
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from photobooth.modules.retention.domain import (
     Category,
-    MetadataMode,
+    Housekeeping,
     PolicyChangedError,
+    PolicyInUseError,
+    PolicyNotFoundError,
     RetentionError,
     RetentionPolicy,
     RetentionReport,
@@ -33,18 +37,19 @@ Counted = tuple[int, int, int]  # (items done, their bytes, items that could not
 
 
 class VisitData(Protocol):
-    """Guests' visits and their files (the sessions module). Only visits that are over are ever
-    touched; each one is handled while it is locked, files before the rows that name them."""
+    """Guests' visits and their files (the sessions module). Each visit is judged by the policy
+    values it froze when it started, against `now`. Only visits that are over are ever touched;
+    each one is handled while it is locked, files before the rows that name them."""
 
-    def purge_originals(self, before: datetime, dry_run: bool) -> Counted: ...
+    def purge_originals(self, now: datetime, dry_run: bool) -> Counted: ...
 
-    def purge_outputs(self, before: datetime, dry_run: bool) -> Counted:
+    def purge_outputs(self, now: datetime, dry_run: bool) -> Counted:
         """Finished photos; their take-home links are revoked with them."""
         ...
 
-    def anonymize_visits(self, before: datetime, dry_run: bool) -> Counted: ...
+    def anonymize_visits(self, now: datetime, dry_run: bool) -> Counted: ...
 
-    def delete_visits(self, before: datetime, dry_run: bool) -> Counted: ...
+    def delete_visits(self, now: datetime, dry_run: bool) -> Counted: ...
 
     def delete_event_visits(self, profile_id: str, dry_run: bool) -> Counted:
         """Every visit of one event, for its permanent deletion. Raises RetentionError while
@@ -85,6 +90,25 @@ class EventRemoval(Protocol):
         ...
 
 
+class PolicyUsage(Protocol):
+    """How many Event Profiles select a policy, deleted ones included (the event_profiles
+    module): a policy in use can not be deleted."""
+
+    def profiles_using(self, policy_id: str) -> int: ...
+
+    def held(self) -> AbstractContextManager[None]:
+        """Holds every profile still: none is created or changed while it is held."""
+        ...
+
+
+class _NoUsage:
+    def profiles_using(self, policy_id: str) -> int:
+        return 0
+
+    def held(self) -> AbstractContextManager[None]:
+        return contextlib.nullcontext()
+
+
 class RetentionService:
     def __init__(
         self,
@@ -94,6 +118,8 @@ class RetentionService:
         files: InstanceFiles,
         events: EventRemoval,
         clock: Callable[[], datetime] | None = None,
+        usage: PolicyUsage | None = None,
+        new_id: Callable[[], str] = lambda: str(uuid.uuid4()),
     ) -> None:
         self._repository = repository
         self._visits = visits
@@ -101,90 +127,152 @@ class RetentionService:
         self._files = files
         self._events = events
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._usage = usage or _NoUsage()
+        self._new_id = new_id
         # One cleanup at a time: a manual run and the schedule never overlap.
         self._running = threading.Lock()
+        # Policy changes one at a time, so "in use" and "default" checks hold until they land.
+        self._editing = threading.Lock()
 
-    # ---- the policy ----------------------------------------------------------------------------
+    # ---- the policies ----------------------------------------------------------------------------
 
-    def policy(self) -> RetentionPolicy:
-        return self._repository.policy()
+    def policies(self) -> list[RetentionPolicy]:
+        return self._repository.policies()
 
-    def update_policy(self, policy: RetentionPolicy, expected_revision: int) -> RetentionPolicy:
+    def policy(self, policy_id: str) -> RetentionPolicy:
+        found = self._repository.policy(policy_id)
+        if found is None:
+            raise PolicyNotFoundError()
+        return found
+
+    def default_policy(self) -> RetentionPolicy:
+        for policy in self._repository.policies():
+            if policy.is_default:
+                return policy
+        return RetentionPolicy(is_default=True)  # never reached: migration 0012 seeds one
+
+    def usage(self, policy_id: str) -> int:
+        return self._usage.profiles_using(policy_id)
+
+    def create_policy(self, policy: RetentionPolicy) -> RetentionPolicy:
+        fresh = replace(
+            policy,
+            id=self._new_id(),
+            name=" ".join(policy.name.split()),
+            is_default=False,
+            revision=1,
+        )
+        self._check(fresh)
+        with self._editing:
+            return self._repository.add_policy(fresh, self._clock())
+
+    def update_policy(
+        self, policy_id: str, policy: RetentionPolicy, expected_revision: int
+    ) -> RetentionPolicy:
+        """Changes the policy for visits that start from now on. Visits that already started
+        keep the values they froze (their deadlines never move)."""
+        with self._editing:
+            current = self.policy(policy_id)
+            changed = replace(
+                policy,
+                id=policy_id,
+                name=" ".join(policy.name.split()),
+                is_default=current.is_default,
+            )
+            self._check(changed)
+            return self._repository.save_policy(changed, expected_revision, self._clock())
+
+    def delete_policy(self, policy_id: str) -> None:
+        # No profile can select the policy between the check and the deletion.
+        with self._editing, self._usage.held():
+            policy = self.policy(policy_id)
+            if policy.is_default:
+                raise PolicyInUseError("the default policy can not be deleted")
+            used = self._usage.profiles_using(policy_id)
+            if used:
+                raise PolicyInUseError(
+                    f"{used} event profile{'s' if used != 1 else ''} use{'' if used != 1 else 's'} "
+                    "this policy (deleted profiles too); choose another policy for "
+                    f"{'them' if used != 1 else 'it'} first"
+                )
+            if not self._repository.delete_policy(policy_id):
+                raise PolicyNotFoundError()
+
+    def make_default(self, policy_id: str) -> RetentionPolicy:
+        """New Event Profiles start with this policy (existing ones keep theirs)."""
+        with self._editing:
+            made = self._repository.make_default(policy_id, self._clock())
+            if made is None:
+                raise PolicyNotFoundError()
+            return made
+
+    @staticmethod
+    def _check(policy: RetentionPolicy) -> None:
         problems = policy.problems()
         if problems:
             raise RetentionError("; ".join(problems))
-        return self._repository.save_policy(policy, expected_revision, self._clock())
 
-    def link_lifetime(self) -> timedelta:
-        """How long a new take-home link works (the delivery module asks)."""
-        return timedelta(days=self.policy().link_days)
+    # ---- housekeeping ---------------------------------------------------------------------------
+
+    def housekeeping(self) -> Housekeeping:
+        return self._repository.housekeeping()
+
+    def update_housekeeping(
+        self, housekeeping: Housekeeping, expected_revision: int
+    ) -> Housekeeping:
+        problems = housekeeping.problems()
+        if problems:
+            raise RetentionError("; ".join(problems))
+        return self._repository.save_housekeeping(housekeeping, expected_revision, self._clock())
 
     # ---- cleaning up ---------------------------------------------------------------------------
 
     def run(
         self, trigger: Trigger, dry_run: bool, expected_revision: int | None = None
     ) -> RetentionReport:
-        """Count (dry run) or delete everything past the policy.
+        """Count (dry run) or delete everything past its time.
 
-        `expected_revision` is the policy the organizer saw in the dry run: a confirmed cleanup
-        under a policy changed since is refused (P11-008). Every category is tried even when
-        another fails; what was deleted before a failure is still counted, and what could not be
-        deleted is reported per category (never with a path) and tried again next time (P11-010).
+        Guests' data is judged visit by visit, by the policy values each visit froze when it
+        started; the booth's own files by the housekeeping settings. `expected_revision` is the
+        housekeeping revision the organizer saw in the dry run: a confirmed cleanup under
+        settings changed since is refused (P11-008). Every category is tried even when another
+        fails; what was deleted before a failure is still counted, and what could not be deleted
+        is reported per category (never with a path) and tried again next time (P11-010).
         """
         with self._running:
             started = self._clock()
-            policy = self.policy()
-            if expected_revision is not None and expected_revision != policy.revision:
+            rules = self.housekeeping()
+            if expected_revision is not None and expected_revision != rules.revision:
                 raise PolicyChangedError()
             steps: list[tuple[Category, Callable[[], Counted]]] = [
+                (Category.ORIGINALS, lambda: self._visits.purge_originals(started, dry_run)),
+                (Category.OUTPUTS, lambda: self._visits.purge_outputs(started, dry_run)),
                 (
-                    Category.ORIGINALS,
-                    lambda: self._visits.purge_originals(
-                        cutoff(started, policy.originals_days), dry_run
-                    ),
+                    Category.VISITS_ANONYMIZED,
+                    lambda: self._visits.anonymize_visits(started, dry_run),
                 ),
-                (
-                    Category.OUTPUTS,
-                    lambda: self._visits.purge_outputs(
-                        cutoff(started, policy.outputs_days), dry_run
-                    ),
-                ),
+                (Category.VISITS_DELETED, lambda: self._visits.delete_visits(started, dry_run)),
                 (
                     Category.ACTIVITY,
                     lambda: (
-                        self._activity.purge(cutoff(started, policy.activity_log_days), dry_run),
+                        self._activity.purge(cutoff(started, rules.activity_log_days), dry_run),
                         0,
                         0,
                     ),
                 ),
                 (
                     Category.TEMP,
-                    lambda: self._files.temp(cutoff(started, hours=policy.temp_hours), dry_run),
+                    lambda: self._files.temp(cutoff(started, hours=rules.temp_hours), dry_run),
                 ),
                 (
                     Category.BACKUPS,
-                    lambda: self._files.backups(cutoff(started, policy.backup_days), dry_run),
+                    lambda: self._files.backups(cutoff(started, rules.backup_days), dry_run),
                 ),
                 (
                     Category.APP_LOGS,
-                    lambda: self._files.app_logs(cutoff(started, policy.app_log_days), dry_run),
+                    lambda: self._files.app_logs(cutoff(started, rules.app_log_days), dry_run),
                 ),
             ]
-            metadata_before = cutoff(started, policy.metadata_days)
-            if policy.metadata_mode is MetadataMode.ANONYMIZE:
-                steps.append(
-                    (
-                        Category.VISITS_ANONYMIZED,
-                        lambda: self._visits.anonymize_visits(metadata_before, dry_run),
-                    )
-                )
-            elif policy.metadata_mode is MetadataMode.DELETE:
-                steps.append(
-                    (
-                        Category.VISITS_DELETED,
-                        lambda: self._visits.delete_visits(metadata_before, dry_run),
-                    )
-                )
             counts: dict[Category, Tally] = {}
             errors: list[str] = []
             broken: list[Category] = []
@@ -204,7 +292,7 @@ class RetentionService:
                 trigger=trigger,
                 started_at=started,
                 finished_at=self._clock(),
-                policy_revision=policy.revision,
+                housekeeping_revision=rules.revision,
                 counts=counts,
                 errors=tuple(errors),
                 broken=tuple(broken),

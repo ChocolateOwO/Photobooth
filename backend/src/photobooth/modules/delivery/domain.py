@@ -158,9 +158,9 @@ class QrEncoder(Protocol):
 
 
 class LinkPolicy(Protocol):
-    """How long a new link stays valid (the retention policy decides)."""
+    """How long a new link stays valid: the retention policy the visit froze decides."""
 
-    def lifetime(self) -> timedelta: ...
+    def lifetime(self, session_id: str) -> timedelta: ...
 
 
 class Clock(Protocol):

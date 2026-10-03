@@ -78,6 +78,9 @@ class ProfileSettings:
     inactivity_timeout_s: int = 120
     retake_mode: RetakeMode = RetakeMode.PER_PHOTO
     delivery_mode: DeliveryMode = DeliveryMode.LOCAL_LINK
+    # The retention policy the event's visits keep (frozen in each visit when it starts). None
+    # in a request: a new profile takes the booth's default policy, an edit keeps its own.
+    retention_policy_id: str | None = None
 
     @property
     def name_key(self) -> str:
@@ -175,6 +178,10 @@ class EventProfileRepository(ABC):
     def names_by_layout(self) -> dict[str, list[str]]:
         """layout key -> names of the profiles offering it (soft-deleted ones marked)."""
 
+    @abstractmethod
+    def count_using_policy(self, policy_id: str) -> int:
+        """Profiles selecting this retention policy, soft-deleted ones included."""
+
 
 class AssetLookup(Protocol):
     def exists(self, asset_id: str, kind: str) -> bool: ...
@@ -184,6 +191,14 @@ class FrameLookup(Protocol):
     """How many valid frames exist for these layouts (frames module)."""
 
     def valid_frame_count(self, layouts: Sequence[str]) -> int: ...
+
+
+class RetentionChoices(Protocol):
+    """The retention policies an Event Profile can select (the retention module)."""
+
+    def exists(self, policy_id: str) -> bool: ...
+
+    def default_id(self) -> str: ...
 
 
 class HasKey(Protocol):

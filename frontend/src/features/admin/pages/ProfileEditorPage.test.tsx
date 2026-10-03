@@ -176,6 +176,40 @@ describe('ProfileEditorPage', () => {
     expect(server.profiles.get(wedding.id)?.revision).toBe(4)
   }, FULL_FLOW)
 
+  it('chooses the retention policy the event keeps (P11-9)', async () => {
+    const server = signedInServer()
+    const [standard] = server.retentionPolicies
+    if (!standard) throw new Error('the fake server starts with the Standard policy')
+    server.retentionPolicies = [
+      standard,
+      {
+        ...standard,
+        id: 'short-policy',
+        name: 'Short',
+        originals_days: 1,
+        outputs_days: 3,
+        link_days: 2,
+        is_default: false,
+        used_by: 0,
+      },
+    ]
+    const wedding = server.seedProfile({ name: 'Wedding', retention_policy_id: standard.id })
+    renderAdmin(`/admin/profiles/${wedding.id}`, { server })
+
+    const choice = await screen.findByLabelText('Retention policy')
+    await waitFor(() => expect(choice).toHaveValue(standard.id))
+    expect(screen.getByText(/Original photos 7 days · finished photos 30 days/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Manage policies' })).toHaveAttribute(
+      'href',
+      '/admin/retention',
+    )
+    await userEvent.selectOptions(choice, 'short-policy')
+    expect(screen.getByText(/Original photos 1 day · finished photos 3 days/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Save profile' }))
+    expect(await screen.findByRole('alertdialog', { name: 'Saved' })).toBeInTheDocument()
+    expect(server.profiles.get(wedding.id)?.settings.retention_policy_id).toBe('short-policy')
+  }, FULL_FLOW)
+
   it('keeps edits made while an upload is in flight and both image selections (P4-001)', async () => {
     const server = signedInServer()
     let releaseUpload = () => {}

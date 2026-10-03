@@ -12,7 +12,8 @@ import type {
   HistoryQuery,
   NewProfileSettings,
   PeriodQuery,
-  RetentionPolicy,
+  Housekeeping,
+  RetentionPolicyBody,
   ProfileSettings,
 } from '../../../shared/api/adminClient'
 import { useAdminApi } from '../../../shared/api/AdminApiContext'
@@ -257,13 +258,13 @@ export function useStatistics(q: PeriodQuery) {
   })
 }
 
-export function useRetentionPolicy() {
+const policiesKey = () => [...adminKeys.retention(), 'policies'] as const
+const housekeepingKey = () => [...adminKeys.retention(), 'housekeeping'] as const
+
+/** The named retention policies (the default first), with how many profiles use each. */
+export function useRetentionPolicies() {
   const api = useAdminApi()
-  return useQuery({
-    queryKey: [...adminKeys.retention(), 'policy'],
-    queryFn: () => api.retentionPolicy(),
-    ...noRetry,
-  })
+  return useQuery({ queryKey: policiesKey(), queryFn: () => api.retentionPolicies(), ...noRetry })
 }
 
 export function useRetentionRuns() {
@@ -275,24 +276,67 @@ export function useRetentionRuns() {
   })
 }
 
+function policyBody(policy: RetentionPolicyBody): RetentionPolicyBody {
+  return {
+    name: policy.name,
+    originals_days: policy.originals_days,
+    outputs_days: policy.outputs_days,
+    link_days: policy.link_days,
+    metadata_mode: policy.metadata_mode,
+    metadata_days: policy.metadata_days,
+    revision: policy.revision,
+  }
+}
+
+/** Adds a policy (`id` absent) or changes one; either way the list is read again. */
 export function useSaveRetentionPolicy() {
   const api = useAdminApi()
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (policy: RetentionPolicy) =>
-      api.saveRetentionPolicy({
-        originals_days: policy.originals_days,
-        outputs_days: policy.outputs_days,
-        link_days: policy.link_days,
-        temp_hours: policy.temp_hours,
-        metadata_mode: policy.metadata_mode,
-        metadata_days: policy.metadata_days,
-        activity_log_days: policy.activity_log_days,
-        backup_days: policy.backup_days,
-        app_log_days: policy.app_log_days,
-        revision: policy.revision,
+    mutationFn: ({ id, policy }: { id: string | null; policy: RetentionPolicyBody }) =>
+      id === null
+        ? api.createRetentionPolicy(policyBody(policy))
+        : api.saveRetentionPolicy(id, policyBody(policy)),
+    onSuccess: () => void client.invalidateQueries({ queryKey: policiesKey() }),
+  })
+}
+
+export function useDeleteRetentionPolicy() {
+  const api = useAdminApi()
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteRetentionPolicy(id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: policiesKey() }),
+  })
+}
+
+export function useMakeDefaultRetentionPolicy() {
+  const api = useAdminApi()
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.makeDefaultRetentionPolicy(id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: policiesKey() }),
+  })
+}
+
+export function useHousekeeping() {
+  const api = useAdminApi()
+  return useQuery({ queryKey: housekeepingKey(), queryFn: () => api.housekeeping(), ...noRetry })
+}
+
+export function useSaveHousekeeping() {
+  const api = useAdminApi()
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (settings: Housekeeping) =>
+      api.saveHousekeeping({
+        temp_hours: settings.temp_hours,
+        activity_log_days: settings.activity_log_days,
+        backup_days: settings.backup_days,
+        app_log_days: settings.app_log_days,
+        revision: settings.revision,
       }),
-    onSuccess: (saved) => client.setQueryData([...adminKeys.retention(), 'policy'], saved),
+    onSuccess: (saved) => client.setQueryData(housekeepingKey(), saved),
   })
 }
 
@@ -300,8 +344,13 @@ export function useRunRetention() {
   const api = useAdminApi()
   const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ dryRun, policyRevision }: { dryRun: boolean; policyRevision?: number }) =>
-      api.runRetention(dryRun, policyRevision),
+    mutationFn: ({
+      dryRun,
+      housekeepingRevision,
+    }: {
+      dryRun: boolean
+      housekeepingRevision?: number
+    }) => api.runRetention(dryRun, housekeepingRevision),
     onSuccess: () => void client.invalidateQueries({ queryKey: [...adminKeys.retention(), 'runs'] }),
   })
 }

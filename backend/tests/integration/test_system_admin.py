@@ -31,7 +31,7 @@ def test_the_system_page_tells_the_organizer_how_the_booth_is(
         "database": "ok",
         "active_event": "Garden Party",
         "visits_in_progress": 1,
-        "schema_revision": "0011_retention",
+        "schema_revision": "0012_policy_per_event",
         "last_cleanup_errors": [],
     }
     assert body["disk_total_bytes"] >= body["disk_free_bytes"] > 0

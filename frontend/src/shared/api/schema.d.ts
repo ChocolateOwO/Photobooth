@@ -438,18 +438,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/retention/policy": {
+    "/api/admin/retention/housekeeping": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Policy */
-        get: operations["policy_api_admin_retention_policy_get"];
-        /** Save Policy */
-        put: operations["save_policy_api_admin_retention_policy_put"];
+        /** Housekeeping */
+        get: operations["housekeeping_api_admin_retention_housekeeping_get"];
+        /** Save Housekeeping */
+        put: operations["save_housekeeping_api_admin_retention_housekeeping_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/retention/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Policies */
+        get: operations["policies_api_admin_retention_policies_get"];
+        put?: never;
+        /** Create Policy */
+        post: operations["create_policy_api_admin_retention_policies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/retention/policies/{policy_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Policy */
+        put: operations["update_policy_api_admin_retention_policies__policy_id__put"];
+        post?: never;
+        /** Delete Policy */
+        delete: operations["delete_policy_api_admin_retention_policies__policy_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/retention/policies/{policy_id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make Default */
+        post: operations["make_default_api_admin_retention_policies__policy_id__default_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1602,6 +1655,37 @@ export interface components {
             /** Visits */
             visits: components["schemas"]["VisitResponse"][];
         };
+        /**
+         * HousekeepingBody
+         * @description What belongs to the whole booth. `revision` is the one the organizer saw.
+         */
+        HousekeepingBody: {
+            /** Activity Log Days */
+            activity_log_days: number;
+            /** App Log Days */
+            app_log_days: number;
+            /** Backup Days */
+            backup_days: number;
+            /** Revision */
+            revision: number;
+            /** Temp Hours */
+            temp_hours: number;
+        };
+        /** HousekeepingResponse */
+        HousekeepingResponse: {
+            /** Activity Log Days */
+            activity_log_days: number;
+            /** App Log Days */
+            app_log_days: number;
+            /** Backup Days */
+            backup_days: number;
+            /** Revision */
+            revision: number;
+            /** Temp Hours */
+            temp_hours: number;
+            /** Updated At */
+            updated_at: string | null;
+        };
         /** KioskStatusResponse */
         KioskStatusResponse: {
             /** Paired */
@@ -1824,6 +1908,11 @@ export interface components {
             /** @default per_photo */
             retake_mode: components["schemas"]["RetakeMode"];
             /**
+             * Retention Policy Id
+             * @description The retention policy its visits keep (frozen in each visit when it starts). Omit: a new profile takes the default policy, an edit keeps its own.
+             */
+            retention_policy_id?: string | null;
+            /**
              * Start Button Text
              * @default Start
              */
@@ -1881,6 +1970,8 @@ export interface components {
             name: string;
             /** @default per_photo */
             retake_mode: components["schemas"]["RetakeMode"];
+            /** Retention Policy Id */
+            retention_policy_id?: string | null;
             /**
              * Start Button Text
              * @default Start
@@ -1939,6 +2030,11 @@ export interface components {
             /** @default per_photo */
             retake_mode: components["schemas"]["RetakeMode"];
             /**
+             * Retention Policy Id
+             * @description The retention policy its visits keep (frozen in each visit when it starts). Omit: a new profile takes the default policy, an edit keeps its own.
+             */
+            retention_policy_id?: string | null;
+            /**
              * Revision
              * @description Revision the edit was based on (optimistic lock)
              */
@@ -1972,6 +2068,19 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /**
+         * RemoveBody
+         * @description Deleting an event for good: a dry run first, then DELETE to confirm.
+         */
+        RemoveBody: {
+            /** Confirm */
+            confirm?: string | null;
+            /**
+             * Dry Run
+             * @default true
+             */
+            dry_run: boolean;
         };
         /** RenameFrameBody */
         RenameFrameBody: {
@@ -2008,15 +2117,10 @@ export interface components {
         RetakeMode: "none" | "per_photo" | "all";
         /**
          * RetentionPolicyBody
-         * @description The booth's policy. `revision` is the one the organizer saw (a newer one refuses).
+         * @description A named policy an Event Profile can select. On a change, `revision` is the one the
+         *     organizer saw (a newer one refuses).
          */
         RetentionPolicyBody: {
-            /** Activity Log Days */
-            activity_log_days: number;
-            /** App Log Days */
-            app_log_days: number;
-            /** Backup Days */
-            backup_days: number;
             /** Link Days */
             link_days: number;
             /** Metadata Days */
@@ -2026,23 +2130,24 @@ export interface components {
              * @enum {string}
              */
             metadata_mode: "keep" | "anonymize" | "delete";
+            /** Name */
+            name: string;
             /** Originals Days */
             originals_days: number;
             /** Outputs Days */
             outputs_days: number;
-            /** Revision */
+            /**
+             * Revision
+             * @default 1
+             */
             revision: number;
-            /** Temp Hours */
-            temp_hours: number;
         };
         /** RetentionPolicyResponse */
         RetentionPolicyResponse: {
-            /** Activity Log Days */
-            activity_log_days: number;
-            /** App Log Days */
-            app_log_days: number;
-            /** Backup Days */
-            backup_days: number;
+            /** Id */
+            id: string;
+            /** Is Default */
+            is_default: boolean;
             /** Link Days */
             link_days: number;
             /** Metadata Days */
@@ -2052,16 +2157,21 @@ export interface components {
              * @enum {string}
              */
             metadata_mode: "keep" | "anonymize" | "delete";
+            /** Name */
+            name: string;
             /** Originals Days */
             originals_days: number;
             /** Outputs Days */
             outputs_days: number;
             /** Revision */
             revision: number;
-            /** Temp Hours */
-            temp_hours: number;
             /** Updated At */
             updated_at: string | null;
+            /**
+             * Used By
+             * @description Event Profiles selecting it, deleted ones included.
+             */
+            used_by: number;
         };
         /** RetentionReportResponse */
         RetentionReportResponse: {
@@ -2081,8 +2191,8 @@ export interface components {
              * Format: date-time
              */
             finished_at: string;
-            /** Policy Revision */
-            policy_revision: number;
+            /** Housekeeping Revision */
+            housekeeping_revision: number;
             /**
              * Started At
              * Format: date-time
@@ -2127,10 +2237,10 @@ export interface components {
              */
             dry_run: boolean;
             /**
-             * Policy Revision
-             * @description The policy the dry run showed; required to delete.
+             * Housekeeping Revision
+             * @description The housekeeping settings the dry run showed; required to delete.
              */
-            policy_revision?: number | null;
+            housekeeping_revision?: number | null;
         };
         /** SessionResponse */
         SessionResponse: {
@@ -3591,7 +3701,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RunBody"];
+                "application/json": components["schemas"]["RemoveBody"];
             };
         };
         responses: {
@@ -3615,7 +3725,7 @@ export interface operations {
             };
         };
     };
-    policy_api_admin_retention_policy_get: {
+    housekeeping_api_admin_retention_housekeeping_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -3630,12 +3740,65 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RetentionPolicyResponse"];
+                    "application/json": components["schemas"]["HousekeepingResponse"];
                 };
             };
         };
     };
-    save_policy_api_admin_retention_policy_put: {
+    save_housekeeping_api_admin_retention_housekeeping_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HousekeepingBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HousekeepingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    policies_api_admin_retention_policies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionPolicyResponse"][];
+                };
+            };
+        };
+    };
+    create_policy_api_admin_retention_policies_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -3647,6 +3810,101 @@ export interface operations {
                 "application/json": components["schemas"]["RetentionPolicyBody"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_policy_api_admin_retention_policies__policy_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetentionPolicyBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetentionPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_policy_api_admin_retention_policies__policy_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    make_default_api_admin_retention_policies__policy_id__default_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

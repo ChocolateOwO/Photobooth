@@ -31,7 +31,9 @@ export type HistoryPage = Schemas['HistoryPage']
 export type VisitDetail = Schemas['VisitDetailResponse']
 export type Statistics = Schemas['StatisticsResponse']
 export type RetentionPolicy = Schemas['RetentionPolicyResponse']
-export type RetentionPolicyUpdate = Schemas['RetentionPolicyBody']
+export type RetentionPolicyBody = Schemas['RetentionPolicyBody']
+export type Housekeeping = Schemas['HousekeepingResponse']
+export type HousekeepingBody = Schemas['HousekeepingBody']
 export type RetentionReport = Schemas['RetentionReportResponse']
 export type RetentionRun = Schemas['RetentionRunResponse']
 export type EventRemoval = Schemas['EventRemovalResponse']
@@ -412,16 +414,32 @@ export function createAdminApiClient(
         })}`,
       ),
     visit: (id: string) => send<VisitDetail>('GET', `/api/admin/history/${encodeURIComponent(id)}`),
-    retentionPolicy: () => send<RetentionPolicy>('GET', '/api/admin/retention/policy'),
-    saveRetentionPolicy: (policy: RetentionPolicyUpdate) =>
-      send<RetentionPolicy>('PUT', '/api/admin/retention/policy', { json: policy }),
-    /** A cleanup: a dry run counts only; deleting sends the confirmation word. */
-    /** Deleting names the policy revision the organizer's check was made under. */
-    runRetention: (dryRun: boolean, policyRevision?: number) =>
+    /** The named retention policies an Event Profile can select (the default first). */
+    retentionPolicies: () => send<RetentionPolicy[]>('GET', '/api/admin/retention/policies'),
+    createRetentionPolicy: (policy: RetentionPolicyBody) =>
+      send<RetentionPolicy>('POST', '/api/admin/retention/policies', { json: policy }),
+    /** Changes the policy for visits that start from now on (started visits keep theirs). */
+    saveRetentionPolicy: (id: string, policy: RetentionPolicyBody) =>
+      send<RetentionPolicy>('PUT', `/api/admin/retention/policies/${encodeURIComponent(id)}`, {
+        json: policy,
+      }),
+    deleteRetentionPolicy: (id: string) =>
+      send<undefined>('DELETE', `/api/admin/retention/policies/${encodeURIComponent(id)}`),
+    makeDefaultRetentionPolicy: (id: string) =>
+      send<RetentionPolicy>(
+        'POST',
+        `/api/admin/retention/policies/${encodeURIComponent(id)}/default`,
+      ),
+    housekeeping: () => send<Housekeeping>('GET', '/api/admin/retention/housekeeping'),
+    saveHousekeeping: (settings: HousekeepingBody) =>
+      send<Housekeeping>('PUT', '/api/admin/retention/housekeeping', { json: settings }),
+    /** A cleanup: a dry run counts only; deleting sends the confirmation word and names the
+     *  housekeeping revision the organizer's check was made under. */
+    runRetention: (dryRun: boolean, housekeepingRevision?: number) =>
       send<RetentionReport>('POST', '/api/admin/retention/run', {
         json: dryRun
           ? { dry_run: true }
-          : { dry_run: false, confirm: 'DELETE', policy_revision: policyRevision },
+          : { dry_run: false, confirm: 'DELETE', housekeeping_revision: housekeepingRevision },
       }),
     retentionRuns: () => send<RetentionRun[]>('GET', '/api/admin/retention/runs'),
     systemDetails: () => send<SystemDetails>('GET', '/api/admin/system'),

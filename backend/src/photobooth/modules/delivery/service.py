@@ -42,7 +42,7 @@ class FixedLinkPolicy:
     def __init__(self, lifetime: timedelta = DEFAULT_LINK_LIFETIME) -> None:
         self._lifetime = lifetime
 
-    def lifetime(self) -> timedelta:
+    def lifetime(self, session_id: str) -> timedelta:
         return self._lifetime
 
 
@@ -99,7 +99,7 @@ class DeliveryService:
             session_id=session_id,
             token_hash=hash_token(plaintext),
             created_at=now,
-            expires_at=now + self._policy.lifetime(),
+            expires_at=now + self._policy.lifetime(session_id),
         )
         self._repository.replace(token, now)
         with self._lock:

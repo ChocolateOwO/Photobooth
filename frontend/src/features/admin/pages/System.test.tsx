@@ -19,7 +19,7 @@ describe('System', () => {
     expect(within(addresses).getByText('http://127.0.0.1:8111/booth')).toBeInTheDocument()
     const version = screen.getByRole('region', { name: 'Version' })
     expect(within(version).getByText('7328935d7c92')).toBeInTheDocument()
-    expect(within(version).getByText('0011_retention')).toBeInTheDocument()
+    expect(within(version).getByText('0012_policy_per_event')).toBeInTheDocument()
   })
 
   it('warns when the disk is nearly full or the database does not answer', async () => {

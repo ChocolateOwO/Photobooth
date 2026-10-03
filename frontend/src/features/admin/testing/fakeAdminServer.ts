@@ -1,5 +1,6 @@
 import type {
   ActivityLogPage,
+  Housekeeping,
   RetentionPolicy,
   RetentionReport,
   RetentionRun,
@@ -20,6 +21,8 @@ import { DEVICE_KEY_HEADER } from '../../../shared/api/deviceKey'
 import { THEME_CATALOG } from './themeCatalog.fixture'
 
 export const DEVICE_KEY = 'k'.repeat(43)
+/** The policy every profile had when policies became selectable (migration 0012). */
+export const STANDARD_POLICY = '00000000-0000-4000-8000-000000000001'
 export const NO_SIZES =
   'No photo sizes are available to participants. Choose at least one photo size before this profile can be the active event.'
 export const NO_FRAMES =
@@ -151,17 +154,27 @@ export class FakeAdminServer {
   historyPage: HistoryPage = { visits: [], total: 0, offset: 0 }
   visits = new Map<string, VisitDetail>()
   statistics: Statistics | null = null
-  retentionPolicy: RetentionPolicy = {
-    originals_days: 7,
-    outputs_days: 30,
-    link_days: 7,
+  retentionPolicies: RetentionPolicy[] = [
+    {
+      id: STANDARD_POLICY,
+      name: 'Standard',
+      originals_days: 7,
+      outputs_days: 30,
+      link_days: 7,
+      metadata_mode: 'keep',
+      metadata_days: 90,
+      is_default: true,
+      revision: 1,
+      updated_at: null,
+      used_by: 1,
+    },
+  ]
+  housekeeping: Housekeeping = {
     temp_hours: 24,
-    metadata_mode: 'keep',
-    metadata_days: 90,
     activity_log_days: 90,
     backup_days: 7,
     app_log_days: 14,
-    revision: 1,
+    revision: 2,
     updated_at: null,
   }
   /** What a cleanup counts (dry run) or deletes; every request body is kept for the tests. */
@@ -181,7 +194,7 @@ export class FakeAdminServer {
     profile: 'dev',
     app_version: '0.1.0',
     api_version: 1,
-    schema_revision: '0011_retention',
+    schema_revision: '0012_policy_per_event',
     git_commit: '7328935d7c9283abb482d38d1a71354bf8ec90a6',
     started_at: '2026-10-03T01:00:00Z',
     database: 'ok',
@@ -508,37 +521,87 @@ export class FakeAdminServer {
     if (path.startsWith('/api/admin/retention/')) {
       if (!this.signedIn) return json({ detail: 'admin login required' }, 401)
       const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {}
-      if (path === '/api/admin/retention/policy' && method === 'GET') {
-        return json(this.retentionPolicy)
+      if (path === '/api/admin/retention/policies' && method === 'GET') {
+        return json(this.retentionPolicies)
       }
-      if (path === '/api/admin/retention/policy' && method === 'PUT') {
-        if (body.revision !== this.retentionPolicy.revision) {
-          return json({ detail: 'the policy was changed meanwhile' }, 409)
-        }
+      if (path === '/api/admin/retention/policies' && method === 'POST') {
         if (Number(body.link_days) > Number(body.outputs_days)) {
           return json({ detail: 'the take-home link can not outlive the finished photos' }, 422)
         }
-        this.retentionPolicy = {
+        const made: RetentionPolicy = {
           ...(body as unknown as RetentionPolicy),
-          revision: this.retentionPolicy.revision + 1,
+          id: `policy-${this.retentionPolicies.length}`,
+          is_default: false,
+          revision: 1,
+          updated_at: '2026-10-03T00:00:00Z',
+          used_by: 0,
+        }
+        this.retentionPolicies = [...this.retentionPolicies, made]
+        return json(made, 201)
+      }
+      const policyPath = /^\/api\/admin\/retention\/policies\/([^/]+)(\/default)?$/.exec(path)
+      if (policyPath) {
+        const id = policyPath[1] ?? ''
+        const current = this.retentionPolicies.find((policy) => policy.id === id)
+        if (!current) return json({ detail: 'no such retention policy' }, 404)
+        if (policyPath[2] && method === 'POST') {
+          this.retentionPolicies = this.retentionPolicies.map((policy) => ({
+            ...policy,
+            is_default: policy.id === id,
+          }))
+          return json({ ...current, is_default: true })
+        }
+        if (method === 'PUT') {
+          if (body.revision !== current.revision) {
+            return json({ detail: 'it was changed meanwhile; reload it and try again' }, 409)
+          }
+          if (Number(body.link_days) > Number(body.outputs_days)) {
+            return json({ detail: 'the take-home link can not outlive the finished photos' }, 422)
+          }
+          const saved = {
+            ...current,
+            ...(body as unknown as RetentionPolicy),
+            revision: current.revision + 1,
+          }
+          this.retentionPolicies = this.retentionPolicies.map((p) => (p.id === id ? saved : p))
+          return json(saved)
+        }
+        if (method === 'DELETE') {
+          if (current.is_default || current.used_by > 0) {
+            return json({ detail: 'this policy is in use' }, 409)
+          }
+          this.retentionPolicies = this.retentionPolicies.filter((policy) => policy.id !== id)
+          return new Response(null, { status: 204 })
+        }
+      }
+      if (path === '/api/admin/retention/housekeeping' && method === 'GET') {
+        return json(this.housekeeping)
+      }
+      if (path === '/api/admin/retention/housekeeping' && method === 'PUT') {
+        if (body.revision !== this.housekeeping.revision) {
+          return json({ detail: 'it was changed meanwhile; reload it and try again' }, 409)
+        }
+        this.housekeeping = {
+          ...(body as unknown as Housekeeping),
+          revision: this.housekeeping.revision + 1,
           updated_at: '2026-10-03T00:00:00Z',
         }
-        return json(this.retentionPolicy)
+        return json(this.housekeeping)
       }
       if (path === '/api/admin/retention/runs' && method === 'GET') return json(this.retentionRuns)
       if (path === '/api/admin/retention/run' && method === 'POST') {
         this.retentionRequests.push(body)
         const dryRun = body.dry_run !== false
         if (!dryRun && body.confirm !== 'DELETE') return json({ detail: 'confirm' }, 422)
-        if (!dryRun && body.policy_revision !== this.retentionPolicy.revision) {
-          return json({ detail: 'the policy changed since the check' }, 409)
+        if (!dryRun && body.housekeeping_revision !== this.housekeeping.revision) {
+          return json({ detail: 'the housekeeping settings changed since the check' }, 409)
         }
         const report: RetentionReport = {
           dry_run: dryRun,
           trigger: 'manual',
           started_at: '2026-10-03T00:00:00Z',
           finished_at: '2026-10-03T00:00:01Z',
-          policy_revision: this.retentionPolicy.revision,
+          housekeeping_revision: this.housekeeping.revision,
           counts: this.retentionCounts,
           errors: this.retentionErrors,
           complete: this.retentionErrors.length === 0,

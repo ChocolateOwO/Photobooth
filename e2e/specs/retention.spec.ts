@@ -8,14 +8,16 @@ import { PERSISTED, pairAndSignIn, profileRow } from './support/admin'
  * so the look finds nothing to delete and nothing is deleted.
  */
 
-test('Retention shows the policy and a look deletes nothing', async ({ page }) => {
+test('Retention shows the policies and a look deletes nothing', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/admin/retention')
   await expect(page.getByRole('heading', { name: 'Retention' })).toBeVisible()
-  const form = page.getByRole('form', { name: 'Retention policy' })
-  await expect(form.getByLabel(/Original photos/)).toHaveValue('7')
-  await expect(form.getByLabel(/Finished photos/)).toHaveValue('30')
-  await expect(form.getByRole('button', { name: 'Save policy' })).toBeDisabled()
+  const standard = page.getByTestId('retention-policy').filter({ hasText: 'Standard' })
+  await expect(standard).toContainText('Default')
+  await expect(standard).toContainText('Original photos 7 days · finished photos 30 days')
+  const housekeeping = page.getByRole('form', { name: 'Booth housekeeping' })
+  await expect(housekeeping.getByLabel(/Database backups/)).toHaveValue('7')
+  await expect(housekeeping.getByRole('button', { name: 'Save housekeeping' })).toBeDisabled()
 
   await page.getByRole('button', { name: 'Check what would be deleted' }).click()
   await expect(page.getByTestId('retention-counts')).toBeVisible()
@@ -23,6 +25,46 @@ test('Retention shows the policy and a look deletes nothing', async ({ page }) =
   await expect(page.getByTestId('retention-runs')).toContainText('(check only)')
   // The booth's own startup cleanup ran before it opened.
   await expect(page.getByTestId('retention-runs')).toContainText('When the booth started')
+})
+
+test('an event chooses its own retention policy (P11-9)', async ({ page }) => {
+  await pairAndSignIn(page)
+  await page.goto('/admin/retention')
+  await page.getByRole('button', { name: 'Add policy' }).click()
+  const form = page.getByRole('form', { name: 'New retention policy' })
+  await form.getByLabel('Name').fill('E2E Short')
+  await form.getByLabel(/Original photos/).fill('2')
+  await form.getByRole('button', { name: 'Add policy' }).click()
+  const short = page.getByTestId('retention-policy').filter({ hasText: 'E2E Short' })
+  await expect(short).toContainText('Original photos 2 days')
+  await expect(short).toContainText('Used by 0 event profiles')
+
+  await page.goto('/admin')
+  await profileRow(page, PERSISTED.copy)
+    .getByRole('link', { name: `Edit ${PERSISTED.copy}`, exact: true })
+    .click()
+  const choice = page.getByLabel('Retention policy')
+  await expect(choice).toHaveValue('00000000-0000-4000-8000-000000000001') // Standard
+  await choice.selectOption({ label: 'E2E Short' })
+  await page.getByRole('button', { name: 'Save profile' }).click()
+  await expect(page.getByRole('alertdialog', { name: 'Saved' })).toBeVisible()
+  await page.getByRole('button', { name: 'Close' }).click()
+
+  await page.goto('/admin/retention')
+  await expect(short).toContainText('Used by 1 event profile')
+  await expect(short.getByRole('button', { name: 'Delete E2E Short' })).toHaveCount(0) // in use
+
+  // Back to Standard so the later specs keep the defaults; the policy can then go.
+  await page.goto('/admin')
+  await profileRow(page, PERSISTED.copy)
+    .getByRole('link', { name: `Edit ${PERSISTED.copy}`, exact: true })
+    .click()
+  await page.getByLabel('Retention policy').selectOption({ label: 'Standard (default)' })
+  await page.getByRole('button', { name: 'Save profile' }).click()
+  await expect(page.getByRole('alertdialog', { name: 'Saved' })).toBeVisible()
+  await page.goto('/admin/retention')
+  await short.getByRole('button', { name: 'Delete E2E Short' }).click()
+  await expect(short).toHaveCount(0)
 })
 
 test('a deleted event can be deleted for good', async ({ page }) => {

@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -57,6 +58,7 @@ from photobooth.modules.sessions.domain import (
     StaleSessionError,
     TransitionRefusedError,
     VisitFacts,
+    VisitRetention,
     closing_state,
 )
 
@@ -102,6 +104,8 @@ class BoothSessionRow(Base):
     completed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_test: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # The retention values of the visit's event, frozen when it started (JSON, migration 0012).
+    retention: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
 
 
 class CaptureAssetRow(Base):
@@ -290,6 +294,37 @@ def _snapshot_of(raw: str) -> ProfileSnapshot:
     )
 
 
+def _retention_json(retention: VisitRetention) -> str:
+    return json.dumps(
+        {
+            "policy_id": retention.policy_id,
+            "policy_name": retention.policy_name,
+            "originals_days": retention.originals_days,
+            "outputs_days": retention.outputs_days,
+            "link_days": retention.link_days,
+            "records_mode": retention.records_mode,
+            "records_days": retention.records_days,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _retention_of(raw: str) -> VisitRetention:
+    if not raw:
+        return VisitRetention()  # never stored empty after migration 0012; the plan defaults
+    data: dict[str, Any] = json.loads(raw)
+    return VisitRetention(
+        policy_id=str(data["policy_id"]),
+        policy_name=str(data["policy_name"]),
+        originals_days=int(data["originals_days"]),
+        outputs_days=int(data["outputs_days"]),
+        link_days=int(data["link_days"]),
+        records_mode=str(data["records_mode"]),
+        records_days=int(data["records_days"]),
+    )
+
+
 def _selection_json(selection: Selection) -> str:
     return json.dumps(
         {
@@ -327,7 +362,7 @@ def _session_of(row: BoothSessionRow) -> BoothSession:
         event_profile_id=row.event_profile_id,
         state=SessionState(row.state),
         state_version=row.state_version,
-        profile=_snapshot_of(row.profile_snapshot),
+        profile=replace(_snapshot_of(row.profile_snapshot), retention=_retention_of(row.retention)),
         selection=_selection_of(row.selection_snapshot),
         expected_capture_count=row.expected_capture_count,
         successful_capture_count=row.successful_capture_count,
@@ -506,6 +541,7 @@ class SqlSessionRepository(SessionRepository):
                     state=str(session.state),
                     state_version=session.state_version,
                     profile_snapshot=_snapshot_json(session.profile),
+                    retention=_retention_json(session.profile.retention),
                     selection_snapshot=None,
                     expected_capture_count=session.expected_capture_count,
                     successful_capture_count=0,
@@ -943,19 +979,28 @@ class SqlSessionRepository(SessionRepository):
 
     # ---- retention -------------------------------------------------------------------------
 
-    def ended_visits(self, before: datetime) -> list[str]:
-        """Visits that are over and ended before `before` (oldest first). A visit still going is
-        never among them, whatever its age."""
+    def expired_visits(self, now: datetime, what: str) -> list[str]:
+        """Visits that are over and whose `what` is due by `now` (oldest first), each judged by
+        the retention values it froze when it started (P11-9). A visit still going is never
+        among them, whatever its age."""
         with self._sessions() as db:
             rows = db.execute(
                 select(
                     BoothSessionRow.id,
                     BoothSessionRow.completed_at,
                     BoothSessionRow.last_activity_at,
+                    BoothSessionRow.retention,
                 ).where(BoothSessionRow.state.in_([str(state) for state in _TERMINAL]))
             ).all()
-        ended = [(completed or last, sid) for sid, completed, last in rows]
-        return [sid for at, sid in sorted(ended) if at < before]
+        due: list[tuple[datetime, str]] = []
+        for sid, completed, last, raw in rows:
+            frozen = _retention_of(raw)
+            if what in {"anonymize", "delete"} and frozen.records_mode != what:
+                continue
+            ended = completed or last
+            if ended + timedelta(days=frozen.days(what)) <= now:
+                due.append((ended, sid))
+        return [sid for _ended, sid in sorted(due)]
 
     def event_visits(self, profile_id: str) -> list[tuple[str, bool]]:
         """Every visit of one event, with whether it is over."""

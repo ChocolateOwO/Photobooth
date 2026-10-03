@@ -1,37 +1,78 @@
-"""SQLAlchemy RetentionRepository: the booth's one policy row and the record of cleanups."""
+"""SQLAlchemy RetentionRepository: the named policies, the booth's housekeeping row and the
+record of cleanups."""
 
 from __future__ import annotations
 
 import json
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, Engine, Integer, String, Text, select, update
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Engine,
+    Index,
+    Integer,
+    String,
+    Text,
+    delete,
+    select,
+    text,
+    update,
+)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
 from photobooth.core.db import Base, UtcDateTime
 from photobooth.modules.retention.domain import (
+    Housekeeping,
     MetadataMode,
-    RetentionError,
+    PolicyNameTakenError,
     RetentionPolicy,
     RetentionRepository,
     RetentionRun,
+    StaleEditError,
     Trigger,
 )
 
-POLICY_ID = 1
+HOUSEKEEPING_ID = 1
 
 
 class RetentionPolicyRow(Base):
-    __tablename__ = "retention_policy"
-    __table_args__ = (CheckConstraint("id = 1", name="ck_retention_policy_single"),)
+    __tablename__ = "retention_policies"
+    __table_args__ = (
+        CheckConstraint(
+            "metadata_mode IN ('keep', 'anonymize', 'delete')", name="ck_retention_policies_mode"
+        ),
+        Index("uq_retention_policies_name", "name_key", unique=True),
+        # Exactly one policy is where new Event Profiles start.
+        Index(
+            "uq_retention_policies_default",
+            "is_default",
+            unique=True,
+            sqlite_where=text("is_default = 1"),
+        ),
+    )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+    name_key: Mapped[str] = mapped_column(String(60), nullable=False)
     originals_days: Mapped[int] = mapped_column(Integer, nullable=False)
     outputs_days: Mapped[int] = mapped_column(Integer, nullable=False)
     link_days: Mapped[int] = mapped_column(Integer, nullable=False)
-    temp_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     metadata_mode: Mapped[str] = mapped_column(String(16), nullable=False)
     metadata_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+
+class HousekeepingRow(Base):
+    __tablename__ = "retention_housekeeping"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_retention_housekeeping_single"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    temp_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     activity_log_days: Mapped[int] = mapped_column(Integer, nullable=False)
     backup_days: Mapped[int] = mapped_column(Integer, nullable=False)
     app_log_days: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -51,6 +92,10 @@ class RetentionRunRow(Base):
     errors: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+def name_key(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
 def _run_of(row: RetentionRunRow) -> RetentionRun:
     return RetentionRun(
         id=row.id,
@@ -65,12 +110,22 @@ def _run_of(row: RetentionRunRow) -> RetentionRun:
 
 def _policy_of(row: RetentionPolicyRow) -> RetentionPolicy:
     return RetentionPolicy(
+        id=row.id,
+        name=row.name,
         originals_days=row.originals_days,
         outputs_days=row.outputs_days,
         link_days=row.link_days,
-        temp_hours=row.temp_hours,
         metadata_mode=MetadataMode(row.metadata_mode),
         metadata_days=row.metadata_days,
+        is_default=row.is_default,
+        revision=row.revision,
+        updated_at=row.updated_at,
+    )
+
+
+def _housekeeping_of(row: HousekeepingRow) -> Housekeeping:
+    return Housekeeping(
+        temp_hours=row.temp_hours,
         activity_log_days=row.activity_log_days,
         backup_days=row.backup_days,
         app_log_days=row.app_log_days,
@@ -85,42 +140,138 @@ class SqlRetentionRepository(RetentionRepository):
             bind=engine, expire_on_commit=False, future=True
         )
 
-    def policy(self) -> RetentionPolicy:
+    # ---- policies -------------------------------------------------------------------------------
+
+    def policies(self) -> list[RetentionPolicy]:
         with self._sessions() as db:
-            row = db.get(RetentionPolicyRow, POLICY_ID)
-            return _policy_of(row) if row else RetentionPolicy()
+            rows = db.scalars(
+                select(RetentionPolicyRow).order_by(
+                    RetentionPolicyRow.is_default.desc(), RetentionPolicyRow.name_key
+                )
+            ).all()
+            return [_policy_of(row) for row in rows]
+
+    def policy(self, policy_id: str) -> RetentionPolicy | None:
+        with self._sessions() as db:
+            row = db.get(RetentionPolicyRow, policy_id)
+            return _policy_of(row) if row else None
+
+    def add_policy(self, policy: RetentionPolicy, at: datetime) -> RetentionPolicy:
+        row = RetentionPolicyRow(
+            id=policy.id,
+            name=policy.name,
+            name_key=name_key(policy.name),
+            originals_days=policy.originals_days,
+            outputs_days=policy.outputs_days,
+            link_days=policy.link_days,
+            metadata_mode=policy.metadata_mode.value,
+            metadata_days=policy.metadata_days,
+            is_default=False,
+            revision=1,
+            created_at=at,
+            updated_at=at,
+        )
+        try:
+            with self._sessions() as db, db.begin():
+                db.add(row)
+        except IntegrityError as exc:
+            raise PolicyNameTakenError() from exc
+        return _policy_of(row)
 
     def save_policy(
         self, policy: RetentionPolicy, expected_revision: int, at: datetime
     ) -> RetentionPolicy:
-        values = {
-            "originals_days": policy.originals_days,
-            "outputs_days": policy.outputs_days,
-            "link_days": policy.link_days,
-            "temp_hours": policy.temp_hours,
-            "metadata_mode": policy.metadata_mode.value,
-            "metadata_days": policy.metadata_days,
-            "activity_log_days": policy.activity_log_days,
-            "backup_days": policy.backup_days,
-            "app_log_days": policy.app_log_days,
-            "revision": expected_revision + 1,
-            "updated_at": at,
-        }
+        try:
+            with self._sessions() as db, db.begin():
+                result = db.execute(
+                    update(RetentionPolicyRow)
+                    .where(
+                        RetentionPolicyRow.id == policy.id,
+                        RetentionPolicyRow.revision == expected_revision,
+                    )
+                    .values(
+                        name=policy.name,
+                        name_key=name_key(policy.name),
+                        originals_days=policy.originals_days,
+                        outputs_days=policy.outputs_days,
+                        link_days=policy.link_days,
+                        metadata_mode=policy.metadata_mode.value,
+                        metadata_days=policy.metadata_days,
+                        revision=expected_revision + 1,
+                        updated_at=at,
+                    )
+                )
+                if not getattr(result, "rowcount", 0):
+                    raise StaleEditError()
+                row = db.get(RetentionPolicyRow, policy.id)
+                assert row is not None
+                db.refresh(row)
+                return _policy_of(row)
+        except IntegrityError as exc:
+            raise PolicyNameTakenError() from exc
+
+    def delete_policy(self, policy_id: str) -> bool:
         with self._sessions() as db, db.begin():
             result = db.execute(
-                update(RetentionPolicyRow)
-                .where(
-                    RetentionPolicyRow.id == POLICY_ID,
-                    RetentionPolicyRow.revision == expected_revision,
+                delete(RetentionPolicyRow).where(
+                    RetentionPolicyRow.id == policy_id, RetentionPolicyRow.is_default.is_(False)
                 )
-                .values(**values)
             )
-            if not getattr(result, "rowcount", 0):
-                raise RetentionError("the policy was changed meanwhile; reload it and try again")
-            row = db.get(RetentionPolicyRow, POLICY_ID)
-            assert row is not None
+            return bool(getattr(result, "rowcount", 0))
+
+    def make_default(self, policy_id: str, at: datetime) -> RetentionPolicy | None:
+        with self._sessions() as db, db.begin():
+            row = db.get(RetentionPolicyRow, policy_id)
+            if row is None:
+                return None
+            if not row.is_default:
+                # Both rows change in one transaction: there is always exactly one default.
+                db.execute(
+                    update(RetentionPolicyRow)
+                    .where(RetentionPolicyRow.is_default.is_(True))
+                    .values(is_default=False, revision=RetentionPolicyRow.revision + 1)
+                )
+                db.flush()
+                row.is_default = True
+                row.revision += 1
+                row.updated_at = at
             db.flush()
             return _policy_of(row)
+
+    # ---- housekeeping -------------------------------------------------------------------------
+
+    def housekeeping(self) -> Housekeeping:
+        with self._sessions() as db:
+            row = db.get(HousekeepingRow, HOUSEKEEPING_ID)
+            return _housekeeping_of(row) if row else Housekeeping()
+
+    def save_housekeeping(
+        self, housekeeping: Housekeeping, expected_revision: int, at: datetime
+    ) -> Housekeeping:
+        with self._sessions() as db, db.begin():
+            result = db.execute(
+                update(HousekeepingRow)
+                .where(
+                    HousekeepingRow.id == HOUSEKEEPING_ID,
+                    HousekeepingRow.revision == expected_revision,
+                )
+                .values(
+                    temp_hours=housekeeping.temp_hours,
+                    activity_log_days=housekeeping.activity_log_days,
+                    backup_days=housekeeping.backup_days,
+                    app_log_days=housekeeping.app_log_days,
+                    revision=expected_revision + 1,
+                    updated_at=at,
+                )
+            )
+            if not getattr(result, "rowcount", 0):
+                raise StaleEditError()
+            row = db.get(HousekeepingRow, HOUSEKEEPING_ID)
+            assert row is not None
+            db.refresh(row)
+            return _housekeeping_of(row)
+
+    # ---- runs ---------------------------------------------------------------------------------
 
     def add_run(self, run: RetentionRun) -> None:
         with self._sessions() as db, db.begin():

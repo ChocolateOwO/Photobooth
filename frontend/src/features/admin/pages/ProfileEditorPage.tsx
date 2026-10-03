@@ -21,6 +21,7 @@ import {
   useExtractTheme,
   useFrames,
   useProfile,
+  useRetentionPolicies,
   useTemplates,
   useThemeCatalog,
   useUpdateProfile,
@@ -32,6 +33,7 @@ import { PhotoSizesSelector } from '../components/PhotoSizesSelector'
 import { ThemeEditor } from '../components/ThemeEditor'
 import { PillButton, Switch } from '../components/ui/Controls'
 import { MessageDialog } from '../components/ui/MessageDialog'
+import { policySummary } from '../retentionText'
 import styles from './ProfileEditorPage.module.css'
 
 interface FieldProblem {
@@ -70,6 +72,56 @@ function validateSettings(settings: ProfileSettings): FieldProblem[] {
     })
   }
   return problems
+}
+
+/**
+ * The retention policy this event's visits keep (P11-9). Each visit freezes the policy's values
+ * when it starts, so choosing another one later never changes a visit already made. A new
+ * profile shows the booth's default policy, which the server also assigns when none is sent.
+ */
+function RetentionChoice({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string | null
+  disabled: boolean
+  onChange: (id: string) => void
+}) {
+  const policies = useRetentionPolicies()
+  const list = policies.data ?? []
+  const chosen = list.find((policy) => policy.id === value) ?? list.find((policy) => policy.is_default)
+  return (
+    <div className={styles.field}>
+      <label htmlFor="field-retention-policy" className={styles.label}>
+        Retention policy
+      </label>
+      {policies.isError ? (
+        <p className={styles.helperText}>The retention policies could not be loaded.</p>
+      ) : (
+        <select
+          id="field-retention-policy"
+          className={styles.input}
+          aria-describedby="help-retention-policy"
+          value={chosen?.id ?? ''}
+          disabled={disabled || !policies.data}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {list.map((policy) => (
+            <option key={policy.id} value={policy.id}>
+              {policy.name}
+              {policy.is_default ? ' (default)' : ''}
+            </option>
+          ))}
+        </select>
+      )}
+      <p id="help-retention-policy" className={styles.helperText}>
+        {chosen ? `${policySummary(chosen)}. ` : ''}
+        Each visit keeps the policy it started with.{' '}
+        <Link to="/admin/retention">Manage policies</Link>
+      </p>
+    </div>
+  )
 }
 
 interface ProfileEditorFormProps {
@@ -621,6 +673,12 @@ function ProfileEditorForm({
           <p id="help-retakes" className={styles.helperText}>
             Choose whether guests may redo photos before their result is made.
           </p>
+
+          <RetentionChoice
+            value={settings.retention_policy_id ?? null}
+            disabled={isDeleted}
+            onChange={(id) => setSettings((current) => ({ ...current, retention_policy_id: id }))}
+          />
 
           <p className={styles.readOnlyText}>Delivery: QR code link on the local network</p>
         </section>

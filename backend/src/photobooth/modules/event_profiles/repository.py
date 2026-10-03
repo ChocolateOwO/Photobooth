@@ -27,6 +27,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     delete,
+    func,
     insert,
     select,
     text,
@@ -118,6 +119,10 @@ class EventProfileRow(Base):
     retake_mode: Mapped[str] = mapped_column(String(16), nullable=False)
     delivery_mode: Mapped[str] = mapped_column(String(16), nullable=False)
     allow_surprise_me: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # The retention policy its visits keep (migration 0012; checked by the application).
+    retention_policy_id: Mapped[str] = mapped_column(
+        String(36), nullable=False, default="", server_default=""
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime(), nullable=False)
@@ -146,6 +151,7 @@ class EventProfileRow(Base):
         self.retake_mode = settings.retake_mode.value
         self.delivery_mode = settings.delivery_mode.value
         self.allow_surprise_me = settings.allow_surprise_me
+        self.retention_policy_id = settings.retention_policy_id or ""
 
     def to_domain(self) -> EventProfile:
         return EventProfile(
@@ -165,6 +171,7 @@ class EventProfileRow(Base):
                 inactivity_timeout_s=self.inactivity_timeout_s,
                 retake_mode=RetakeMode(self.retake_mode),
                 delivery_mode=DeliveryMode(self.delivery_mode),
+                retention_policy_id=self.retention_policy_id or None,
             ),
             is_active=self.is_active,
             revision=self.revision,
@@ -409,6 +416,17 @@ class SqlEventProfileRepository(EventProfileRepository):
         except IntegrityError as exc:
             raise _conflict(exc) from exc
         return self._require(profile_id)
+
+    def count_using_policy(self, policy_id: str) -> int:
+        with self._sessions() as session:
+            return int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(EventProfileRow)
+                    .where(EventProfileRow.retention_policy_id == policy_id)
+                )
+                or 0
+            )
 
     def names_by_layout(self) -> dict[str, list[str]]:
         with self._sessions() as session:
