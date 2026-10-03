@@ -15,10 +15,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import uvicorn
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.pool import NullPool
 
 from photobooth.container import Container
 from photobooth.core.config import AppSettings
-from photobooth.core.db import create_sqlite_engine
 from photobooth.core.errors import InstanceGuardError, PhotoboothError
 from photobooth.core.instance_guard import PORT_TABLE, InstanceGuard, InstanceLock, real_path
 from photobooth.core.listeners import build_server, listener_specs, serve_together
@@ -225,15 +226,33 @@ def cmd_db_downgrade(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_only_engine(db_path: Path) -> Engine:
+    """SQLite opened read-only: no directory, no file, no journal-mode change is ever made."""
+    uri = db_path.resolve().as_uri() + "?mode=ro"
+    return create_engine(
+        "sqlite://", creator=lambda: sqlite3.connect(uri, uri=True), poolclass=NullPool
+    )
+
+
 def cmd_db_check(args: argparse.Namespace) -> int:
+    """Read only (P13-R6): a missing database is refused, never created, and nothing is written;
+    exit 0 at the code's head, 3 behind it, 4 without a database."""
     settings, guard = _load(args)
-    engine = create_sqlite_engine(settings.db_path)
+    head = Migrator(settings.db_path).head_revision()
+    if not settings.db_path.is_file():
+        print(
+            json.dumps(
+                {"current": None, "head": head, "instance": settings.instance, "database": "none"}
+            )
+        )
+        return 4
+    engine = _read_only_engine(settings.db_path)
     try:
-        guard.check_database(SqlAppMetaRepository(engine))
+        meta = SqlAppMetaRepository(engine)
+        guard.check_database(meta)
+        current = meta.schema_revision()
     finally:
         engine.dispose()
-    migrator = Migrator(settings.db_path)
-    current, head = migrator.current_revision(), migrator.head_revision()
     print(json.dumps({"current": current, "head": head, "instance": settings.instance}))
     return 0 if current == head else 3
 

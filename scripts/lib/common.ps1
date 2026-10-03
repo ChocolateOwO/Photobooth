@@ -36,6 +36,47 @@ function Assert-MainLayout {
     if ((Split-Path -Leaf $script:InstanceRoot) -ne 'Main') {
         throw "Refusing to run: expected <project>\Main\app layout, got $($script:AppRoot)"
     }
+    Assert-PlainPath -Path $script:InstanceRoot
+}
+
+function Clear-GitEnvironment {
+    # Inherited GIT_* variables (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, ...) could point git at
+    # another repository or working tree; the Main scripts never inherit them (P13-R3).
+    foreach ($name in @(Get-ChildItem Env: | Where-Object { $_.Name -like 'GIT_*' } | ForEach-Object Name)) {
+        Remove-Item -LiteralPath "Env:$name"
+    }
+}
+
+function Assert-PlainPath {
+    # Refuses a path that could lead somewhere else than it reads (P13-R2): a UNC or device path,
+    # an 8.3 short name (a "~" in any part), or a junction or symbolic link at the path or at any
+    # existing folder above it. Returns the full path.
+    param([Parameter(Mandatory)] [string] $Path)
+    if ($Path -match '^(\\\\|//)') { throw "Refusing a network or device path: $Path" }
+    $full = [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+    if ($full -match '~') { throw "Refusing a short (8.3) path name: $full" }
+    $current = $full
+    while ($current) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                throw "Refusing: $current is a junction or link"
+            }
+        }
+        $parent = [System.IO.Path]::GetDirectoryName($current)
+        if (-not $parent -or $parent -eq $current) { break }
+        $current = $parent
+    }
+    return $full
+}
+
+function Test-PathInside {
+    # Whether $Path is $Folder or lies inside it (full paths, case-insensitive, no prefix tricks).
+    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [string] $Folder)
+    $p = [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+    $f = [System.IO.Path]::GetFullPath($Folder).TrimEnd('\', '/')
+    return $p.Equals($f, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $p.StartsWith("$f\", [System.StringComparison]::OrdinalIgnoreCase)
 }
 
 function Use-Node24 {
@@ -150,6 +191,23 @@ function Get-ProcessIdentity {
     }
 }
 
+function Test-SameProcess {
+    # True while a process with this PID and creation time runs. A process whose creation time
+    # can not be read (access denied) counts as running: a record is never dropped on a guess.
+    param([Parameter(Mandatory)] [int] $Id, [Parameter(Mandatory)] [string] $StartTime)
+    $process = Get-Process -Id $Id -ErrorAction SilentlyContinue
+    if (-not $process) { return $false }
+    try { return $process.StartTime.ToUniversalTime().ToString('o') -eq $StartTime }
+    catch { return $true }
+}
+
+function Test-MarkedProcess {
+    # True while this PID runs with the role marker on its command line (a recycled PID is not).
+    param([Parameter(Mandatory)] [int] $Id, [Parameter(Mandatory)] [string] $Marker)
+    $cim = Get-CimInstance Win32_Process -Filter "ProcessId = $Id" -ErrorAction SilentlyContinue
+    return [bool]($cim -and ("$($cim.CommandLine)").ToLowerInvariant().Contains($Marker.ToLowerInvariant()))
+}
+
 function Stop-RecordedProcesses {
     # Stops exact identity matches. Returns entries that could not be verified or stopped.
     param([object[]] $Entries)
@@ -179,16 +237,41 @@ function Stop-RecordedProcesses {
             $remaining.Add($entry)
             continue
         }
-        & taskkill.exe /PID $entry.pid /T /F | Out-Null
-        $killExit = $LASTEXITCODE
+        # The recorded process's own children (a venv python.exe launcher runs the real
+        # interpreter as its child), found before the kill: if the launcher goes first, they are
+        # still known by their parent id and the role marker on their command line.
+        $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($entry.pid)" -ErrorAction SilentlyContinue |
+                Where-Object { ("$($_.CommandLine)").ToLowerInvariant().Contains(("$($entry.marker)").ToLowerInvariant()) })
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'  # taskkill's own error text must never end the stop
+        try {
+            & taskkill.exe /PID $entry.pid /T /F | Out-Null
+            $killExit = $LASTEXITCODE
+        }
+        finally { $ErrorActionPreference = $previous }
         if ($killExit -ne 0) {
             # A venv python.exe launcher exits by itself once its child interpreter is killed, so
             # taskkill can report "no running instance" for a tree that is in fact gone. Only a
-            # process still running with the recorded identity keeps the record.
+            # process still running with the recorded identity keeps the record; one whose
+            # identity can not be read is assumed to be still running.
             Start-Sleep -Milliseconds 300
-            $still = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
-            if ($still -and $still.StartTime.ToUniversalTime().ToString('o') -eq $entry.start_time) {
+            if (Test-SameProcess -Id $entry.pid -StartTime $entry.start_time) {
                 Write-Warning "taskkill failed for $($entry.role) PID $($entry.pid) (exit $killExit); record kept."
+                $remaining.Add($entry)
+                continue
+            }
+        }
+        # Children that outlived their parent are stopped too; any that survive keep the record.
+        $left = @($children | Where-Object { Test-MarkedProcess -Id $_.ProcessId -Marker $entry.marker })
+        foreach ($child in $left) {
+            $ErrorActionPreference = 'Continue'
+            try { & taskkill.exe /PID $child.ProcessId /T /F | Out-Null } finally { $ErrorActionPreference = $previous }
+        }
+        if ($left.Count) {
+            Start-Sleep -Milliseconds 300
+            $survivors = @($left | Where-Object { Test-MarkedProcess -Id $_.ProcessId -Marker $entry.marker })
+            if ($survivors.Count) {
+                Write-Warning "$($entry.role) PID $($entry.pid) left $($survivors.Count) child process(es) running; record kept."
                 $remaining.Add($entry)
                 continue
             }

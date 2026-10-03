@@ -51,17 +51,23 @@ if ($PairOnly) {
 }
 
 Clear-PhotoboothEnvironment
-$python = Get-VenvPython
-New-Item -ItemType Directory -Force -Path $runDir, $logsDir | Out-Null
+Clear-GitEnvironment
 
-if (Test-Path $pidFile) {
+# Every check comes before the first write: a refused start leaves Main exactly as it was
+# (P13-R6). The folders Main writes to are plain folders inside Main, not links elsewhere.
+foreach ($path in $envFile, $pidFile, $runDir, $logsDir, (Join-Path $script:InstanceRoot 'data\db')) {
+    $null = Assert-PlainPath -Path $path
+}
+if (-not (Test-Path -LiteralPath $envFile)) { throw "No Main settings at $envFile (install Main first)" }
+if (Test-Path -LiteralPath $pidFile) {
     throw "Main appears to be running ($pidFile exists). Use scripts\stop-main.ps1 first."
 }
 foreach ($port in $kioskPort, $deliveryPort) {
     if (-not (Test-PortFree -Port $port)) { throw "Port $port is busy; Main not started" }
 }
-if (-not (Test-Path $envFile)) { throw "No Main settings at $envFile (install Main first)" }
+$python = Get-VenvPython
 
+# db-check only reads: a missing database is refused, never created (exit 4).
 $intent = @('--env-file', $envFile, '--expect-root', $script:InstanceRoot, '--expect-profile', 'prod')
 $previous = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
@@ -70,10 +76,12 @@ try {
     $atHead = $LASTEXITCODE
 }
 finally { $ErrorActionPreference = $previous }
+if ($atHead -eq 4) { throw 'Main has no database. Install Main first (see Project_Docs\MAIN_INSTALL.md).' }
 if ($atHead -ne 0) {
     throw "The Main database is not at this code's revision (db-check exit $atHead). Main migrates only during a promotion; see Project_Docs\MAIN_INSTALL.md."
 }
 
+New-Item -ItemType Directory -Force -Path $runDir, $logsDir | Out-Null
 $commit = (& git -C $script:AppRoot rev-parse HEAD).Trim()
 $env:PHOTOBOOTH_GIT_COMMIT = $commit
 

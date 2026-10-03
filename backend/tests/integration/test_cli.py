@@ -86,9 +86,23 @@ def test_db_upgrade_refuses_database_of_other_instance(thai_root: Path) -> None:
     assert main(["db-check", "--env-file", str(env)]) == 2
 
 
-def test_db_check_fails_before_migration(thai_root: Path) -> None:
+def test_db_check_refuses_a_missing_database_and_creates_nothing(thai_root: Path) -> None:
+    """P13-R6: a check only reads; a missing database is refused (4), never created."""
     env = _init_env(thai_root)
-    assert main(["db-check", "--env-file", str(env)]) == 2
+    assert main(["db-check", "--env-file", str(env)]) == 4
+    assert not (thai_root / "data" / "db").exists()
+
+
+def test_db_check_leaves_the_database_as_it_was(thai_root: Path) -> None:
+    env = _init_env(thai_root)
+    assert main(["db-upgrade", "--env-file", str(env)]) == 0
+    db = thai_root / "data" / "db" / "photobooth.sqlite"
+    with sqlite3.connect(db) as conn:
+        conn.execute("PRAGMA journal_mode=DELETE")
+    before = (db.read_bytes(), sorted(p.name for p in db.parent.iterdir()))
+    assert main(["db-check", "--env-file", str(env)]) == 0
+    after = (db.read_bytes(), sorted(p.name for p in db.parent.iterdir()))
+    assert after == before  # same bytes, no journal mode switched, no WAL files left
 
 
 def test_serve_refuses_when_instance_lock_is_held(thai_root: Path) -> None:
