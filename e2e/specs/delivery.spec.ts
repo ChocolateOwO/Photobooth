@@ -95,6 +95,14 @@ test('a guest takes two strips home with a phone: the page, one photo and all of
     expect(saved.suggestedFilename()).toBe('photobooth-1.jpg')
     const bytes = readFileSync((await saved.path()) ?? '')
     expect(bytes.subarray(0, 2).toString('hex')).toBe('ffd8') // a JPEG
+    // A 2×6 makes two different strips (photos 1–3 and 4–6), not one strip twice.
+    const savingSecond = guest.page.waitForEvent('download')
+    await guest.page.getByRole('link', { name: 'Save photo 2' }).click()
+    const second = await savingSecond
+    expect(second.suggestedFilename()).toBe('photobooth-2.jpg')
+    const secondBytes = readFileSync((await second.path()) ?? '')
+    expect(secondBytes.subarray(0, 2).toString('hex')).toBe('ffd8')
+    expect(secondBytes.equals(bytes)).toBe(false)
 
     const zipping = guest.page.waitForEvent('download')
     await guest.page.getByRole('link', { name: /Download all 2 photos/ }).click()
@@ -102,6 +110,8 @@ test('a guest takes two strips home with a phone: the page, one photo and all of
     expect(archive.suggestedFilename()).toBe('photobooth-photos.zip')
     const zipped = readFileSync((await archive.path()) ?? '')
     expect(zipped.subarray(0, 4).toString('hex')).toBe('504b0304') // a ZIP
+    // Download all holds both strips.
+    expect(zipped.includes(Buffer.from('photobooth-1.jpg'))).toBe(true)
     expect(zipped.includes(Buffer.from('photobooth-2.jpg'))).toBe(true)
   } finally {
     await guest.close()

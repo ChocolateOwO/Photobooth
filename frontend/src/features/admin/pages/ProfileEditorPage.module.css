@@ -391,3 +391,24 @@
   font-size: 15px;
   font-weight: 600;
 }
+
+/* A link inside helper text (Manage policies): the page's own text colour (about 13:1 on the
+   panel, where the browser's default blue was about 2:1), underlined so it still reads as a link,
+   and the admin focus ring when reached with the keyboard. */
+.inlineLink {
+  color: var(--pb-color-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  border-radius: 4px;
+}
+
+.inlineLink:hover {
+  text-decoration-color: var(--pb-color-dummy);
+}
+
+.inlineLink:focus-visible {
+  outline: 3px solid var(--pb-color-dummy);
+  outline-offset: 2px;
+}

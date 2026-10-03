@@ -118,7 +118,9 @@ function RetentionChoice({
       <p id="help-retention-policy" className={styles.helperText}>
         {chosen ? `${policySummary(chosen)}. ` : ''}
         Each visit keeps the policy it started with.{' '}
-        <Link to="/admin/retention">Manage policies</Link>
+        <Link to="/admin/retention" className={styles.inlineLink}>
+          Manage policies
+        </Link>
       </p>
     </div>
   )

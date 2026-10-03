@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 
 from photobooth.core.admin_gate import require_admin
 from photobooth.core.web import provide, require_device
@@ -38,6 +38,19 @@ ProfileId = Annotated[
 ]
 
 
+# Read by the admin audit (the activity module, which owns the name POLICY_CHOSEN): the id of a
+# retention policy a profile got with this request, set only when the profile did not keep it
+# before (created, duplicated, or changed to another one).
+POLICY_CHOSEN = "retention_policy_chosen"
+
+
+def _chose(request: Request, profile: EventProfile, before: str | None) -> EventProfile:
+    chosen = profile.settings.retention_policy_id
+    if chosen and chosen != before:
+        setattr(request.state, POLICY_CHOSEN, chosen)
+    return profile
+
+
 def _run(service: EventProfileService, action: Callable[[], EventProfile]) -> EventProfileResponse:
     try:
         profile = action()
@@ -63,8 +76,13 @@ def list_profiles(
 
 
 @router.post("", response_model=EventProfileResponse, status_code=status.HTTP_201_CREATED)
-def create_profile(body: ProfileSettingsBody, service: Service) -> EventProfileResponse:
-    return _run(service, lambda: service.create(body.to_domain(service.default_layouts())))
+def create_profile(
+    body: ProfileSettingsBody, service: Service, request: Request
+) -> EventProfileResponse:
+    return _run(
+        service,
+        lambda: _chose(request, service.create(body.to_domain(service.default_layouts())), None),
+    )
 
 
 @router.get("/{profile_id}", response_model=EventProfileResponse)
@@ -74,9 +92,13 @@ def get_profile(profile_id: ProfileId, service: Service) -> EventProfileResponse
 
 @router.put("/{profile_id}", response_model=EventProfileResponse)
 def update_profile(
-    profile_id: ProfileId, body: ProfileUpdateBody, service: Service
+    profile_id: ProfileId, body: ProfileUpdateBody, service: Service, request: Request
 ) -> EventProfileResponse:
-    return _run(service, lambda: service.update(profile_id, body.to_domain(), body.revision))
+    def change() -> EventProfile:
+        before = service.get(profile_id).settings.retention_policy_id
+        return _chose(request, service.update(profile_id, body.to_domain(), body.revision), before)
+
+    return _run(service, change)
 
 
 @router.post(
@@ -85,10 +107,10 @@ def update_profile(
     status_code=status.HTTP_201_CREATED,
 )
 def duplicate_profile(
-    profile_id: ProfileId, service: Service, body: DuplicateBody | None = None
+    profile_id: ProfileId, service: Service, request: Request, body: DuplicateBody | None = None
 ) -> EventProfileResponse:
     name = None if body is None else body.name
-    return _run(service, lambda: service.duplicate(profile_id, name))
+    return _run(service, lambda: _chose(request, service.duplicate(profile_id, name), None))
 
 
 @router.post("/{profile_id}/activate", response_model=EventProfileResponse)

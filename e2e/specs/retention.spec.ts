@@ -45,6 +45,14 @@ test('an event chooses its own retention policy (P11-9)', async ({ page }) => {
     .click()
   const choice = page.getByLabel('Retention policy')
   await expect(choice).toHaveValue('00000000-0000-4000-8000-000000000001') // Standard
+  // The link beside it reads clearly on the dark panel and shows where the keyboard is.
+  const manage = page.getByRole('link', { name: 'Manage policies' })
+  await expect(manage).toHaveCSS('color', 'rgb(244, 246, 248)')
+  await choice.focus()
+  await page.keyboard.press('Tab')
+  await expect(manage).toBeFocused()
+  await expect(manage).toHaveCSS('outline-style', 'solid')
+  await expect(manage).toHaveCSS('outline-width', '3px')
   await choice.selectOption({ label: 'E2E Short' })
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page.getByRole('alertdialog', { name: 'Saved' })).toBeVisible()
@@ -65,6 +73,15 @@ test('an event chooses its own retention policy (P11-9)', async ({ page }) => {
   await page.goto('/admin/retention')
   await short.getByRole('button', { name: 'Delete E2E Short' }).click()
   await expect(short).toHaveCount(0)
+
+  // Every step is in the Admin Activity Log, by organizer, never with the policy's name.
+  await page.goto('/admin/activity')
+  await page.getByRole('button', { name: 'Organizers' }).click()
+  const log = page.getByTestId('activity-log')
+  await expect(log.getByText('Added a retention policy').first()).toBeVisible()
+  await expect(log.getByText('Chose the retention policy of an event profile').first()).toBeVisible()
+  await expect(log.getByText('Deleted a retention policy').first()).toBeVisible()
+  await expect(log.getByText('E2E Short')).toHaveCount(0)
 })
 
 test('a deleted event can be deleted for good', async ({ page }) => {

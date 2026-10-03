@@ -58,6 +58,12 @@ class ActivityType(StrEnum):
     ADMIN_ASSET_DELETED = "admin_asset_deleted"
     ADMIN_TEST_STARTED = "admin_test_started"
     ADMIN_TESTS_CLEARED = "admin_tests_cleared"
+    # Retention policies (P11-9): their life, and which one an Event Profile keeps.
+    ADMIN_POLICY_CREATED = "admin_policy_created"
+    ADMIN_POLICY_UPDATED = "admin_policy_updated"
+    ADMIN_POLICY_MADE_DEFAULT = "admin_policy_made_default"
+    ADMIN_POLICY_DELETED = "admin_policy_deleted"
+    ADMIN_PROFILE_POLICY_CHOSEN = "admin_profile_policy_chosen"
 
 
 # The only payload keys each type may carry. Values are short words or numbers (see `clean`).
@@ -92,6 +98,13 @@ PAYLOAD_KEYS: Mapping[ActivityType, frozenset[str]] = {
     ActivityType.ADMIN_ASSET_DELETED: frozenset({"target"}),
     ActivityType.ADMIN_TEST_STARTED: frozenset({"target"}),
     ActivityType.ADMIN_TESTS_CLEARED: frozenset(),
+    # The policy's id only, never its name (a name is text an organizer typed).
+    ActivityType.ADMIN_POLICY_CREATED: frozenset({"target"}),
+    ActivityType.ADMIN_POLICY_UPDATED: frozenset({"target"}),
+    ActivityType.ADMIN_POLICY_MADE_DEFAULT: frozenset({"target"}),
+    ActivityType.ADMIN_POLICY_DELETED: frozenset({"target"}),
+    # The record names the profile (profile_id); the payload, the policy it now keeps.
+    ActivityType.ADMIN_PROFILE_POLICY_CHOSEN: frozenset({"policy"}),
 }
 
 ACTOR_OF: Mapping[ActivityType, Actor] = {
@@ -152,6 +165,7 @@ FIELD_RULES: Mapping[str, Callable[[object], bool]] = {
     "state": lambda value: value in _STATES,
     "kind": lambda value: value in {"file", "zip"},
     "target": lambda value: isinstance(value, str) and bool(_UUID.match(value)),
+    "policy": lambda value: isinstance(value, str) and bool(_UUID.match(value)),
 }
 
 

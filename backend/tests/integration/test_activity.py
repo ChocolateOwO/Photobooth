@@ -23,6 +23,7 @@ from tests.integration.test_booth_sessions import SESSIONS, STRIP, activate, boo
 from tests.integration.test_outputs_delivery import link, reviewing, token_of
 
 ADMIN = "/api/admin"
+STANDARD_POLICY = "00000000-0000-4000-8000-000000000001"
 
 
 @pytest.fixture
@@ -148,6 +149,7 @@ def test_organizer_changes_are_recorded_by_who_and_on_what_never_by_value(
     assert types([_plain(r) for r in reversed(records)]) == [
         "admin_login",
         "admin_profile_created",
+        "admin_profile_policy_chosen",  # a new profile takes the default retention policy
         "admin_profile_activated",
         "admin_login_failed",
         "admin_logout",
@@ -162,6 +164,82 @@ def test_organizer_changes_are_recorded_by_who_and_on_what_never_by_value(
         rows = " ".join(str(row) for row in conn.execute("SELECT * FROM activity_log"))
     for typed in ("Secret Garden Party", "nobody-real", "a typed secret", "correct horse"):
         assert typed not in rows
+
+
+def test_retention_policy_changes_and_profile_choices_are_recorded_by_id_only(
+    kiosk_client: TestClient, container: Container
+) -> None:
+    """P11-9 in the Admin Activity Log: a policy's life and each new choice of a policy for a
+    profile, by who and which ids; never a policy's or a profile's name."""
+    admin, _device = booth(kiosk_client, container)
+    policies = f"{ADMIN}/retention/policies"
+    body = {
+        "name": "Very Private Policy Name",
+        "originals_days": 3,
+        "outputs_days": 10,
+        "link_days": 5,
+        "metadata_mode": "keep",
+        "metadata_days": 90,
+    }
+    made = kiosk_client.post(policies, json=body, headers=admin)
+    assert made.status_code == 201, made.text
+    private = made.json()["id"]
+    edited = kiosk_client.put(f"{policies}/{private}", json=body | {"link_days": 4}, headers=admin)
+    assert edited.status_code == 200, edited.text
+    assert kiosk_client.post(f"{policies}/{private}/default", headers=admin).status_code == 200
+    spare = kiosk_client.post(policies, json=body | {"name": "Spare Policy"}, headers=admin).json()
+    assert kiosk_client.delete(f"{policies}/{spare['id']}", headers=admin).status_code == 204
+
+    created = kiosk_client.post(
+        f"{ADMIN}/profiles", json={"name": "Hidden Wedding", "title": "Hi"}, headers=admin
+    ).json()  # takes the new default
+    settings = dict(created["settings"])
+    same = kiosk_client.put(
+        f"{ADMIN}/profiles/{created['id']}",
+        json=settings | {"revision": created["revision"], "title": "Hello"},
+        headers=admin,
+    )
+    assert same.status_code == 200, same.text  # the policy did not change: no choice recorded
+    moved = kiosk_client.put(
+        f"{ADMIN}/profiles/{created['id']}",
+        json=settings
+        | {"revision": same.json()["revision"], "retention_policy_id": STANDARD_POLICY},
+        headers=admin,
+    )
+    assert moved.status_code == 200, moved.text
+    in_use = kiosk_client.delete(f"{policies}/{private}", headers=admin)
+    assert in_use.status_code == 409  # refused: nothing recorded
+
+    records = list(reversed(container.activity_service.search(_everything(), limit=50)))
+    ours = [r for r in records if r.type.value.startswith(("admin_policy", "admin_profile"))]
+    assert [(r.type.value, dict(r.payload), r.profile_id) for r in ours] == [
+        ("admin_policy_created", {"target": private}, None),
+        ("admin_policy_updated", {"target": private}, None),
+        ("admin_policy_made_default", {"target": private}, None),
+        ("admin_policy_created", {"target": spare["id"]}, None),
+        ("admin_policy_deleted", {"target": spare["id"]}, None),
+        ("admin_profile_created", {"target": created["id"]}, created["id"]),
+        ("admin_profile_policy_chosen", {"policy": private}, created["id"]),
+        ("admin_profile_updated", {"target": created["id"]}, created["id"]),
+        ("admin_profile_updated", {"target": created["id"]}, created["id"]),
+        ("admin_profile_policy_chosen", {"policy": STANDARD_POLICY}, created["id"]),
+    ]
+    assert {r.admin_username for r in ours} == {USERNAME}
+    assert {r.actor.value for r in ours} == {"admin"}
+    with sqlite3.connect(container.settings.db_path) as conn:
+        rows = " ".join(str(row) for row in conn.execute("SELECT * FROM activity_log"))
+    for typed in ("Very Private Policy Name", "Spare Policy", "Hidden Wedding"):
+        assert typed not in rows
+
+
+def test_a_policy_choice_keeps_only_an_id(container: Container) -> None:
+    from photobooth.modules.activity.domain import ActivityType, clean
+
+    kind = ActivityType.ADMIN_PROFILE_POLICY_CHOSEN
+    assert clean(kind, {"policy": STANDARD_POLICY}) == {"policy": STANDARD_POLICY}
+    for unsafe in ("Standard", "../x", "a" * 36, 7):
+        assert clean(kind, {"policy": unsafe}) == {}
+    assert clean(kind, {"name": "Standard", "target": STANDARD_POLICY}) == {}
 
 
 def test_an_organizers_test_visit_is_never_a_guests_visit(
@@ -230,7 +308,8 @@ def test_the_activity_log_pages_newest_first_and_filters_by_who(
     ).json()
     assert second["more"] is False
     seen = [r["id"] for r in first["records"] + second["records"]]
-    assert len(seen) == len(set(seen)) == 4  # login, created, activated, started
+    # login, created, its retention policy chosen, activated, started
+    assert len(seen) == len(set(seen)) == 5
     booth_only = kiosk_client.get(f"{ADMIN}/activity?actor=booth", headers=device).json()
     assert types(booth_only["records"]) == ["session_started"]
 

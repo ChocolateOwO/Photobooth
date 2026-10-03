@@ -152,8 +152,22 @@ AUDITED: Mapping[str, tuple[ActivityType, str | None]] = {
     "assets.api.upload_asset": (ActivityType.ADMIN_ASSET_UPLOADED, "answer"),
     "sessions.admin_api.start_test": (ActivityType.ADMIN_TEST_STARTED, None),
     "sessions.admin_api.clear_tests": (ActivityType.ADMIN_TESTS_CLEARED, None),
+    "retention.api.create_policy": (ActivityType.ADMIN_POLICY_CREATED, "answer"),
+    "retention.api.update_policy": (ActivityType.ADMIN_POLICY_UPDATED, "policy_id"),
+    "retention.api.make_default": (ActivityType.ADMIN_POLICY_MADE_DEFAULT, "policy_id"),
+    "retention.api.delete_policy": (ActivityType.ADMIN_POLICY_DELETED, "policy_id"),
 }
 LOGIN = "auth.api.login"
+# Set on the request by the event profile routes when a profile gets a retention policy it did not
+# have (created, duplicated or changed): the policy's id. Never a name, never the request body.
+POLICY_CHOSEN = "retention_policy_chosen"
+_CHOOSING = frozenset(
+    {
+        "event_profiles.api.create_profile",
+        "event_profiles.api.update_profile",
+        "event_profiles.api.duplicate_profile",
+    }
+)
 PROFILE_EVENTS = frozenset(t for t, _ in AUDITED.values() if t.value.startswith("admin_profile"))
 _MAX_ANSWER = 64 * 1024  # only small JSON answers are read for their "id"
 
@@ -236,6 +250,14 @@ class AdminAudit:
             profile_id=target if kind in PROFILE_EVENTS else None,
             payload={"target": target} if isinstance(target, str) else None,
         )
+        chosen = (scope.get("state") or {}).get(POLICY_CHOSEN)
+        if route in _CHOOSING and isinstance(target, str) and isinstance(chosen, str):
+            service.record(
+                ActivityType.ADMIN_PROFILE_POLICY_CHOSEN,
+                admin_username=username,
+                profile_id=target,
+                payload={"policy": chosen},
+            )
 
 
 def registry_service(scope: Scope) -> ActivityService | None:

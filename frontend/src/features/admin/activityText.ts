@@ -159,6 +159,16 @@ export function describe(record: ActivityRecord): string {
       return 'Started a booth test'
     case 'admin_tests_cleared':
       return 'Cleared booth tests'
+    case 'admin_policy_created':
+      return 'Added a retention policy'
+    case 'admin_policy_updated':
+      return 'Changed a retention policy (for visits from then on)'
+    case 'admin_policy_made_default':
+      return 'Made a retention policy the default for new profiles'
+    case 'admin_policy_deleted':
+      return 'Deleted a retention policy'
+    case 'admin_profile_policy_chosen':
+      return 'Chose the retention policy of an event profile'
     default:
       return target ? `${record.type} (${target})` : record.type
   }

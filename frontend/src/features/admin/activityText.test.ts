@@ -38,6 +38,23 @@ describe('activity in plain words', () => {
     expect(say(record('something_new'))).toBe('something_new')
   })
 
+  it('tells retention policy changes and a profile choosing one, without names (P11-9)', () => {
+    const policy = '00000000-0000-4000-8000-000000000001'
+    expect(say(record('admin_policy_created', { target: policy }))).toBe('Added a retention policy')
+    expect(say(record('admin_policy_updated', { target: policy }))).toBe(
+      'Changed a retention policy (for visits from then on)',
+    )
+    expect(say(record('admin_policy_made_default', { target: policy }))).toBe(
+      'Made a retention policy the default for new profiles',
+    )
+    expect(say(record('admin_policy_deleted', { target: policy }))).toBe(
+      'Deleted a retention policy',
+    )
+    expect(say(record('admin_profile_policy_chosen', { policy }))).toBe(
+      'Chose the retention policy of an event profile',
+    )
+  })
+
   it('names states, reasons and layouts', () => {
     expect(stateName('abandoned')).toBe('Timed out')
     expect(endReason('next_guest')).toBe('the next guest started')
