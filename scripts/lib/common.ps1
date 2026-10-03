@@ -174,10 +174,18 @@ function Stop-RecordedProcesses {
             continue
         }
         & taskkill.exe /PID $entry.pid /T /F | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "taskkill failed for $($entry.role) PID $($entry.pid) (exit $LASTEXITCODE); record kept."
-            $remaining.Add($entry)
-            continue
+        $killExit = $LASTEXITCODE
+        if ($killExit -ne 0) {
+            # A venv python.exe launcher exits by itself once its child interpreter is killed, so
+            # taskkill can report "no running instance" for a tree that is in fact gone. Only a
+            # process still running with the recorded identity keeps the record.
+            Start-Sleep -Milliseconds 300
+            $still = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
+            if ($still -and $still.StartTime.ToUniversalTime().ToString('o') -eq $entry.start_time) {
+                Write-Warning "taskkill failed for $($entry.role) PID $($entry.pid) (exit $killExit); record kept."
+                $remaining.Add($entry)
+                continue
+            }
         }
         Write-Host "Stopped $($entry.role) PID $($entry.pid)."
     }
