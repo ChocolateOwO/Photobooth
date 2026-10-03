@@ -702,15 +702,21 @@ class _InstanceFacts:
                         storage += path.stat().st_size
         disk = shutil.disk_usage(settings.data_dir)
         active = self._c.profile_service.get_active()
-        done = [run for run in self._c.retention_service.runs(20) if not run.dry_run]
-        last = done[0] if done else None
+        last = self._c.retention_service.last_cleanup()
+        # Where the booth's screens really are: the kiosk listener when it serves the built screens
+        # (Main), else the separate development UI (Dummy's Vite on its UI port) (P12-R7).
+        screens = (
+            settings.kiosk_port
+            if settings.frontend_dist is not None or settings.ui_port is None
+            else settings.ui_port
+        )
         return InstanceFacts(
             profile=settings.profile,
             started_at=self._started,
             storage_bytes=storage,
             disk_free_bytes=disk.free,
             disk_total_bytes=disk.total,
-            kiosk_url=f"http://{settings.kiosk_host}:{settings.kiosk_port}",
+            kiosk_url=f"http://{settings.kiosk_host}:{screens}",
             delivery_url=_LinkAddress(settings).base_url(),
             active_event=active.settings.name if active else None,
             visits_in_progress=self._c.session_repository.visits_in_progress(),

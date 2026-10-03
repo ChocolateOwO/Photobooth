@@ -8,6 +8,7 @@ import { ApiClientProvider } from '../../shared/api/ApiClientContext'
 import { createApiClient, type BoothSessionState, type FrameMenu } from '../../shared/api/client'
 import { CameraError, type CameraSource, type CameraView } from '../../shared/camera/camera'
 import { CapturePage } from './CapturePage'
+import { LEAVE_DEADLINE_MS } from './kiosk'
 
 /**
  * The camera itself is a port, so these tests drive a stand-in that hands out numbered photos.
@@ -490,6 +491,30 @@ describe('CapturePage (booth)', () => {
     })
     expect(await screen.findByText('the decorate screen')).toBeInTheDocument()
     expect(finishes).toBe(1)
+  })
+
+  it('"Stop and start over" leaves once and reaches the start even when the server never answers (P12-R1, R4)', async () => {
+    const booth = server(visit({ expected_captures: 2 }))
+    let gaveUp = 0
+    renderCapture(async (path, init) => {
+      if (path.endsWith('/give-up')) {
+        gaveUp += 1
+        return new Promise<Response>(() => undefined) // taken, never answered
+      }
+      return booth.handler(path, init)
+    })
+    await screen.findByTestId('capture-progress')
+    const stop = screen.getByRole('button', { name: 'Stop and start over' })
+    act(() => {
+      fireEvent.click(stop)
+      fireEvent.click(stop) // the second tap, in the same frame
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(LEAVE_DEADLINE_MS + 100)
+    })
+    expect(await screen.findByText('the start screen')).toBeInTheDocument()
+    expect(gaveUp).toBe(1)
+    expect(camera.stopped).toBeGreaterThan(0)
   })
 
   it('a reload after the photos were taken goes straight to decorating', async () => {

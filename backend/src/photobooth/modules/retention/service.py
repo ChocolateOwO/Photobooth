@@ -222,6 +222,10 @@ class RetentionService:
     def runs(self, limit: int = 20) -> list[RetentionRun]:
         return self._repository.runs(max(1, min(limit, 100)))
 
+    def last_cleanup(self) -> RetentionRun | None:
+        """The latest cleanup that deleted, however many dry runs followed it (P12-R6)."""
+        return self._repository.last_cleanup()
+
     # ---- deleting an event for good ------------------------------------------------------------
 
     def remove_event(self, profile_id: str, dry_run: bool) -> Counted:

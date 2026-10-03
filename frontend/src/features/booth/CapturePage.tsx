@@ -21,6 +21,7 @@ import {
 import { BoothShell } from './BoothShell'
 import { useBoothMenu } from './boothMenu'
 import { useBoothServices } from './boothServices'
+import { LEAVE_DEADLINE_MS, settleWithin } from './kiosk'
 import { CapturedPhotos } from './CapturedPhotos'
 import { PhotoDialog } from './PhotoDialog'
 import styles from './CapturePage.module.css'
@@ -68,6 +69,7 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   const [busy, setBusy] = useState(false)
   // Set at once, before any re-render: two taps in the same frame can not both act (Phase 12).
   const acting = useRef(false)
+  const leaving = useRef(false)
   const [problem, setProblem] = useState<{ text: string; kind: CameraProblem | 'session' } | null>(
     null,
   )
@@ -315,16 +317,16 @@ export function CapturePage({ camera: given }: CapturePageProps = {}) {
   // ---- what the participant can do ---------------------------------------------------------
   const leave = useCallback(
     async (reason: 'gave-up' | 'timed-out') => {
+      if (leaving.current) return // a double tap, or the idle watch firing again, leaves once
+      leaving.current = true
       clearTimers()
       stopCamera()
       pending.current = null
       const current = session
+      // Leaving always works for the participant, even when the server does not answer in time:
+      // the visit also ends by itself (P12-R1).
       if (current && current.state === 'capturing') {
-        try {
-          await api.giveUpSession(current.id)
-        } catch {
-          // Leaving always works for the participant; the visit also ends by itself.
-        }
+        await settleWithin(api.giveUpSession(current.id), LEAVE_DEADLINE_MS)
       }
       booth.go('start', { replace: reason === 'timed-out' })
     },

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 
 import { useApiClient } from '../../shared/api/ApiClientContext'
 import { useEnterImmersive } from '../../shared/ui/immersive'
@@ -25,13 +25,41 @@ export function BoothShell({ children }: { children: ReactNode }) {
   const api = useApiClient()
   const booth = useBoothServices()
   useKioskMode(!booth.isTest)
-  // Any check that is not a healthy answer is a miss: no answer at all, a proxy in front of a
-  // stopped server (it answers 502), or a server whose database does not answer (503).
+  // Any check that is not a healthy answer in time is a miss: no answer at all, a proxy in front
+  // of a stopped server (it answers 502), or a server whose database does not answer (503).
   const online = useServerReachable(api.health)
+
+  // While the cover is up, the screen under it stays mounted (the visit, the camera, a photo
+  // waiting to be sent) but takes no input at all, not even a key on a focused button; focus
+  // goes back where it was once the server answers again (P12-R5).
+  // (The browser drops focus from a subtree the moment it turns inert, so the last focus inside
+  // the screen is remembered as it happens.)
+  const lastFocus = useRef<HTMLElement | null>(null)
+  const cover = useRef<HTMLDivElement | null>(null)
+  const wasOnline = useRef(true)
+  useEffect(() => {
+    if (online === wasOnline.current) return
+    wasOnline.current = online
+    if (!online) {
+      cover.current?.focus()
+    } else if (lastFocus.current?.isConnected) {
+      lastFocus.current.focus()
+    }
+  }, [online])
+
   return (
     <div className={styles.shell} data-testid="booth-shell">
-      {children}
-      {!online && <Reconnecting />}
+      <div
+        className={styles.screen}
+        inert={!online}
+        data-testid="booth-screen"
+        onFocus={(event) => {
+          if (event.target instanceof HTMLElement) lastFocus.current = event.target
+        }}
+      >
+        {children}
+      </div>
+      {!online && <Reconnecting ref={cover} />}
     </div>
   )
 }

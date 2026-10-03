@@ -13,6 +13,7 @@ import {
   type FrameMenu,
 } from '../../shared/api/client'
 import { DecoratePage } from './DecoratePage'
+import { LEAVE_DEADLINE_MS } from './kiosk'
 
 /**
  * Decorating: the photos drawn as the server will compose them, a filter and stickers with undo
@@ -295,6 +296,48 @@ describe('DecoratePage (decorating the finished photos)', () => {
     await finish()
     expect(await screen.findByText('the take-home screen')).toBeInTheDocument()
     expect(booth.renders[0]?.decoration).toEqual({ filter: 'none', stickers: [] })
+  })
+
+  it('two presses of "Make my photos" in the same frame make the photos once (P12-R4)', async () => {
+    const { booth, fetcher } = server(visit())
+    renderDecorate(fetcher)
+    await ready()
+    await userEvent.click(screen.getByRole('button', { name: 'Finish' }))
+    const make = within(screen.getByRole('dialog', { name: 'Finish your photos?' })).getByRole(
+      'button',
+      { name: 'Make my photos' },
+    )
+    act(() => {
+      fireEvent.click(make)
+      fireEvent.click(make)
+    })
+    expect(await screen.findByText('the take-home screen')).toBeInTheDocument()
+    expect(booth.renders).toHaveLength(1)
+  })
+
+  it('starting over reaches the start even when the server never answers (P12-R1)', async () => {
+    const { fetcher } = server(visit(), { failRender: true })
+    let gaveUp = 0
+    renderDecorate(async (path, init) => {
+      if (path.endsWith('/give-up')) {
+        gaveUp += 1
+        return new Promise<Response>(() => undefined)
+      }
+      return fetcher(path, init)
+    })
+    await ready()
+    await finish()
+    expect(await screen.findByRole('alert')).toHaveTextContent('could not be made')
+    const over = screen.getByRole('button', { name: 'Start over' })
+    act(() => {
+      fireEvent.click(over)
+      fireEvent.click(over)
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(LEAVE_DEADLINE_MS + 100)
+    })
+    expect(await screen.findByText('the start screen')).toBeInTheDocument()
+    expect(gaveUp).toBe(1)
   })
 
   it('says so when the photos can not be made, and starts over', async () => {

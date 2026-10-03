@@ -17,6 +17,7 @@ import {
 import { BoothShell } from './BoothShell'
 import { useBoothMenu } from './boothMenu'
 import { useBoothServices } from './boothServices'
+import { LEAVE_DEADLINE_MS, settleWithin } from './kiosk'
 import { DecoratedPhoto } from './DecoratedPhoto'
 import { FilterSwatch } from './FilterSwatch'
 import { FinishDialog } from './FinishDialog'
@@ -74,6 +75,7 @@ export function DecoratePage() {
   const [confirming, setConfirming] = useState<Decoration | null>(null)
   const [leaving, setLeaving] = useState(false)
   const leavingNow = useRef(false)
+  const making = useRef(false)
   const [editor, dispatch] = useReducer(editorReducer, undefined, initialEditor)
   // One key for this screen's request: a retry after a lost answer never makes a second set.
   const renderKey = useRef(newKey())
@@ -121,13 +123,9 @@ export function DecoratePage() {
       if (leaving || leavingNow.current) return
       leavingNow.current = true // at once: a double tap on Done leaves once (Phase 12)
       setLeaving(true)
-      if (session) {
-        try {
-          await api.giveUpSession(session.id)
-        } catch {
-          // Leaving always works for the guest; the visit also ends by itself.
-        }
-      }
+      // Leaving always works for the guest, even when the server does not answer in time: the
+      // visit also ends by itself (P12-R1).
+      if (session) await settleWithin(api.giveUpSession(session.id), LEAVE_DEADLINE_MS)
       booth.go('start', { replace })
     },
     [api, booth, leaving, session],
@@ -162,7 +160,8 @@ export function DecoratePage() {
   }, [editor])
 
   const finish = useCallback(async () => {
-    if (!session || stage !== 'editing' || !confirming) return
+    if (!session || stage !== 'editing' || !confirming || making.current) return
+    making.current = true // at once: a second press in the same frame makes nothing more (P12-R4)
     const decoration = forServer(confirming)
     setConfirming(null)
     setStage('making')

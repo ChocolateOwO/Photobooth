@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router'
@@ -12,6 +12,7 @@ import {
   type FrameMenu,
 } from '../../shared/api/client'
 import { DeliveryPage } from './DeliveryPage'
+import { LEAVE_DEADLINE_MS } from './kiosk'
 
 /**
  * The end of a visit: the finished photos (made when the guest confirmed their decorations)
@@ -184,6 +185,29 @@ describe('DeliveryPage (the finished photos)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(await screen.findByText('the start screen')).toBeInTheDocument()
     expect(booth.gaveUp).toBe(1)
+  })
+
+  it('Done gets the guest to the start even when the server never answers, and asks once (P12-R1)', async () => {
+    const { fetcher } = server(visit())
+    let gaveUp = 0
+    renderDone(async (path, init) => {
+      if (path.endsWith('/give-up')) {
+        gaveUp += 1
+        return new Promise<Response>(() => undefined) // taken, never answered
+      }
+      return fetcher(path, init)
+    })
+    await screen.findByTestId('finished-photos')
+    const done = screen.getByRole('button', { name: 'Done' })
+    act(() => {
+      fireEvent.click(done)
+      fireEvent.click(done) // the second tap, in the same frame
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(LEAVE_DEADLINE_MS + 100)
+    })
+    expect(await screen.findByText('the start screen')).toBeInTheDocument()
+    expect(gaveUp).toBe(1)
   })
 
   it('goes back to the start by itself when nobody is there any more', async () => {

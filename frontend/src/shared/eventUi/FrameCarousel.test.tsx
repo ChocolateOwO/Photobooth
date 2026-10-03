@@ -245,6 +245,18 @@ describe('FrameCarousel (participants)', () => {
     expect(onStart).toHaveBeenCalledTimes(1)
   })
 
+  it('two taps on "Start with this frame" in the same frame start once (P12-R4)', async () => {
+    const onStart = vi.fn(() => new Promise<void>(() => undefined))
+    renderCarousel({ onStart })
+    await userEvent.click(chooseButton())
+    const start = screen.getByRole('button', { name: 'Start with this frame' })
+    act(() => {
+      fireEvent.click(start)
+      fireEvent.click(start)
+    })
+    expect(onStart).toHaveBeenCalledTimes(1)
+  })
+
   it('the admin preview asks in the same pop-up, without trapping the whole page', async () => {
     renderCarousel({ compact: true })
     await userEvent.click(chooseButton())

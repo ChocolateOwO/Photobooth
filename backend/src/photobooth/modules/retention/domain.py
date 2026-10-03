@@ -150,6 +150,10 @@ class RetentionRepository(ABC):
     def last_automatic_run(self) -> datetime | None:
         """When the last scheduled or startup cleanup (not a dry run) finished."""
 
+    @abstractmethod
+    def last_cleanup(self) -> RetentionRun | None:
+        """The latest cleanup that deleted (any trigger), however many dry runs came after it."""
+
 
 def cutoff(now: datetime, days: int = 0, hours: int = 0) -> datetime:
     return now - timedelta(days=days, hours=hours)

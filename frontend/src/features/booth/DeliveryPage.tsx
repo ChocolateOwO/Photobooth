@@ -12,6 +12,7 @@ import {
 import { BoothShell } from './BoothShell'
 import { useBoothMenu } from './boothMenu'
 import { useBoothServices } from './boothServices'
+import { LEAVE_DEADLINE_MS, settleWithin } from './kiosk'
 import styles from './DeliveryPage.module.css'
 
 /**
@@ -98,13 +99,9 @@ export function DeliveryPage() {
       if (leaving || leavingNow.current) return
       leavingNow.current = true // at once: a double tap on Done leaves once (Phase 12)
       setLeaving(true)
-      if (session) {
-        try {
-          await api.giveUpSession(session.id) // a delivered visit simply completes
-        } catch {
-          // Leaving always works for the guest; the visit also ends by itself.
-        }
-      }
+      // A delivered visit simply completes. Leaving always works for the guest, even when the
+      // server does not answer in time: the visit also ends by itself (P12-R1).
+      if (session) await settleWithin(api.giveUpSession(session.id), LEAVE_DEADLINE_MS)
       booth.go('start', { replace })
     },
     [api, booth, leaving, session],

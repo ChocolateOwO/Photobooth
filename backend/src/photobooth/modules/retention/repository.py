@@ -51,6 +51,18 @@ class RetentionRunRow(Base):
     errors: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+def _run_of(row: RetentionRunRow) -> RetentionRun:
+    return RetentionRun(
+        id=row.id,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        dry_run=row.dry_run,
+        trigger=Trigger(row.trigger),
+        counts=json.loads(row.counts),
+        errors=tuple(json.loads(row.errors)),
+    )
+
+
 def _policy_of(row: RetentionPolicyRow) -> RetentionPolicy:
     return RetentionPolicy(
         originals_days=row.originals_days,
@@ -131,18 +143,17 @@ class SqlRetentionRepository(RetentionRepository):
                 .order_by(RetentionRunRow.started_at.desc(), RetentionRunRow.id.desc())
                 .limit(limit)
             ).all()
-            return [
-                RetentionRun(
-                    id=row.id,
-                    started_at=row.started_at,
-                    finished_at=row.finished_at,
-                    dry_run=row.dry_run,
-                    trigger=Trigger(row.trigger),
-                    counts=json.loads(row.counts),
-                    errors=tuple(json.loads(row.errors)),
-                )
-                for row in rows
-            ]
+            return [_run_of(row) for row in rows]
+
+    def last_cleanup(self) -> RetentionRun | None:
+        with self._sessions() as db:
+            row = db.scalars(
+                select(RetentionRunRow)
+                .where(RetentionRunRow.dry_run.is_(False))
+                .order_by(RetentionRunRow.started_at.desc(), RetentionRunRow.id.desc())
+                .limit(1)
+            ).first()
+            return _run_of(row) if row else None
 
     def last_automatic_run(self) -> datetime | None:
         with self._sessions() as db:

@@ -1,4 +1,4 @@
-import { Component, useEffect, type ErrorInfo, type ReactNode } from 'react'
+import { Component, useEffect, type ErrorInfo, type ReactNode, type Ref } from 'react'
 
 import styles from './BoothSafety.module.css'
 
@@ -11,9 +11,17 @@ import styles from './BoothSafety.module.css'
  *   the booth again from its start screen.
  */
 
-export function Reconnecting() {
+/** Takes the focus while it is up (`ref`), so no key reaches the screen under it. */
+export function Reconnecting({ ref }: { ref?: Ref<HTMLDivElement> }) {
   return (
-    <div className={styles.overlay} role="status" aria-live="polite" data-testid="booth-offline">
+    <div
+      ref={ref}
+      tabIndex={-1}
+      className={styles.overlay}
+      role="status"
+      aria-live="polite"
+      data-testid="booth-offline"
+    >
       <div className={styles.card}>
         <span className={styles.spinner} aria-hidden="true" />
         <p className={styles.title}>One moment…</p>

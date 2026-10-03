@@ -71,3 +71,8 @@
   font-weight: 700;
   cursor: pointer;
 }
+
+/* The cover holds the focus only so keys can not reach the screen under it. */
+.overlay:focus {
+  outline: none;
+}

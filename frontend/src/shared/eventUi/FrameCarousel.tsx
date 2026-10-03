@@ -53,6 +53,7 @@ export function FrameCarousel({
   // "Use this frame" only asks; nothing is kept until "Start with this frame" in the pop-up.
   const [asking, setAsking] = useState<GalleryFrame | null>(null)
   const [starting, setStarting] = useState(false)
+  const startingNow = useRef(false)
   const askedFrom = useRef<HTMLButtonElement | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -147,11 +148,14 @@ export function FrameCarousel({
   }
 
   const startWith = async (frame: GalleryFrame) => {
-    if (starting) return // a second tap on "Start with this frame" changes nothing
+    // A second tap on "Start with this frame" changes nothing, even in the same frame (P12-R4).
+    if (starting || startingNow.current) return
+    startingNow.current = true
     setStarting(true)
     try {
       await onStart(frame)
     } finally {
+      startingNow.current = false
       setStarting(false)
       setAsking(null)
     }
