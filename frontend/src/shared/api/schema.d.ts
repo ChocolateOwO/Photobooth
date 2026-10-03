@@ -1229,7 +1229,7 @@ export interface components {
          * ActivityType
          * @enum {string}
          */
-        ActivityType: "session_started" | "frame_chosen" | "capture_ok" | "capture_failed" | "retake" | "photos_confirmed" | "render_ok" | "render_failed" | "link_shown" | "session_ended" | "reset_timeout" | "qr_opened" | "download" | "admin_login" | "admin_login_failed" | "admin_logout" | "admin_profile_created" | "admin_profile_updated" | "admin_profile_duplicated" | "admin_profile_activated" | "admin_profile_deleted" | "admin_profile_restored" | "admin_frame_uploaded" | "admin_frame_replaced" | "admin_frame_renamed" | "admin_frame_deleted" | "admin_asset_uploaded" | "admin_asset_deleted" | "admin_test_started" | "admin_tests_cleared";
+        ActivityType: "session_started" | "frame_chosen" | "capture_ok" | "capture_failed" | "retake" | "photos_confirmed" | "render_ok" | "render_failed" | "link_shown" | "session_ended" | "reset_timeout" | "qr_opened" | "download" | "admin_login" | "admin_login_failed" | "admin_logout" | "admin_profile_created" | "admin_profile_updated" | "admin_profile_duplicated" | "admin_profile_activated" | "admin_profile_deleted" | "admin_profile_restored" | "admin_frame_uploaded" | "admin_frame_replaced" | "admin_frame_renamed" | "admin_frame_deleted" | "admin_asset_uploaded" | "admin_asset_deleted" | "admin_test_started" | "admin_tests_cleared" | "admin_policy_created" | "admin_policy_updated" | "admin_policy_made_default" | "admin_policy_deleted" | "admin_profile_policy_chosen";
         /**
          * Actor
          * @enum {string}

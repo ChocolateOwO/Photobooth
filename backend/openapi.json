@@ -144,7 +144,12 @@
           "admin_asset_uploaded",
           "admin_asset_deleted",
           "admin_test_started",
-          "admin_tests_cleared"
+          "admin_tests_cleared",
+          "admin_policy_created",
+          "admin_policy_updated",
+          "admin_policy_made_default",
+          "admin_policy_deleted",
+          "admin_profile_policy_chosen"
         ],
         "title": "ActivityType",
         "type": "string"
