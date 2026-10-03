@@ -32,6 +32,12 @@ function Assert-DummyLayout {
     }
 }
 
+function Assert-MainLayout {
+    if ((Split-Path -Leaf $script:InstanceRoot) -ne 'Main') {
+        throw "Refusing to run: expected <project>\Main\app layout, got $($script:AppRoot)"
+    }
+}
+
 function Use-Node24 {
     $nodeDir = Join-Path $script:InstanceRoot 'tools\node24'
     if (-not (Test-Path (Join-Path $nodeDir 'node.exe'))) {
@@ -194,14 +200,14 @@ function Stop-RecordedProcesses {
 
 function Save-ProcessRecord {
     # Publishes the record atomically; an empty list removes it.
-    param([Parameter(Mandatory)] [string] $Path, [object[]] $Entries, [string] $Commit = '')
+    param([Parameter(Mandatory)] [string] $Path, [object[]] $Entries, [string] $Commit = '', [string] $Instance = 'dummy')
     $list = @($Entries | Where-Object { $null -ne $_ })
     if ($list.Count -eq 0) {
         if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path }
         return
     }
     $record = [ordered]@{
-        instance   = 'dummy'
+        instance   = $Instance
         updated_at = (Get-Date).ToString('o')
         commit     = $Commit
         processes  = $list
@@ -219,7 +225,8 @@ function Invoke-TrackedStartup {
     param(
         [Parameter(Mandatory)] [string] $RecordPath,
         [Parameter(Mandatory)] [scriptblock] $Body,
-        [string] $Commit = ''
+        [string] $Commit = '',
+        [string] $Instance = 'dummy'
     )
     $tracked = New-Object System.Collections.Generic.List[object]
     $start = {
@@ -244,7 +251,7 @@ function Invoke-TrackedStartup {
             $tracked.Add([pscustomobject]@{ role = $Role; pid = $process.Id; start_time = 'unknown'; executable = $FilePath; marker = $Marker })
             throw "could not record identity of $Role (PID $($process.Id)): $_"
         }
-        Save-ProcessRecord -Path $RecordPath -Entries $tracked.ToArray() -Commit $Commit
+        Save-ProcessRecord -Path $RecordPath -Entries $tracked.ToArray() -Commit $Commit -Instance $Instance
         return $process
     }  # no GetNewClosure: resolves $tracked/$RecordPath dynamically from this function's scope
 
@@ -255,7 +262,7 @@ function Invoke-TrackedStartup {
         $failure = $_
         Write-Warning "Startup failed: $failure. Stopping started processes."
         $remaining = Stop-RecordedProcesses -Entries $tracked.ToArray()
-        Save-ProcessRecord -Path $RecordPath -Entries $remaining.ToArray() -Commit $Commit
+        Save-ProcessRecord -Path $RecordPath -Entries $remaining.ToArray() -Commit $Commit -Instance $Instance
         throw $failure
     }
 }
