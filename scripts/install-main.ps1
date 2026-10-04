@@ -18,13 +18,22 @@
 #                project, with a random admin password and the delivery listener on 127.0.0.1; the
 #                tag is optional so a candidate commit can be rehearsed before it is approved.
 #                Never the real Main, whatever TEMP or TMP say (P13-R1).
+#   -Release <tag>  install a published milestone from a fresh clone of the public repository
+#                (README): the annotated tag must record the approved commit, an approval date and
+#                a passed (or not required) manual test. The owner's local evidence (the verify
+#                record, whose hash the tag carries, and the patch folder) is not part of a clone
+#                and is not asked for. Everything else is the same as the real install.
+#   -AdminPasswordStdin  read the new admin password from the first line of standard input instead
+#                of asking twice at the keyboard (for unattended rehearsals; never stored).
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)] [string] $Commit,
+    [string] $Commit,
     [string] $Tag,
+    [string] $Release,
     [string] $MainRoot,
     [switch] $Rehearsal,
-    [switch] $KeepRunning
+    [switch] $KeepRunning,
+    [switch] $AdminPasswordStdin
 )
 
 . (Join-Path $PSScriptRoot 'lib\common.ps1')
@@ -48,6 +57,12 @@ function Invoke-Git {
     if ($LASTEXITCODE -ne 0) { throw "git $($Arguments -join ' ') failed in $Repo ($LASTEXITCODE)" }
     return $out
 }
+
+if ($Release -and ($Rehearsal -or $Tag)) { throw '-Release installs a published tag for real: not with -Rehearsal or -Tag' }
+if (-not $Release -and -not $Commit) { throw 'Name the source: -Commit <sha> (with -Tag or -Rehearsal), or -Release <tag>' }
+# Read before anything else, so a piped password is never left waiting in the pipe.
+$stdinPassword = if ($AdminPasswordStdin) { [Console]::In.ReadLine() } else { $null }
+if ($AdminPasswordStdin -and -not $stdinPassword) { throw '-AdminPasswordStdin: no password on the first line of standard input' }
 
 # ---- where Main goes (checked before anything is written) ----------------------------------------
 if ($Rehearsal) {
@@ -73,7 +88,7 @@ else {
     if (-not $MainRoot.Equals($realMain, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "The real install goes to $realMain only"
     }
-    if (-not $Tag) { throw 'The real install needs -Tag <approved dummy-patch tag>' }
+    if (-not $Tag -and -not $Release) { throw 'The real install needs -Tag <approved dummy-patch tag>' }
 }
 if ((Test-Path -LiteralPath $MainRoot) -and @(Get-ChildItem -LiteralPath $MainRoot -Force).Count -gt 0) {
     throw "$MainRoot exists and is not empty: the first install only goes into an empty folder"
@@ -84,16 +99,41 @@ foreach ($port in $kioskPort, $deliveryPort) {
 
 # ---- 1. the source -----------------------------------------------------------------------------
 Write-Stage 'source commit and artifacts'
+if ($Release) {
+    # A published release: the annotated tag in this clone is the evidence (the README install).
+    if ($Release -notmatch '^dummy-patch-\d{3}-[a-z0-9-]+$') { throw "Not a milestone tag: $Release" }
+    $releaseObject = "$(& git -C $dummyApp rev-parse --verify --quiet "refs/tags/$Release")".Trim()
+    if (-not $releaseObject) { throw "Tag $Release is not in this clone (git fetch --tags)" }
+    if ("$(Invoke-Git $dummyApp @('cat-file', '-t', $releaseObject))".Trim() -ne 'tag') { throw "$Release is not an annotated tag" }
+    $releaseCommit = "$(Invoke-Git $dummyApp @('rev-parse', '--verify', "refs/tags/$Release^{commit}"))".Trim()
+    if ($Commit) {
+        $named = "$(& git -C $dummyApp rev-parse --verify --quiet "$Commit^{commit}")".Trim()
+        if ($named -ne $releaseCommit) { throw "-Commit $Commit is not the commit of $Release" }
+    }
+    $evidence = @{}
+    foreach ($line in @(Invoke-Git $dummyApp @('tag', '-l', '--format=%(contents)', $Release))) {
+        if ("$line" -match '^(approved-commit|approval|manual-test|verify-record-sha256):\s*(.+)$') { $evidence[$Matches[1]] = $Matches[2].Trim() }
+    }
+    if ($evidence['approved-commit'] -ne $releaseCommit) { throw "$Release does not record $releaseCommit as the approved commit" }
+    if ("$($evidence['approval'])" -notmatch '^approved \d{4}-\d{2}-\d{2}$') { throw "$Release records no approval" }
+    if ($evidence['manual-test'] -notin @('passed', 'not_required')) { throw "$Release records the manual test as '$($evidence['manual-test'])'" }
+    if ("$($evidence['verify-record-sha256'])" -notmatch '^[0-9a-f]{64}$') { throw "$Release records no verify record" }
+    $Commit = $releaseCommit
+    $Tag = $Release
+    Write-Host "release $Release -> $releaseCommit ($($evidence['approval']); manual test $($evidence['manual-test']); verify record sha256 $($evidence['verify-record-sha256']))"
+}
 $full = & git -C $dummyApp rev-parse --verify --quiet "$Commit^{commit}"
 if ($LASTEXITCODE -ne 0 -or -not $full) { throw "Commit $Commit is not in $dummyApp" }
 $full = "$full".Trim()
-$record = Join-Path $script:InstanceRoot "data\verify\$full.json"
-if (-not (Test-Path -LiteralPath $record)) { throw "No verify record for $full (run scripts\verify.ps1 on it)" }
-$verified = [System.IO.File]::ReadAllText($record) | ConvertFrom-Json
-if ($verified.result -ne 'passed' -or $verified.commit -ne $full) { throw "Verify record for $full did not pass" }
-$recordHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $record).Hash.ToLowerInvariant()
-Write-Host "verify record passed: $record (sha256 $recordHash)"
-if ($Tag) {
+if (-not $Release) {
+    $record = Join-Path $script:InstanceRoot "data\verify\$full.json"
+    if (-not (Test-Path -LiteralPath $record)) { throw "No verify record for $full (run scripts\verify.ps1 on it)" }
+    $verified = [System.IO.File]::ReadAllText($record) | ConvertFrom-Json
+    if ($verified.result -ne 'passed' -or $verified.commit -ne $full) { throw "Verify record for $full did not pass" }
+    $recordHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $record).Hash.ToLowerInvariant()
+    Write-Host "verify record passed: $record (sha256 $recordHash)"
+}
+if ($Tag -and -not $Release) {
     if ($Tag -notmatch '^dummy-patch-\d{3}-[a-z0-9-]+$') { throw "Not a milestone tag: $Tag" }
     $tagObject = "$(Invoke-Git $dummyApp @('rev-parse', '--verify', "refs/tags/$Tag"))".Trim()
     if ("$(Invoke-Git $dummyApp @('cat-file', '-t', $tagObject))".Trim() -ne 'tag') { throw "$Tag is not an annotated tag" }
@@ -223,9 +263,9 @@ try {
     $intent = @('--env-file', $envFile, '--expect-root', $MainRoot, '--expect-profile', 'prod')
     Invoke-Native $python (@('-m', 'photobooth', 'db-upgrade') + $intent) $backend
     Invoke-Native $python (@('-m', 'photobooth', 'db-check') + $intent) $backend
-    if ($Rehearsal) {
-        # A throwaway password, never shown or written down: a rehearsal has no organizer.
-        $password = 'rehearsal-' + [guid]::NewGuid().ToString('N')
+    if ($Rehearsal -or $stdinPassword) {
+        # A rehearsal's throwaway password (never shown or written down), or the one piped in.
+        $password = if ($stdinPassword) { $stdinPassword } else { 'rehearsal-' + [guid]::NewGuid().ToString('N') }
         $previous = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         try {

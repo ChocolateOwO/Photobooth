@@ -27,9 +27,7 @@ import {
   editorReducer,
   forServer,
   initialEditor,
-  ROTATE_STEP,
   shown,
-  SIZE_STEP,
 } from './decorationEditor'
 import { useIdleTimeout, useKeepAlive } from './useIdleTimeout'
 import styles from './DecoratePage.module.css'
@@ -199,7 +197,6 @@ export function DecoratePage() {
   const outputs = layout?.outputs ?? []
   const limit = catalog?.max_stickers_per_photo ?? 0
   const full = countOn(editor.decoration, active) >= limit
-  const chosen = editor.selected !== null
   const photoUrl = useCallback(
     (captureId: string, version: string | null) =>
       session ? api.captureImageUrl(session.id, captureId, version ?? undefined) : '',
@@ -233,8 +230,8 @@ export function DecoratePage() {
             <div className={styles.header}>
               <EventHeading level={1}>Decorate your photos</EventHeading>
               <EventText muted>
-                Add stickers and a filter, or finish straight away. Drag a sticker to move it;
-                pinch to resize and turn it.
+                Tap a sticker to add it, then drag it to move it. Use its corner handles to
+                resize or remove it, or pinch to resize and turn it.
               </EventText>
             </div>
 
@@ -265,6 +262,7 @@ export function DecoratePage() {
                         }}
                         onMove={(sticker) => dispatch({ type: 'move', sticker })}
                         onMoveEnd={() => dispatch({ type: 'commit' })}
+                        onRemove={() => dispatch({ type: 'remove' })}
                       />
                     </li>
                   )
@@ -343,45 +341,6 @@ export function DecoratePage() {
                   </div>
                 )}
 
-                <div className={styles.selection} aria-label="Chosen sticker" role="group">
-                  <EventButton
-                    variant="secondary"
-                    disabled={!chosen}
-                    onClick={() => dispatch({ type: 'resize', factor: 1 / SIZE_STEP })}
-                  >
-                    Smaller
-                  </EventButton>
-                  <EventButton
-                    variant="secondary"
-                    disabled={!chosen}
-                    onClick={() => dispatch({ type: 'resize', factor: SIZE_STEP })}
-                  >
-                    Bigger
-                  </EventButton>
-                  <EventButton
-                    variant="secondary"
-                    disabled={!chosen}
-                    aria-label="Turn left"
-                    onClick={() => dispatch({ type: 'rotate', degrees: -ROTATE_STEP })}
-                  >
-                    ↺
-                  </EventButton>
-                  <EventButton
-                    variant="secondary"
-                    disabled={!chosen}
-                    aria-label="Turn right"
-                    onClick={() => dispatch({ type: 'rotate', degrees: ROTATE_STEP })}
-                  >
-                    ↻
-                  </EventButton>
-                  <EventButton
-                    variant="secondary"
-                    disabled={!chosen}
-                    onClick={() => dispatch({ type: 'remove' })}
-                  >
-                    Remove
-                  </EventButton>
-                </div>
               </section>
             </div>
 

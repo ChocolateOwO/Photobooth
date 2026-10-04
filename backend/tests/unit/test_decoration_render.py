@@ -85,6 +85,26 @@ def test_a_sticker_turns_clockwise_as_the_booth_shows_it() -> None:
     assert canvas.getpixel((570, 250)) == (255, 255, 255, 255)
 
 
+def _red_box(canvas: Image.Image) -> tuple[int, int, int, int]:
+    box = canvas.convert("RGB").point(lambda v: 255 if v < 128 else 0).getbbox()
+    # Only the red sticker has a channel below 128 (green and blue are 30 and 40).
+    assert box is not None
+    return box
+
+
+def test_a_sticker_resized_by_its_handle_grows_in_place_keeping_its_shape() -> None:
+    """The booth's Resize handle changes only the size: the server keeps the centre and the
+    sticker's own aspect ratio, as the preview shows (handles themselves are never drawn)."""
+    art = png((120, 60))
+    small, large = _canvas(), _canvas()
+    _place_sticker(small, StickerPlacement(art, x=0.4, y=0.6, size=0.2, rotation=0))
+    _place_sticker(large, StickerPlacement(art, x=0.4, y=0.6, size=0.32, rotation=0))
+    (a0, b0, a1, b1), (c0, d0, c1, d1) = _red_box(small), _red_box(large)
+    assert (a1 - a0, b1 - b0) == (200, 100)  # 0.2 of 1000 wide, half as tall
+    assert (c1 - c0, d1 - d0) == (320, 160)  # 0.32: the same 2:1 shape
+    assert ((a0 + a1) / 2, (b0 + b1) / 2) == ((c0 + c1) / 2, (d0 + d1) / 2) == (400, 300)
+
+
 def test_a_sticker_over_the_edge_is_cut_off_there() -> None:
     canvas = _canvas()
     _place_sticker(canvas, StickerPlacement(png((100, 100)), x=0.0, y=1.0, size=0.2, rotation=30))

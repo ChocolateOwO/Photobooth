@@ -152,6 +152,30 @@ function renderDecorate(fetcher: (path: string, init?: RequestInit) => Promise<R
   )
 }
 
+/** jsdom has no SVG geometry: the screen maps one to one onto the photo's own pixels. */
+async function withGeometry(run: () => Promise<void>): Promise<void> {
+  class Point {
+    constructor(
+      readonly x: number,
+      readonly y: number,
+    ) {}
+    matrixTransform() {
+      return { x: this.x, y: this.y }
+    }
+  }
+  vi.stubGlobal('DOMPoint', Point)
+  Object.defineProperty(SVGSVGElement.prototype, 'getScreenCTM', {
+    configurable: true,
+    value: () => ({ inverse: () => ({}) }),
+  })
+  try {
+    await run()
+  } finally {
+    vi.unstubAllGlobals()
+    Reflect.deleteProperty(SVGSVGElement.prototype, 'getScreenCTM')
+  }
+}
+
 async function ready(): Promise<{ first: HTMLElement; second: HTMLElement }> {
   await screen.findByRole('heading', { name: 'Decorate your photos' })
   const [first, second] = screen.getAllByTestId('decorated-photo')
@@ -230,23 +254,147 @@ describe('DecoratePage (decorating the finished photos)', () => {
     expect(within(first).getAllByTestId('placed-sticker')).toHaveLength(1)
   })
 
-  it('the buttons resize, turn and remove the chosen sticker', async () => {
+  it('a tapped sticker goes on the chosen photo, chosen, with its handles on its corners', async () => {
+    const { fetcher } = server(visit())
+    renderDecorate(fetcher)
+    const { first, second } = await ready()
+    expect(screen.queryByTestId('sticker-handles')).toBeNull() // nothing chosen yet
+    expect(screen.queryByRole('group', { name: 'Chosen sticker' })).toBeNull() // no button panel
+    await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+    const handles = within(first).getByTestId('sticker-handles')
+    expect(within(first).getByTestId('placed-sticker')).toHaveAttribute('data-selected')
+    expect(within(first).getByTestId('sticker-outline')).toBeInTheDocument()
+    // Heart: 0.32 of 600 wide (192), 360/400 as tall (172.8), centred at (300, 900).
+    const spot = (name: string) =>
+      within(handles).getByRole('button', { name }).getAttribute('transform')
+    expect(spot('Move sticker')).toBe('translate(204 813.6)')
+    expect(spot('Remove sticker')).toBe('translate(396 813.6)')
+    expect(spot('Resize sticker')).toBe('translate(396 986.4)')
+
+    // The other strip is decorated on its own: its sticker, its handles.
+    fireEvent.pointerDown(second)
+    await userEvent.click(screen.getByRole('button', { name: 'Add Star' }))
+    expect(within(second).getByTestId('sticker-handles')).toBeInTheDocument()
+    expect(within(first).queryByTestId('sticker-handles')).toBeNull()
+    expect(within(first).getAllByTestId('placed-sticker')).toHaveLength(1)
+  })
+
+  describe.each(['mouse', 'touch', 'pen'])('with a %s', (pointerType) => {
+    it('dragging Resize scales the sticker in place, keeping its shape, as one undo step', async () => {
+      await withGeometry(async () => {
+        const { booth, fetcher } = server(visit())
+        renderDecorate(fetcher)
+        const { first } = await ready()
+        await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+        const resize = within(first).getByRole('button', { name: 'Resize sticker' })
+        fireEvent.pointerDown(resize, { pointerId: 4, pointerType, clientX: 396, clientY: 986.4 })
+        // Twice as far from the sticker's centre (300, 900): twice the size.
+        fireEvent.pointerMove(first, { pointerId: 4, pointerType, clientX: 492, clientY: 1072.8 })
+        fireEvent.pointerUp(first, { pointerId: 4, pointerType })
+        const heart = within(first).getByTestId('placed-sticker')
+        expect(heart).toHaveAttribute('transform', 'translate(300 900) rotate(0)') // in place
+        const image = heart.querySelector('image')
+        expect(Number(image?.getAttribute('width'))).toBeCloseTo(384)
+        expect(Number(image?.getAttribute('height'))).toBeCloseTo(345.6) // the same shape
+        await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+        expect(Number(heart.querySelector('image')?.getAttribute('width'))).toBeCloseTo(192)
+        await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+        expect(within(first).queryAllByTestId('placed-sticker')).toHaveLength(0)
+        expect(booth.renders).toHaveLength(0)
+      })
+    })
+
+    it('dragging the Move handle or the sticker itself moves it', async () => {
+      await withGeometry(async () => {
+        const { fetcher } = server(visit())
+        renderDecorate(fetcher)
+        const { first } = await ready()
+        await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+        const move = within(first).getByRole('button', { name: 'Move sticker' })
+        fireEvent.pointerDown(move, { pointerId: 5, pointerType, clientX: 204, clientY: 813.6 })
+        fireEvent.pointerMove(first, { pointerId: 5, pointerType, clientX: 234, clientY: 913.6 })
+        fireEvent.pointerUp(first, { pointerId: 5, pointerType })
+        const heart = within(first).getByTestId('placed-sticker')
+        expect(heart).toHaveAttribute('transform', 'translate(330 1000) rotate(0)')
+        fireEvent.pointerDown(heart, { pointerId: 6, pointerType, clientX: 330, clientY: 1000 })
+        fireEvent.pointerMove(first, { pointerId: 6, pointerType, clientX: 300, clientY: 1100 })
+        fireEvent.pointerUp(first, { pointerId: 6, pointerType })
+        expect(heart).toHaveAttribute('transform', 'translate(300 1100) rotate(0)')
+        // The handles came along, still on the corners.
+        expect(
+          within(first).getByRole('button', { name: 'Move sticker' }).getAttribute('transform'),
+        ).toBe('translate(204 1013.6)')
+      })
+    })
+
+    it('Remove deletes the sticker at once, and Undo brings it back', async () => {
+      const { fetcher } = server(visit())
+      renderDecorate(fetcher)
+      const { first } = await ready()
+      await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+      fireEvent.pointerDown(within(first).getByRole('button', { name: 'Remove sticker' }), {
+        pointerId: 8,
+        pointerType,
+      })
+      expect(within(first).queryAllByTestId('placed-sticker')).toHaveLength(0)
+      expect(screen.queryByTestId('sticker-handles')).toBeNull()
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+      expect(within(first).getAllByTestId('placed-sticker')).toHaveLength(1)
+    })
+  })
+
+  it('the Remove handle also works from the keyboard', async () => {
     const { fetcher } = server(visit())
     renderDecorate(fetcher)
     const { first } = await ready()
-    expect(screen.getByRole('button', { name: 'Bigger' })).toBeDisabled() // nothing chosen
     await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
-    const placed = () => within(first).getByTestId('placed-sticker')
-    const width = () => Number(placed().querySelector('image')?.getAttribute('width'))
-    expect(width()).toBeCloseTo(0.32 * 600)
-    await userEvent.click(screen.getByRole('button', { name: 'Bigger' }))
-    expect(width()).toBeCloseTo(0.384 * 600)
-    await userEvent.click(screen.getByRole('button', { name: 'Turn right' }))
-    expect(placed()).toHaveAttribute('transform', 'translate(300 900) rotate(15)')
-    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    within(first).getByRole('button', { name: 'Remove sticker' }).focus()
+    await userEvent.keyboard('{Enter}')
     expect(within(first).queryAllByTestId('placed-sticker')).toHaveLength(0)
   })
 
+  it('near the edge of the photo the handles stay on it, within reach', async () => {
+    await withGeometry(async () => {
+      const { fetcher } = server(visit())
+      renderDecorate(fetcher)
+      const { first } = await ready()
+      await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+      const heart = within(first).getByTestId('placed-sticker')
+      fireEvent.pointerDown(heart, { pointerId: 9, clientX: 300, clientY: 900 })
+      fireEvent.pointerMove(first, { pointerId: 9, clientX: -400, clientY: -1000 }) // off the top left
+      fireEvent.pointerUp(first, { pointerId: 9 })
+      expect(heart).toHaveAttribute('transform', 'translate(0 0) rotate(0)') // centre on the corner
+      for (const name of ['Move sticker', 'Remove sticker', 'Resize sticker']) {
+        const [x, y] = (
+          within(first).getByRole('button', { name }).getAttribute('transform') ?? ''
+        )
+          .replace(/[^\d. -]/g, '')
+          .trim()
+          .split(/\s+/)
+          .map(Number)
+        expect(x, name).toBeGreaterThanOrEqual(24) // a whole handle (radius 24) on the photo
+        expect(y, name).toBeGreaterThanOrEqual(24)
+      }
+    })
+  })
+
+  it('the handles are never part of what is made: frozen for confirmation, never sent', async () => {
+    const { booth, fetcher } = server(visit())
+    renderDecorate(fetcher)
+    const { first } = await ready()
+    await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+    expect(within(first).getByTestId('sticker-handles')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Finish' }))
+    expect(screen.getByRole('dialog', { name: 'Finish your photos?' })).toBeInTheDocument()
+    expect(screen.queryByTestId('sticker-handles')).toBeNull()
+    expect(screen.queryByTestId('sticker-outline')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Make my photos' }))
+    expect(await screen.findByText('the take-home screen')).toBeInTheDocument()
+    expect(booth.renders[0]?.decoration).toEqual({
+      filter: 'none',
+      stickers: [{ sticker: 'heart', output: 1, x: 0.5, y: 0.5, size: 0.32, rotation: 0 }],
+    })
+  })
   it('offers no more stickers than a photo takes', async () => {
     const { fetcher } = server(visit())
     renderDecorate(fetcher)

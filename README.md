@@ -1,9 +1,120 @@
-# Photobooth (Dummy)
+# Photobooth
 
-Local-first event photobooth. This repository is the **Dummy** development source (branch `dummy`).
-Main is a separate clone created only after explicit approval (see `Project_Docs\PROJECT_RULES.md`).
+A local-first event photobooth for Windows: guests choose a frame, take photos with the booth's
+camera, decorate them with stickers and a filter, and take them home by scanning a QR code with a
+phone on the same Wi-Fi. Organizers prepare events (profiles, frames, themes, retention) in Admin.
+Everything runs on the booth PC; nothing is sent to the internet.
 
-## Layout
+## Install on Windows (from GitHub)
+
+Tested on Windows 11 with Windows PowerShell 5.1. The first install downloads the locked Python and
+Node packages, so it needs internet access once; it takes about 5 to 10 minutes.
+
+### Prerequisites
+
+- Windows 10 or 11 (64-bit), a webcam, and Chrome or Edge.
+- Git and Python 3.13 with the `py` launcher. If you do not have them (in PowerShell):
+
+  ```powershell
+  winget install --id Git.Git -e
+  winget install --id Python.Python.3.13 -e
+  ```
+
+  Open a new PowerShell window afterwards so both are on `PATH` (`git --version`, `py -3.13 --version`).
+
+### Install
+
+Copy and paste into PowerShell. `C:\Photobooth` can be any folder without special characters; the
+`Dummy\app` and `Dummy\tools\node24` names inside it are required by the scripts.
+
+```powershell
+$root = 'C:\Photobooth'
+New-Item -ItemType Directory -Force "$root\Dummy\tools" | Out-Null
+git clone https://github.com/ChocolateOwO/Photobooth.git "$root\Dummy\app"
+
+# Node.js 24 (portable copy used only by the Photobooth scripts)
+$node = 'v24.21.0'
+Invoke-WebRequest "https://nodejs.org/dist/$node/node-$node-win-x64.zip" -OutFile "$env:TEMP\node-$node.zip"
+Expand-Archive "$env:TEMP\node-$node.zip" "$root\Dummy\tools" -Force
+Rename-Item "$root\Dummy\tools\node-$node-win-x64" node24
+
+# Install the published release into C:\Photobooth\Main
+Set-Location "$root\Dummy\app"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-main.ps1 -Release dummy-patch-008-sticker-corner-handles
+```
+
+The installer checks the release tag (approved commit, approval and test records), builds the booth
+into `C:\Photobooth\Main`, creates an empty database, and **asks you for a new admin password**
+(at least 12 characters, typed twice). It then starts the booth once, checks it, and stops it.
+It never overwrites an existing `Main` folder; if anything fails it moves the half-built folder
+aside to `Main.failed-<date>` and says why.
+
+### Start, stop and pair
+
+```powershell
+# Start (opens the browser and pairs it as the booth screen)
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Photobooth\Main\app\scripts\run-main.ps1
+
+# Stop
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Photobooth\Main\app\scripts\stop-main.ps1
+
+# Pair the browser again (for example after a restart)
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Photobooth\Main\app\scripts\run-main.ps1 -PairOnly
+```
+
+| Screen | Address (on the booth PC) |
+|---|---|
+| Booth (guests) | http://127.0.0.1:8121/booth |
+| Admin (organizers; user `admin`, your password) | http://127.0.0.1:8121/admin |
+| Start page (version and health) | http://127.0.0.1:8121/ |
+
+First steps in Admin: Event Profiles → New profile (title, colours, photo sizes, countdown,
+retakes, retention policy) → Activate; Frames → upload your event's transparent PNG frames;
+Test booth → try the camera. Then open the Booth address in the paired browser and tap once for
+fullscreen.
+
+To change the admin password later, stop the booth first, then:
+
+```powershell
+C:\Photobooth\Main\app\backend\.venv\Scripts\python.exe -m photobooth admin-set-password --env-file C:\Photobooth\Main\config\photobooth.env --expect-root C:\Photobooth\Main --expect-profile prod
+```
+
+### Phones and the QR code (LAN only)
+
+- Guests' phones must be on the **same Wi-Fi** as the booth PC, and that Wi-Fi must not isolate
+  clients from each other (many guest and hotel networks do; a phone hotspot or your own router works).
+- The phones reach the booth on port **8123**. When Windows asks on the first start, allow
+  Python on **Private** networks (set the Wi-Fi to Private in Windows settings).
+- Admin → System shows the address the phones use. The link in each QR code works for the
+  number of days the event's retention policy allows (7 by default).
+
+### Where the data is
+
+| What | Where |
+|---|---|
+| Database (events, visits, history) | `C:\Photobooth\Main\data\db\photobooth.sqlite` |
+| Photos, finished photos, uploaded frames and images | `C:\Photobooth\Main\data\storage\` |
+| Database backups | `C:\Photobooth\Main\data\backups\` |
+| Logs | `C:\Photobooth\Main\data\logs\` |
+| Settings | `C:\Photobooth\Main\config\photobooth.env` |
+| Pairing code and launcher token (while running) | `C:\Photobooth\Main\config\runtime\` |
+
+Guests' photos are deleted automatically when the event's retention policy says (Admin →
+Retention; defaults: original photos 7 days, finished photos 30 days). A safe backup of the
+database at any time:
+
+```powershell
+C:\Photobooth\Main\app\backend\.venv\Scripts\python.exe -m photobooth backup --env-file C:\Photobooth\Main\config\photobooth.env --expect-root C:\Photobooth\Main --expect-profile prod
+```
+
+No data, password or photo is part of this repository.
+
+## For developers (the Dummy instance)
+
+The `dummy` branch is the development source. A development instance ("Dummy", with a DUMMY badge,
+Vite on port 5191 and its own data) runs from `<folder>\Dummy\app`; Main is a separate clone made by
+`scripts\install-main.ps1` from an approved milestone tag (see `Project_Docs\PROJECT_RULES.md`).
+### Layout
 
 ```
 Dummy\
@@ -13,7 +124,7 @@ Dummy\
   tools\node24\   portable Node 24 LTS used by all scripts
 ```
 
-## Toolchain
+### Toolchain
 
 - Python 3.13 venv from the exact lock (from `backend\`):
   `py -3.13 -m venv .venv`, `.venv\Scripts\python.exe -m pip install -r requirements-dev.lock`,
@@ -24,7 +135,7 @@ Dummy\
 - Node 24 LTS only (`.nvmrc`, `engines`, `engine-strict`). Scripts put `Dummy\tools\node24` first on PATH.
 - `git config --local core.hooksPath .githooks` enables the staged-content guard.
 
-## Commands (PowerShell, from `Dummy\app`)
+### Commands (PowerShell, from `Dummy\app`)
 
 | Purpose | Command |
 |---|---|
@@ -37,7 +148,7 @@ Dummy\
 | Set admin password (booth stopped) | `backend\.venv\Scripts\python.exe -m photobooth admin-set-password --env-file ..\config\photobooth.env --expect-root <Dummy root> --expect-profile dev` |
 | Patch dry run | `... -File scripts\make-patch.ps1 -Number 001 -Slug project-foundation -Commit <sha> -DryRun` |
 
-## Ports
+### Ports
 
 | Instance | Kiosk API (127.0.0.1) | Delivery (LAN) | UI |
 |---|---|---|---|
@@ -45,7 +156,7 @@ Dummy\
 | Dummy e2e (temp instance) | 8112 | 8114 (127.0.0.1) | preview 5192 |
 | Main | 8121 | 8123 | served by kiosk |
 
-## Photo templates (Phase 2)
+### Photo templates (Phase 2)
 
 Code-defined, versioned, read-only JSON in `backend/src/photobooth/templates_data/<key>.v<N>.json`.
 Spec API, blank PNG, guide PNG, renderer and (later) frame validator all read the same definition.
@@ -68,7 +179,7 @@ Renderer: each capture is center cover-cropped into its slot, optional RGBA fram
 exported as sRGB JPEG q95 with 300 DPI metadata. A session must supply exactly the template's captures;
 a capture is never placed twice.
 
-## Admin and Event Profiles (Phase 3, backend only)
+### Admin and Event Profiles (Phase 3, backend only)
 
 All routes need the paired device and an admin session; mutations also need Origin, the device key and
 `X-Photobooth-Admin-CSRF` (returned by login and `GET /api/admin/auth/session`).
@@ -84,7 +195,7 @@ All routes need the paired device and an admin session; mutations also need Orig
 
 Frames are not uploaded here: organizers make finished transparent PNG frames outside the app (Phase 5).
 
-## Admin UI (Phase 4)
+### Admin UI (Phase 4)
 
 Open `/admin` on the paired kiosk browser (Dummy dev: `http://127.0.0.1:5191/admin`). Create the admin
 account first with `admin-set-password` while the booth is stopped.
@@ -101,7 +212,7 @@ UI pages in `frontend/src/features/admin/{pages,components}` were produced by An
 restricted Windows account `pb-ui-agent` (write access only to `Dummy\ui-work\frontend\src` and `public`),
 then reviewed and integrated by Claude. See `Project_Docs\DECISIONS.md` (P4 rows).
 
-## Security groundwork
+### Security groundwork
 
 - Kiosk listener binds loopback only and rejects non-allowlisted `Host` headers.
 - Delivery listener exposes only delivery routes (Phase 1: `/d/_alive`); everything else is a uniform 404.

@@ -200,21 +200,6 @@
 }
 
 
-/* The chosen sticker's controls: five equal buttons that always fit their words. */
-.selection {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.selection button {
-  min-height: 56px;
-  min-width: 0;
-  padding-inline: 4px;
-  font-size: clamp(13px, 1.9vh, 18px);
-  white-space: nowrap;
-}
-
 .actions {
   flex: 0 0 auto;
   display: flex;

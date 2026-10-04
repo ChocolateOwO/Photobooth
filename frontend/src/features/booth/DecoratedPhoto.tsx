@@ -1,9 +1,17 @@
-import { useEffect, useId, useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 
 import type { DecorateOutput, DecorationFilter, StickerOffer } from '../../shared/api/client'
 import { matrixValues } from './colorMatrix'
 import type { PlacedSticker } from './decorationEditor'
-import { follow, type Point } from './stickerGesture'
+import { follow, handleSpots, resizeFrom, type HandleKind, type Point } from './stickerGesture'
 import styles from './DecoratedPhoto.module.css'
 
 /**
@@ -14,7 +22,31 @@ import styles from './DecoratedPhoto.module.css'
  * the organizer's frame lies on top unchanged, and the stickers lie on the frame in the order
  * they were added. Everything is in the photo's own pixels (the SVG viewBox), so the preview
  * matches the 300-DPI result at any screen size.
+ *
+ * The chosen sticker carries its own controls while the guest decorates: a compact outline and
+ * three round handles on its corners (Move, Resize, Remove), the same size on screen whatever size
+ * the photo is shown at, and kept on the photo near its edges. They belong to the screen only:
+ * they are never drawn while the decoration is frozen for confirmation, never on a picture-only
+ * photo, and never sent to the server (the server renders from the decoration's numbers alone).
  */
+
+/** The handles' radius on screen, in CSS pixels (a 48-pixel touch target). */
+export const HANDLE_RADIUS_PX = 24
+
+const HANDLE_LABELS: Record<HandleKind, string> = {
+  move: 'Move sticker',
+  resize: 'Resize sticker',
+  remove: 'Remove sticker',
+}
+
+/** Icons on a 2 by 2 square around the handle's centre. */
+const HANDLE_ICONS: Record<HandleKind, string> = {
+  move:
+    'M0 -0.8 L0 0.8 M-0.8 0 L0.8 0 M-0.25 -0.55 L0 -0.8 L0.25 -0.55 M-0.25 0.55 L0 0.8 L0.25 0.55 ' +
+    'M-0.55 -0.25 L-0.8 0 L-0.55 0.25 M0.55 -0.25 L0.8 0 L0.55 0.25',
+  resize: 'M-0.6 0.6 L0.6 -0.6 M0.1 -0.6 L0.6 -0.6 L0.6 -0.1 M-0.6 0.1 L-0.6 0.6 L-0.1 0.6',
+  remove: 'M-0.5 -0.5 L0.5 0.5 M0.5 -0.5 L-0.5 0.5',
+}
 
 interface DecoratedPhotoProps {
   output: DecorateOutput
@@ -32,14 +64,20 @@ interface DecoratedPhotoProps {
   onSelect?: (id: number | null) => void
   onMove?: (sticker: PlacedSticker) => void
   onMoveEnd?: () => void
+  /** The Remove handle: the chosen sticker goes (one undo step). */
+  onRemove?: () => void
 }
 
 interface Gesture {
+  /** drag moves (one finger) or pinches (two); esize scales about the sticker's centre. */
+  mode: 'drag' | 'resize'
   /** Where the sticker was when the current fingers came down, and where it is now. */
   sticker: PlacedSticker
   latest: PlacedSticker
   pointers: Map<number, Point>
   from: Point[]
+  /** The sticker's centre in photo pixels (for esize). */
+  centre: Point
 }
 
 export function DecoratedPhoto({
@@ -56,6 +94,7 @@ export function DecoratedPhoto({
   onSelect,
   onMove,
   onMoveEnd,
+  onRemove,
 }: DecoratedPhotoProps) {
   const id = useId().replaceAll(':', '')
   const svgRef = useRef<SVGSVGElement>(null)
@@ -65,6 +104,21 @@ export function DecoratedPhoto({
   useEffect(() => {
     if (!interactive) gesture.current = null
   }, [interactive])
+  // Photo pixels per screen pixel, so the handles keep their size on any screen.
+  const [unit, setUnit] = useState(1)
+  useLayoutEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return undefined
+    const measure = () => {
+      const shown = svg.getBoundingClientRect().width
+      setUnit(shown > 0 ? W / shown : 1)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(measure)
+    observer.observe(svg)
+    return () => observer.disconnect()
+  }, [W])
 
   function toPhoto(event: ReactPointerEvent): Point {
     const svg = svgRef.current
@@ -91,19 +145,52 @@ export function DecoratedPhoto({
     onSelect?.(sticker.id)
     const at = toPhoto(event)
     gesture.current = {
+      mode: 'drag',
       sticker,
       latest: sticker,
       pointers: new Map([[event.pointerId, at]]),
       from: [at],
+      centre: { x: sticker.x * W, y: sticker.y * H },
     }
+  }
+
+  function beginResize(event: ReactPointerEvent, sticker: PlacedSticker) {
+    if (!interactive) return
+    event.stopPropagation()
+    event.preventDefault()
+    if (gesture.current) return // one gesture at a time
+    svgRef.current?.setPointerCapture?.(event.pointerId)
+    const at = toPhoto(event)
+    gesture.current = {
+      mode: 'resize',
+      sticker,
+      latest: sticker,
+      pointers: new Map([[event.pointerId, at]]),
+      from: [at],
+      centre: { x: sticker.x * W, y: sticker.y * H },
+    }
+  }
+
+  function remove(event: ReactPointerEvent | ReactKeyboardEvent) {
+    if (!interactive) return
+    event.stopPropagation()
+    event.preventDefault()
+    gesture.current = null
+    onRemove?.()
   }
 
   function moving(event: ReactPointerEvent) {
     const current = gesture.current
     if (!current || !current.pointers.has(event.pointerId)) return
-    current.pointers.set(event.pointerId, toPhoto(event))
-    const to = [...current.pointers.values()]
-    current.latest = follow(current.sticker, current.from, to, { width: W, height: H })
+    const at = toPhoto(event)
+    current.pointers.set(event.pointerId, at)
+    if (current.mode === 'resize') {
+      const from = current.from[0]
+      current.latest = from ? resizeFrom(current.sticker, current.centre, from, at) : current.sticker
+    } else {
+      const to = [...current.pointers.values()]
+      current.latest = follow(current.sticker, current.from, to, { width: W, height: H })
+    }
     onMove?.(current.latest)
   }
 
@@ -111,7 +198,7 @@ export function DecoratedPhoto({
     const current = gesture.current
     if (!current || !current.pointers.has(event.pointerId)) return
     current.pointers.delete(event.pointerId)
-    if (current.pointers.size > 0) {
+    if (current.mode === 'drag' && current.pointers.size > 0) {
       // One finger stays: it carries on moving the sticker from where it is now.
       current.sticker = current.latest
       current.from = [...current.pointers.values()]
@@ -122,6 +209,13 @@ export function DecoratedPhoto({
   }
 
   const filterOn = filter && filter.key !== 'none'
+  const chosen = interactive ? stickers.find((placed) => placed.id === selected) : undefined
+  const chosenArt = chosen ? art.get(chosen.sticker) : undefined
+  const radius = HANDLE_RADIUS_PX * unit
+  const spots =
+    chosen && chosenArt
+      ? handleSpots(chosen, chosenArt.height / chosenArt.width, { width: W, height: H }, radius)
+      : null
 
   return (
     <svg
@@ -198,20 +292,57 @@ export function DecoratedPhoto({
               height={h}
               preserveAspectRatio="none"
             />
-            {placed.id === selected && (
+            {placed.id === selected && interactive && (
               <rect
                 className={styles.selection}
-                x={-w / 2 - 6}
-                y={-h / 2 - 6}
-                width={w + 12}
-                height={h + 12}
-                rx={12}
+                x={-w / 2}
+                y={-h / 2}
+                width={w}
+                height={h}
                 vectorEffect="non-scaling-stroke"
+                data-testid="sticker-outline"
               />
             )}
           </g>
         )
       })}
+      {chosen && spots && (
+        <g data-testid="sticker-handles">
+          {(['move', 'resize', 'remove'] as const).map((kind) => (
+            <g
+              key={kind}
+              role="button"
+              tabIndex={kind === 'remove' ? 0 : -1}
+              aria-label={HANDLE_LABELS[kind]}
+              data-handle={kind}
+              className={styles.handle}
+              transform={`translate(${spots[kind].x} ${spots[kind].y})`}
+              onPointerDown={
+                kind === 'move'
+                  ? (event) => begin(event, chosen)
+                  : kind === 'resize'
+                    ? (event) => beginResize(event, chosen)
+                    : (event) => remove(event)
+              }
+              onKeyDown={
+                kind === 'remove'
+                  ? (event) => {
+                      if (['Enter', ' ', 'Delete', 'Backspace'].includes(event.key)) remove(event)
+                    }
+                  : undefined
+              }
+            >
+              <circle r={radius} className={styles.handleDisc} vectorEffect="non-scaling-stroke" />
+              <path
+                d={HANDLE_ICONS[kind]}
+                transform={`scale(${radius * 0.62})`}
+                className={styles.handleIcon}
+                vectorEffect="non-scaling-stroke"
+              />
+            </g>
+          ))}
+        </g>
+      )}
     </svg>
   )
 }

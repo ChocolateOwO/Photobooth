@@ -281,3 +281,47 @@ def _probes(probe: str) -> list[int]:
         capture_output=True, text=True, check=False,
     ).stdout  # fmt: skip
     return [int(x) for x in out.split() if x.strip().isdigit()]
+
+
+# ---- installing a published release from a fresh clone (README) ---------------------------------
+# Only refusals that happen before anything is written: in this repository a real -Release would
+# install the owner's real Main.
+
+
+def test_a_release_must_be_a_tag_in_this_clone() -> None:
+    result = _run("install-main.ps1", "-Release", "dummy-patch-999-not-published")
+    assert result.returncode != 0
+    assert "is not in this clone" in result.stdout + result.stderr
+    assert not REAL_MAIN.exists()
+
+
+def test_a_release_is_never_mixed_with_a_rehearsal_or_another_tag(temp_base: Path) -> None:
+    for extra in (
+        ["-Rehearsal", "-MainRoot", str(temp_base / "Main")],
+        ["-Tag", "dummy-patch-006-x"],
+    ):
+        result = _run(
+            "install-main.ps1", "-Release", "dummy-patch-006-booth-camera-capture", *extra
+        )
+        assert result.returncode != 0
+        assert "not with -Rehearsal or -Tag" in result.stdout + result.stderr
+    assert not (temp_base / "Main").exists()
+
+
+def test_the_installer_needs_a_source() -> None:
+    result = _run("install-main.ps1")
+    assert result.returncode != 0
+    assert "Name the source" in result.stdout + result.stderr
+
+
+def test_a_piped_password_must_be_there() -> None:
+    result = subprocess.run(
+        [
+            "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", str(SCRIPTS / "install-main.ps1"),
+            "-Release", "dummy-patch-999-not-published", "-AdminPasswordStdin",
+        ],
+        input="", capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )  # fmt: skip
+    assert result.returncode != 0
+    assert "no password on the first line" in result.stdout + result.stderr

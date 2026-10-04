@@ -142,11 +142,37 @@ test('a guest decorates a 2×6 and the finished strips match what the booth show
   await page.mouse.down()
   await page.mouse.move(box.x + box.width / 2 - 20, box.y + box.height / 2 + 80, { steps: 8 })
   await page.mouse.up()
-  const moved = (await heart.boundingBox()) as { x: number; y: number }
+  const moved = (await heart.boundingBox()) as { x: number; y: number; width: number; height: number }
   expect(moved.y).toBeGreaterThan(box.y + 40)
-  await page.getByRole('button', { name: 'Bigger' }).click()
-  await page.getByRole('button', { name: 'Turn right' }).click()
-  await page.getByRole('button', { name: 'Turn right' }).click()
+
+  // Its Resize handle (on its corner) makes it bigger in place, keeping its shape.
+  const handles = strips.nth(0).getByTestId('sticker-handles')
+  await expect(handles.getByRole('button')).toHaveCount(3)
+  const resize = (await handles
+    .getByRole('button', { name: 'Resize sticker' })
+    .boundingBox()) as { x: number; y: number; width: number; height: number }
+  const grab = { x: resize.x + resize.width / 2, y: resize.y + resize.height / 2 }
+  const centre = { x: moved.x + moved.width / 2, y: moved.y + moved.height / 2 }
+  await page.mouse.move(grab.x, grab.y)
+  await page.mouse.down()
+  await page.mouse.move(
+    centre.x + (grab.x - centre.x) * 1.5,
+    centre.y + (grab.y - centre.y) * 1.5,
+    { steps: 8 },
+  )
+  await page.mouse.up()
+  const grown = (await heart.boundingBox()) as { x: number; y: number; width: number; height: number }
+  expect(grown.width).toBeGreaterThan(moved.width * 1.3)
+  expect(grown.width / grown.height).toBeCloseTo(moved.width / moved.height, 1) // the same shape
+  expect(grown.x + grown.width / 2).toBeCloseTo(centre.x, -1) // in place
+  expect(grown.y + grown.height / 2).toBeCloseTo(centre.y, -1)
+
+  // A second sticker on the same strip goes again with its Remove handle.
+  await page.getByRole('button', { name: 'Add Star' }).click()
+  await expect(strips.nth(0).getByTestId('placed-sticker')).toHaveCount(2)
+  await handles.getByRole('button', { name: 'Remove sticker' }).click()
+  await expect(strips.nth(0).getByTestId('placed-sticker')).toHaveCount(1)
+  await expect(strips.nth(0).getByTestId('sticker-handles')).toHaveCount(0)
 
   // The second strip gets a star.
   await strips.nth(1).click({ position: { x: 10, y: 10 } })
@@ -172,9 +198,14 @@ test('a guest decorates a 2×6 and the finished strips match what the booth show
     `data:image/png;base64,${(await strips.nth(1).screenshot()).toString('base64')}`,
   ]
 
-  // Confirm: the photos are made once, and the take-home screen follows.
+  // Confirm: the photos are made once, and the take-home screen follows. Even with a sticker
+  // chosen, its handles leave the picture as soon as the guest is asked to confirm.
+  await strips.nth(0).getByTestId('placed-sticker').first().click()
+  await expect(strips.nth(0).getByTestId('sticker-handles')).toHaveCount(1)
   await page.getByRole('button', { name: 'Finish' }).click()
   const dialog = page.getByRole('dialog', { name: 'Finish your photos?' })
+  await expect(page.getByTestId('sticker-handles')).toHaveCount(0)
+  await expect(page.getByTestId('sticker-outline')).toHaveCount(0)
   await dialog.getByRole('button', { name: 'Keep decorating' }).click()
   await expect(dialog).toBeHidden()
   await page.getByRole('button', { name: 'Finish' }).click()
@@ -210,6 +241,61 @@ test('a guest who wants no decorations simply finishes', async ({ page }) => {
   await page.goto('/booth/decorate')
   await expect(page).toHaveURL(/\/booth\/done$/)
   await page.getByRole('button', { name: 'Done' }).click()
+})
+
+test.describe('touchscreen', () => {
+  test.use({ hasTouch: true })
+
+  test('a finger resizes a sticker by its corner handle and removes it with another', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await pairAndSignIn(page)
+    await takePhotos(page, '3×4')
+    await page.getByRole('button', { name: 'Add Heart' }).click()
+    const photo = page.getByTestId('decorated-photo')
+    const heart = photo.getByTestId('placed-sticker')
+    const before = (await heart.boundingBox()) as { x: number; y: number; width: number; height: number }
+    const handle = (await photo
+      .getByRole('button', { name: 'Resize sticker' })
+      .boundingBox()) as { x: number; y: number; width: number; height: number }
+    const from = { x: handle.x + handle.width / 2, y: handle.y + handle.height / 2 }
+    const centre = { x: before.x + before.width / 2, y: before.y + before.height / 2 }
+    const cdp = await page.context().newCDPSession(page)
+    const touch = (p: { x: number; y: number }) => [{ x: Math.round(p.x), y: Math.round(p.y), id: 1 }]
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: touch(from) })
+    for (let step = 1; step <= 8; step++) {
+      const f = 1 + (0.4 * step) / 8 // 40 % farther from the centre
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: touch({
+          x: centre.x + (from.x - centre.x) * f,
+          y: centre.y + (from.y - centre.y) * f,
+        }),
+      })
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    const after = (await heart.boundingBox()) as { width: number; height: number }
+    expect(after.width).toBeGreaterThan(before.width * 1.2)
+    expect(after.width / after.height).toBeCloseTo(before.width / before.height, 1)
+
+    const remove = (await photo
+      .getByRole('button', { name: 'Remove sticker' })
+      .boundingBox()) as { x: number; y: number; width: number; height: number }
+    const tap = { x: remove.x + remove.width / 2, y: remove.y + remove.height / 2 }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: touch(tap) })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await cdp.detach()
+    await expect(heart).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Finish' }).click()
+    await page
+      .getByRole('dialog', { name: 'Finish your photos?' })
+      .getByRole('button', { name: 'Make my photos' })
+      .click()
+    await expect(page).toHaveURL(/\/booth\/done$/, { timeout: 30_000 })
+    await page.getByRole('button', { name: 'Done' }).click()
+  })
 })
 
 test('the event the later specs expect is active again', async ({ page }) => {

@@ -21,10 +21,56 @@
   cursor: grabbing;
 }
 
+/* The chosen sticker: a compact outline on its own edges (screen only, never in the photo). */
 .selection {
   fill: none;
   stroke: var(--ev-primary-bg);
-  stroke-width: 4px;
-  stroke-dasharray: 10 6;
+  stroke-width: 3px;
   pointer-events: none;
+}
+
+/* Its handles: round, the event's colours with a white rim so they show on any frame. */
+.handle {
+  cursor: pointer;
+  touch-action: none;
+}
+
+.handle[data-handle='move'] {
+  cursor: move;
+}
+
+.handle[data-handle='resize'] {
+  cursor: nwse-resize;
+}
+
+.handleDisc {
+  fill: var(--ev-primary-bg);
+  stroke: #ffffff;
+  stroke-width: 3px;
+}
+
+.handle[data-handle='remove'] .handleDisc {
+  fill: var(--ev-danger-bg);
+}
+
+.handle[data-handle='remove'] .handleIcon {
+  stroke: var(--ev-danger-text);
+}
+
+.handleIcon {
+  fill: none;
+  stroke: var(--ev-primary-text);
+  stroke-width: 3px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.handle:focus-visible {
+  outline: none;
+}
+
+.handle:focus-visible .handleDisc {
+  stroke: var(--ev-focus-ring);
+  stroke-width: 5px;
 }
