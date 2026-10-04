@@ -11,7 +11,7 @@ import { PERSISTED, pairAndSignIn, profileRow } from './support/admin'
 test('Retention shows the policies and a look deletes nothing', async ({ page }) => {
   await pairAndSignIn(page)
   await page.goto('/admin/retention')
-  await expect(page.getByRole('heading', { name: 'Retention' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Retention', exact: true })).toBeVisible()
   const standard = page.getByTestId('retention-policy').filter({ hasText: 'Standard' })
   await expect(standard).toContainText('Default')
   await expect(standard).toContainText('Original photos 7 days · finished photos 30 days')
