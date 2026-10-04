@@ -97,6 +97,9 @@ from photobooth.modules.retention.domain import EventNotFoundError, RetentionErr
 from photobooth.modules.retention.files import InstanceFolders
 from photobooth.modules.retention.repository import SqlRetentionRepository
 from photobooth.modules.retention.service import RetentionService
+from photobooth.modules.screen.domain import TvAddress
+from photobooth.modules.screen.opencv import JsonCameraChoiceStore, OpenCvCameras
+from photobooth.modules.screen.service import PcCameraService, TvPairingService
 from photobooth.modules.sessions.domain import (
     MAX_CAPTURE_BYTES,
     MAX_CAPTURE_SIDE,
@@ -643,6 +646,16 @@ class _LinkAddress:
         return f"http://{host}:{self._settings.delivery_port}"
 
 
+def _tv_url(settings: AppSettings) -> str | None:
+    """The address a TV opens to pair, or None when the TV screen listener is off."""
+    if settings.screen_port is None:
+        return None
+    host = settings.screen_host
+    if host in {"0.0.0.0", "::", ""}:  # noqa: S104 - reading the bind address, not binding
+        host = _lan_ipv4()
+    return f"http://{host}:{settings.screen_port}/tv"
+
+
 def _lan_ipv4() -> str:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
@@ -936,6 +949,10 @@ class Container:
         self.pairing_store.clear()  # a code from a previous process is never valid
         self.pairing = PairingService(self.pairing_store, self.device_credentials, clock=clock)
         self.kiosk_pairing_service = KioskPairingService(self.pairing)
+        self.tv_pairing = TvPairingService(self.device_credentials, clock=clock)
+        self.pc_cameras = PcCameraService(
+            OpenCvCameras(), JsonCameraChoiceStore(settings.config_dir / "pc-camera.json")
+        )
         self.launcher = LauncherCredential(
             RuntimeSecretFile(settings.runtime_dir, LAUNCHER_TOKEN_FILENAME)
         )
@@ -994,6 +1011,9 @@ class Container:
         self.registry.register(BoothBindings, BoothBindings())
         self.registry.register(SystemService, self.system_service)
         self.registry.register(KioskPairingService, self.kiosk_pairing_service)
+        self.registry.register(TvPairingService, self.tv_pairing)
+        self.registry.register(PcCameraService, self.pc_cameras)
+        self.registry.register(TvAddress, TvAddress(_tv_url(settings)))
         self.registry.register(TemplateSpecService, self.template_service)
         self.registry.register(RenderService, self.render_service)
         self.registry.register(DeviceCredentialRegistry, self.device_credentials)
@@ -1095,6 +1115,7 @@ class Container:
 
     def close(self) -> None:
         self.pairing.shutdown()
+        self.pc_cameras.close()
         self.launcher.clear()
         self.render_queue.shutdown()
         self.engine.dispose()

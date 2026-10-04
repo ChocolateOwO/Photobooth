@@ -124,6 +124,12 @@ class InstanceGuard:
         s = self._settings
         if s.kiosk_port == s.delivery_port:
             raise InstanceGuardError("ports", "kiosk and delivery ports must differ")
+        if s.screen_port is not None and s.screen_port in (
+            s.kiosk_port,
+            s.delivery_port,
+            s.ui_port,
+        ):
+            raise InstanceGuardError("ports", "the TV screen port must differ from the others")
         expected = PORT_TABLE.get((s.instance, s.profile))
         if expected is None:
             return  # test profile: ephemeral ports, root already confined to temp dir

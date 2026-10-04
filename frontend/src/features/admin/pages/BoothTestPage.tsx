@@ -23,6 +23,7 @@ import { DeliveryPage } from '../../booth/DeliveryPage'
 import { FrameSelectPage } from '../../booth/FrameSelectPage'
 import { useProfiles } from '../api/hooks'
 import styles from './BoothTestPage.module.css'
+import { TvScreenPanel } from './TvScreenPanel'
 
 /**
  * "Test booth": the organizer tries the booth on this machine, with the real camera.
@@ -207,6 +208,8 @@ export function BoothTestPage() {
       >
         Start booth test
       </button>
+
+      <TvScreenPanel />
     </section>
   )
 }

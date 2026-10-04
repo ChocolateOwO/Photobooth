@@ -543,6 +543,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/screen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Screen */
+        get: operations["screen_api_admin_screen_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/screen/camera": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Choose Camera */
+        put: operations["choose_camera_api_admin_screen_camera_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/screen/cameras": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Cameras */
+        get: operations["list_cameras_api_admin_screen_cameras_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/screen/cameras/{index}.jpg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Camera Still */
+        get: operations["camera_still_api_admin_screen_cameras__index__jpg_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/screen/tv-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Tv Code */
+        post: operations["tv_code_api_admin_screen_tv_code_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/statistics": {
         parameters: {
             query?: never;
@@ -634,6 +719,23 @@ export interface paths {
          *     and Text colours. Nothing is saved until the profile is saved.
          */
         post: operations["theme_main_colours_api_admin_themes_main_colours_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/booth/camera/frame.jpg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Booth Frame */
+        get: operations["booth_frame_api_booth_camera_frame_jpg_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1292,6 +1394,11 @@ export interface components {
             /** Template Key */
             template_key: string | null;
         };
+        /** CameraChoice */
+        CameraChoice: {
+            /** Index */
+            index?: number | null;
+        };
         /** CaptureResponse */
         CaptureResponse: {
             /** Attempt No */
@@ -1783,6 +1890,13 @@ export interface components {
             /** Width */
             width: number;
         };
+        /** PcCameraResponse */
+        PcCameraResponse: {
+            /** Index */
+            index: number;
+            /** Label */
+            label: string;
+        };
         /**
          * PhotoSlotResponse
          * @description The shape of one photo in the finished output, so the booth can show that exact frame.
@@ -2242,6 +2356,13 @@ export interface components {
              */
             housekeeping_revision?: number | null;
         };
+        /** ScreenResponse */
+        ScreenResponse: {
+            /** Camera Index */
+            camera_index: number | null;
+            /** Tv Url */
+            tv_url: string | null;
+        };
         /** SessionResponse */
         SessionResponse: {
             /** Csrf Token */
@@ -2572,6 +2693,15 @@ export interface components {
             key: string;
             /** Label */
             label: string;
+        };
+        /** TvCodeResponse */
+        TvCodeResponse: {
+            /** Code */
+            code: string;
+            /** Expires In Seconds */
+            expires_in_seconds: number;
+            /** Tv Url */
+            tv_url: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -3990,6 +4120,128 @@ export interface operations {
             };
         };
     };
+    screen_api_admin_screen_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenResponse"];
+                };
+            };
+        };
+    };
+    choose_camera_api_admin_screen_camera_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CameraChoice"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_cameras_api_admin_screen_cameras_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PcCameraResponse"][];
+                };
+            };
+        };
+    };
+    camera_still_api_admin_screen_cameras__index__jpg_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tv_code_api_admin_screen_tv_code_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TvCodeResponse"];
+                };
+            };
+        };
+    };
     statistics_api_admin_statistics_get: {
         parameters: {
             query?: {
@@ -4117,6 +4369,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MainColoursResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    booth_frame_api_booth_camera_frame_jpg_get: {
+        parameters: {
+            query?: {
+                preview?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

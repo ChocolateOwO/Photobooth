@@ -312,6 +312,25 @@
         "title": "BoothSessionResponse",
         "type": "object"
       },
+      "CameraChoice": {
+        "properties": {
+          "index": {
+            "anyOf": [
+              {
+                "maximum": 9.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index"
+          }
+        },
+        "title": "CameraChoice",
+        "type": "object"
+      },
       "CaptureResponse": {
         "properties": {
           "attempt_no": {
@@ -1408,6 +1427,24 @@
         "title": "OutputResponse",
         "type": "object"
       },
+      "PcCameraResponse": {
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "label"
+        ],
+        "title": "PcCameraResponse",
+        "type": "object"
+      },
       "PhotoSlotResponse": {
         "description": "The shape of one photo in the finished output, so the booth can show that exact frame.",
         "properties": {
@@ -2374,6 +2411,38 @@
         "title": "RunBody",
         "type": "object"
       },
+      "ScreenResponse": {
+        "properties": {
+          "camera_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camera Index"
+          },
+          "tv_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tv Url"
+          }
+        },
+        "required": [
+          "tv_url",
+          "camera_index"
+        ],
+        "title": "ScreenResponse",
+        "type": "object"
+      },
       "SessionResponse": {
         "properties": {
           "csrf_token": {
@@ -3231,6 +3300,36 @@
           "description"
         ],
         "title": "TokenInfo",
+        "type": "object"
+      },
+      "TvCodeResponse": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_in_seconds": {
+            "title": "Expires In Seconds",
+            "type": "integer"
+          },
+          "tv_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tv Url"
+          }
+        },
+        "required": [
+          "code",
+          "expires_in_seconds",
+          "tv_url"
+        ],
+        "title": "TvCodeResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -5490,6 +5589,149 @@
         ]
       }
     },
+    "/api/admin/screen": {
+      "get": {
+        "operationId": "screen_api_admin_screen_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Screen",
+        "tags": [
+          "admin-screen"
+        ]
+      }
+    },
+    "/api/admin/screen/camera": {
+      "put": {
+        "operationId": "choose_camera_api_admin_screen_camera_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CameraChoice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Choose Camera",
+        "tags": [
+          "admin-screen"
+        ]
+      }
+    },
+    "/api/admin/screen/cameras": {
+      "get": {
+        "operationId": "list_cameras_api_admin_screen_cameras_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PcCameraResponse"
+                  },
+                  "title": "Response List Cameras Api Admin Screen Cameras Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Cameras",
+        "tags": [
+          "admin-screen"
+        ]
+      }
+    },
+    "/api/admin/screen/cameras/{index}.jpg": {
+      "get": {
+        "operationId": "camera_still_api_admin_screen_cameras__index__jpg_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "index",
+            "required": true,
+            "schema": {
+              "title": "Index",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Camera Still",
+        "tags": [
+          "admin-screen"
+        ]
+      }
+    },
+    "/api/admin/screen/tv-code": {
+      "post": {
+        "operationId": "tv_code_api_admin_screen_tv_code_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TvCodeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Tv Code",
+        "tags": [
+          "admin-screen"
+        ]
+      }
+    },
     "/api/admin/statistics": {
       "get": {
         "operationId": "statistics_api_admin_statistics_get",
@@ -5698,6 +5940,42 @@
         "summary": "Theme Main Colours",
         "tags": [
           "admin-themes"
+        ]
+      }
+    },
+    "/api/booth/camera/frame.jpg": {
+      "get": {
+        "operationId": "booth_frame_api_booth_camera_frame_jpg_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "preview",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Preview",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Booth Frame",
+        "tags": [
+          "screen"
         ]
       }
     },

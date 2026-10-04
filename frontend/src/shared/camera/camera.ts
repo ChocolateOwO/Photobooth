@@ -41,7 +41,7 @@ export interface CameraView {
 }
 
 export interface CameraSource {
-  readonly kind: 'browser' | 'test'
+  readonly kind: 'browser' | 'test' | 'pc'
   /** Cameras to choose from; may be empty before permission is granted. */
   devices(): Promise<CameraDevice[]>
   open(deviceId?: string): Promise<CameraView>
@@ -84,17 +84,20 @@ async function toJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
   return blob
 }
 
-/** Draws the current video picture at capture size, cropped to fill (never stretched). */
-function drawCover(video: HTMLVideoElement, canvas: HTMLCanvasElement): void {
+/** Draws a picture at capture size, cropped to fill (never stretched). */
+function drawCover(
+  picture: CanvasImageSource,
+  width: number,
+  height: number,
+  canvas: HTMLCanvasElement,
+): void {
   const context = canvas.getContext('2d')
   if (!context) throw new CameraError('failed', 'this browser can not take photos')
-  const width = video.videoWidth || CAPTURE_WIDTH
-  const height = video.videoHeight || CAPTURE_HEIGHT
   const scale = Math.max(canvas.width / width, canvas.height / height)
   const drawWidth = width * scale
   const drawHeight = height * scale
   context.drawImage(
-    video,
+    picture,
     (canvas.width - drawWidth) / 2,
     (canvas.height - drawHeight) / 2,
     drawWidth,
@@ -155,7 +158,12 @@ export class BrowserCamera implements CameraSource {
         if (!stream.getVideoTracks().some((track) => track.readyState === 'live')) {
           throw new CameraError('lost', cameraMessage('lost'))
         }
-        drawCover(video, canvas)
+        drawCover(
+          video,
+          video.videoWidth || CAPTURE_WIDTH,
+          video.videoHeight || CAPTURE_HEIGHT,
+          canvas,
+        )
         return toJpeg(canvas)
       },
       stop() {
@@ -222,6 +230,107 @@ export class TestCamera implements CameraSource {
   }
 }
 
+const PC_FRAME_PATH = '/api/booth/camera/frame.jpg'
+const PC_PREVIEW_PAUSE_MS = 60
+const PC_RETRY_PAUSE_MS = 500
+const PC_FAILURES_UNTIL_LOST = 3
+
+const pause = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms))
+
+type FrameFetcher = (path: string) => Promise<Response>
+
+/**
+ * The booth PC's own camera, for a booth screen on another device (a TV's browser on the LAN).
+ *
+ * The PC takes the pictures; this screen only shows them. The live picture is a quick run of
+ * small stills, and each photo is one full-size still, cropped exactly like the browser camera's.
+ * Which PC camera is used is chosen in Admin on the PC.
+ */
+export class PcCamera implements CameraSource {
+  readonly kind = 'pc'
+  private readonly fetchFrame: FrameFetcher
+
+  constructor(
+    fetcher: FrameFetcher = (path) => fetch(path, { credentials: 'same-origin', cache: 'no-store' }),
+  ) {
+    this.fetchFrame = fetcher
+  }
+
+  async devices(): Promise<CameraDevice[]> {
+    return [{ id: 'pc-camera', label: 'Booth PC camera' }]
+  }
+
+  private async still(preview: boolean): Promise<ImageBitmap> {
+    let response: Response
+    try {
+      response = await this.fetchFrame(preview ? `${PC_FRAME_PATH}?preview=true` : PC_FRAME_PATH)
+    } catch {
+      throw new CameraError('lost', cameraMessage('lost'))
+    }
+    if (response.status === 503) throw new CameraError('missing', cameraMessage('missing'))
+    if (!response.ok) throw new CameraError('failed', cameraMessage('failed'))
+    try {
+      return await createImageBitmap(await response.blob())
+    } catch {
+      throw new CameraError('failed', cameraMessage('failed'))
+    }
+  }
+
+  async open(): Promise<CameraView> {
+    const first = await this.still(true) // no picture: the booth says so before any countdown
+    const canvas = document.createElement('canvas')
+    canvas.width = CAPTURE_WIDTH
+    canvas.height = CAPTURE_HEIGHT
+    const photoCanvas = document.createElement('canvas')
+    photoCanvas.width = CAPTURE_WIDTH
+    photoCanvas.height = CAPTURE_HEIGHT
+    const show = (picture: ImageBitmap) => {
+      drawCover(picture, picture.width, picture.height, canvas)
+      picture.close()
+    }
+    show(first)
+    let stopped = false
+    let failures = 0
+    void (async () => {
+      while (!stopped) {
+        try {
+          const picture = await this.still(true)
+          if (stopped) {
+            picture.close()
+            break
+          }
+          show(picture)
+          failures = 0
+          await pause(PC_PREVIEW_PAUSE_MS)
+        } catch {
+          failures += 1
+          await pause(PC_RETRY_PAUSE_MS)
+        }
+      }
+    })()
+    const stream =
+      typeof canvas.captureStream === 'function' ? canvas.captureStream(15) : new MediaStream()
+    const live = () => !stopped && failures < PC_FAILURES_UNTIL_LOST
+    return {
+      stream,
+      live,
+      photo: async () => {
+        if (!live()) throw new CameraError('lost', cameraMessage('lost'))
+        const picture = await this.still(false)
+        drawCover(picture, picture.width, picture.height, photoCanvas)
+        picture.close()
+        return toJpeg(photoCanvas)
+      },
+      stop() {
+        stopped = true
+        for (const track of stream.getTracks()) track.stop()
+      },
+    }
+  }
+}
+
+const THIS_MACHINE = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
+
 export const CAMERA_DEVICE_SETTING = 'pb.booth.cameraDevice'
 
 /** The camera this booth was told to use (an operator's choice, kept for the next visits). */
@@ -243,10 +352,11 @@ export function rememberCamera(deviceId: string | null): void {
 }
 
 /**
- * The camera of this booth. There is only one kind in the running app: the machine's own camera
- * through the browser. The drawn `TestCamera` above is never chosen here — automated tests hand
- * it to a screen directly — so a booth can never quietly photograph generated pictures.
+ * The camera of this booth. Opened on the booth PC itself: the PC's camera through the browser.
+ * Opened on another device (a TV on the LAN): the booth PC's camera, through the server. The
+ * drawn `TestCamera` above is never chosen here — automated tests hand it to a screen directly —
+ * so a booth can never quietly photograph generated pictures.
  */
-export function chooseCamera(): CameraSource {
-  return new BrowserCamera()
+export function chooseCamera(hostname: string = window.location.hostname): CameraSource {
+  return THIS_MACHINE.has(hostname) ? new BrowserCamera() : new PcCamera()
 }

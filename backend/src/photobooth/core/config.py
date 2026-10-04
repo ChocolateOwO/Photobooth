@@ -48,6 +48,10 @@ class AppSettings(BaseSettings):
     delivery_port: int = Field(ge=1, le=65535)
     # The address guests' phones use in the QR link. Unset: the booth's own LAN address.
     delivery_public_host: str | None = None
+    # Optional LAN listener for a second booth screen (a TV's browser). It serves the booth
+    # screens only (never Admin) and the photos come from this PC's camera. Unset: no listener.
+    screen_host: str = "0.0.0.0"  # noqa: S104 - the TV screen listener is LAN-facing by intent
+    screen_port: int | None = Field(default=None, ge=1, le=65535)
 
     frontend_dist: Path | None = None
     git_commit: str | None = None

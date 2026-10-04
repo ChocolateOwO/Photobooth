@@ -28,6 +28,13 @@ def listener_specs(settings: AppSettings) -> tuple[ListenerSpec, ListenerSpec]:
     return kiosk, delivery
 
 
+def screen_spec(settings: AppSettings) -> ListenerSpec | None:
+    """The optional TV screen listener (booth screens only, see core.screen_gate)."""
+    if settings.screen_port is None:
+        return None
+    return ListenerSpec("screen", settings.screen_host, settings.screen_port)
+
+
 def build_server(app: ASGIApp, spec: ListenerSpec) -> uvicorn.Server:
     config = uvicorn.Config(
         app,

@@ -105,4 +105,10 @@ def test_openapi_lists_only_expected_public_paths(kiosk_client: TestClient) -> N
         "/api/admin/retention/runs",
         "/api/admin/retention/events/{profile_id}/remove",
         "/api/admin/system",
+        "/api/booth/camera/frame.jpg",
+        "/api/admin/screen",
+        "/api/admin/screen/cameras",
+        "/api/admin/screen/camera",
+        "/api/admin/screen/cameras/{index}.jpg",
+        "/api/admin/screen/tv-code",
     }

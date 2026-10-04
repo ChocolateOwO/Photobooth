@@ -38,6 +38,9 @@ export type RetentionReport = Schemas['RetentionReportResponse']
 export type RetentionRun = Schemas['RetentionRunResponse']
 export type EventRemoval = Schemas['EventRemovalResponse']
 export type SystemDetails = Schemas['SystemDetailsResponse']
+export type ScreenDetails = Schemas['ScreenResponse']
+export type PcCamera = Schemas['PcCameraResponse']
+export type TvCode = Schemas['TvCodeResponse']
 
 /** A period (ISO instants) and, optionally, one event. */
 export interface PeriodQuery {
@@ -443,6 +446,13 @@ export function createAdminApiClient(
       }),
     retentionRuns: () => send<RetentionRun[]>('GET', '/api/admin/retention/runs'),
     systemDetails: () => send<SystemDetails>('GET', '/api/admin/system'),
+    /** The TV screen: its address and the PC camera the TV booth photographs with. */
+    screen: () => send<ScreenDetails>('GET', '/api/admin/screen'),
+    pcCameras: () => send<PcCamera[]>('GET', '/api/admin/screen/cameras'),
+    choosePcCamera: (index: number | null) =>
+      send<ScreenDetails>('PUT', '/api/admin/screen/camera', { json: { index } }),
+    /** A new six-digit code to type on the TV (replaces the previous one). */
+    tvCode: () => send<TvCode>('POST', '/api/admin/screen/tv-code'),
     /** A deleted event for good, with its visits: a dry run counts only. */
     removeEvent: (profileId: string, dryRun: boolean) =>
       send<EventRemoval>(

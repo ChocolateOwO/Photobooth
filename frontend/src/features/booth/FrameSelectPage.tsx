@@ -9,6 +9,7 @@ import { BoothLoadState } from './BoothLoadState'
 import { BoothShell } from './BoothShell'
 import { useBoothMenu } from './boothMenu'
 import styles from './FrameSelectPage.module.css'
+import { newKey } from '../../shared/random/newKey'
 
 /** The frame this browser confirmed, so coming back opens the carousel where it was left. */
 export const SESSION_FRAME_KEY = 'pb.booth.chosenFrame'
@@ -28,10 +29,6 @@ function remember(frameId: string | null): void {
   } catch {
     // Storage may be unavailable (private mode); the choice stays in this screen's state.
   }
-}
-
-function newKey(): string {
-  return crypto.randomUUID().replaceAll('-', '')
 }
 
 /** Participant screen: choose the frame, confirm it, and the photo session begins. */

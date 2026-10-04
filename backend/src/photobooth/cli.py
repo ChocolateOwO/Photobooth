@@ -22,9 +22,10 @@ from photobooth.container import Container
 from photobooth.core.config import AppSettings
 from photobooth.core.errors import InstanceGuardError, PhotoboothError
 from photobooth.core.instance_guard import PORT_TABLE, InstanceGuard, InstanceLock, real_path
-from photobooth.core.listeners import build_server, listener_specs, serve_together
+from photobooth.core.listeners import build_server, listener_specs, screen_spec, serve_together
 from photobooth.core.logging import configure_logging
 from photobooth.core.migrations import Migrator
+from photobooth.core.screen_gate import ScreenGateMiddleware
 from photobooth.core.sqlite_backup import SqliteBackupService
 from photobooth.core.web import ServiceRegistry
 from photobooth.main import KioskAppOptions, create_delivery_app, create_kiosk_app
@@ -90,6 +91,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 build_server(kiosk_app, kiosk_spec),
                 build_server(create_delivery_app(container.registry), delivery_spec),
             ]
+            tv_spec = screen_spec(settings)
+            if tv_spec is not None:
+                # The same kiosk app, behind the gate that keeps Admin off the LAN.
+                tv_app = ScreenGateMiddleware(kiosk_app, settings.kiosk_port)
+                servers.append(build_server(tv_app, tv_spec))
+                log.info("TV screen listener on %s:%s", tv_spec.host, tv_spec.port)
             log.info(
                 "starting instance=%s profile=%s kiosk=%s:%s delivery=%s:%s boot=%s",
                 settings.instance,

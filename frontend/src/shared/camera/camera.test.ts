@@ -4,6 +4,7 @@ import {
   BrowserCamera,
   CAMERA_DEVICE_SETTING,
   CameraError,
+  PcCamera,
   TestCamera,
   cameraMessage,
   chooseCamera,
@@ -40,6 +41,25 @@ afterEach(() => {
 })
 
 describe('the booth camera', () => {
+  it("on another device (a TV on the Wi-Fi) is the booth PC's camera", () => {
+    expect(chooseCamera('192.168.1.135')).toBeInstanceOf(PcCamera)
+    expect(chooseCamera('127.0.0.1')).toBeInstanceOf(BrowserCamera)
+    expect(chooseCamera('localhost')).toBeInstanceOf(BrowserCamera)
+  })
+
+  it("says 'missing' when the PC has no camera to give, before any countdown", async () => {
+    const fetcher = vi.fn(async () => new Response(null, { status: 503 }))
+    await expect(new PcCamera(fetcher).open()).rejects.toMatchObject({ problem: 'missing' })
+    expect(fetcher).toHaveBeenCalledWith('/api/booth/camera/frame.jpg?preview=true')
+  })
+
+  it("says 'lost' when the PC can not be reached", async () => {
+    const fetcher = vi.fn(async () => {
+      throw new TypeError('network')
+    })
+    await expect(new PcCamera(fetcher).open()).rejects.toMatchObject({ problem: 'lost' })
+  })
+
   it("is always the machine's own camera; the drawn one can not be asked for", () => {
     expect(chooseCamera().kind).toBe('browser')
     expect(chooseCamera()).toBeInstanceOf(BrowserCamera)

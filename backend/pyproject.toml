@@ -18,6 +18,7 @@ dependencies = [
     "argon2-cffi>=23.1",
     "python-multipart>=0.0.18",
     "segno>=1.6",
+    "opencv-python-headless>=4.10",
 ]
 
 [project.optional-dependencies]
@@ -106,6 +107,7 @@ containers = [
     "photobooth.modules.decorations",
     "photobooth.modules.activity",
     "photobooth.modules.retention",
+    "photobooth.modules.screen",
 ]
 layers = ["api", "service", "domain"]
 exhaustive = false
@@ -141,6 +143,8 @@ source_modules = [
     "photobooth.modules.activity.service",
     "photobooth.modules.retention.api",
     "photobooth.modules.retention.service",
+    "photobooth.modules.screen.api",
+    "photobooth.modules.screen.service",
 ]
 forbidden_modules = [
     "photobooth.modules.system.repository",
@@ -165,6 +169,8 @@ forbidden_modules = [
     "photobooth.modules.activity.repository",
     "photobooth.modules.retention.repository",
     "photobooth.modules.retention.files",
+    "photobooth.modules.screen.opencv",
+    "cv2",
     "segno",
     "PIL",
     "argon2",
@@ -190,9 +196,11 @@ source_modules = [
     "photobooth.modules.decorations.domain",
     "photobooth.modules.activity.domain",
     "photobooth.modules.retention.domain",
+    "photobooth.modules.screen.domain",
 ]
 forbidden_modules = [
     "fastapi",
+    "cv2",
     "starlette",
     "sqlalchemy",
     "uvicorn",

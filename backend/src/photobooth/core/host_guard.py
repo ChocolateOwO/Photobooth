@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
-def _host_name(raw: bytes | None) -> str | None:
+def host_name(raw: bytes | None) -> str | None:
     if not raw:
         return None
     value = raw.decode("latin-1").strip().lower()
@@ -43,7 +43,7 @@ class HostAllowlistMiddleware:
             await self._app(scope, receive, send)
             return
         raw = dict(scope.get("headers") or []).get(b"host")
-        if _host_name(raw) not in self._allowed:
+        if host_name(raw) not in self._allowed:
             if scope["type"] == "websocket":
                 await send({"type": "websocket.close", "code": 1008})
                 return

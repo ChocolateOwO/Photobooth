@@ -31,6 +31,7 @@ import {
 } from './decorationEditor'
 import { useIdleTimeout, useKeepAlive } from './useIdleTimeout'
 import styles from './DecoratePage.module.css'
+import { newKey } from '../../shared/random/newKey'
 
 /**
  * Decorating the finished photos: a filter for the photos and stickers on top, then Finish.
@@ -43,10 +44,6 @@ import styles from './DecoratePage.module.css'
 
 const BUSY_RETRIES = 8
 const BUSY_WAIT_MS = 1500
-
-function newKey(): string {
-  return crypto.randomUUID().replaceAll('-', '')
-}
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))

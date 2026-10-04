@@ -25,6 +25,7 @@ import { LEAVE_DEADLINE_MS, settleWithin } from './kiosk'
 import { CapturedPhotos } from './CapturedPhotos'
 import { PhotoDialog } from './PhotoDialog'
 import styles from './CapturePage.module.css'
+import { newKey } from '../../shared/random/newKey'
 
 /**
  * The photo session: one countdown and one photo per shot of the chosen frame.
@@ -47,10 +48,6 @@ interface PendingPhoto {
   attempt: number
   key: string
   photo: Blob
-}
-
-function newKey(): string {
-  return crypto.randomUUID().replaceAll('-', '')
 }
 
 interface CapturePageProps {
