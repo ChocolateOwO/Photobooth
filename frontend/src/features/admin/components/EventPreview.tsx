@@ -29,6 +29,7 @@ const DEFAULT_PREVIEW_SIZE: ScreenSize = { width: 1080, height: 1920 }
 const SIZE_PRESETS: (ScreenSize & { name: string })[] = [
   { name: 'Kiosk portrait', width: 1080, height: 1920 },
   { name: 'Kiosk landscape', width: 1920, height: 1080 },
+  { name: 'TV portrait 4K', width: 2160, height: 3840 },
   { name: 'Tablet', width: 1280, height: 800 },
   { name: 'Phone', width: 390, height: 844 },
 ]
@@ -37,6 +38,32 @@ const RETAKE_LABELS: Record<RetakeMode, string> = {
   none: 'No retakes',
   per_photo: 'Retake any single photo',
   all: 'Retake all photos',
+}
+
+// The last preview size, kept in this browser only so the organizer need not type it again.
+const PREVIEW_SIZE_SETTING = 'pb.admin.previewSize'
+
+function rememberedSize(): ScreenSize {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(PREVIEW_SIZE_SETTING) ?? 'null') as unknown
+    if (saved && typeof saved === 'object') {
+      const { width, height } = saved as Record<string, unknown>
+      const w = parseSide(String(width))
+      const h = parseSide(String(height))
+      if (w !== null && h !== null) return { width: w, height: h }
+    }
+  } catch {
+    // Unreadable or unavailable storage: the default size.
+  }
+  return DEFAULT_PREVIEW_SIZE
+}
+
+function rememberSize(size: ScreenSize): void {
+  try {
+    window.localStorage.setItem(PREVIEW_SIZE_SETTING, JSON.stringify(size))
+  } catch {
+    // Storage may be unavailable; the size simply is not kept.
+  }
 }
 
 function parseSide(text: string): number | null {
@@ -138,11 +165,17 @@ function PreviewScreen({ settings, templates, frames, mode }: EventPreviewProps 
 
 export function EventPreview({ settings, templates, frames }: EventPreviewProps) {
   const [mode, setMode] = useState<Mode>('start')
-  const [size, setSize] = useState<ScreenSize>(DEFAULT_PREVIEW_SIZE)
-  const [draft, setDraft] = useState({
-    width: String(DEFAULT_PREVIEW_SIZE.width),
-    height: String(DEFAULT_PREVIEW_SIZE.height),
-  })
+  const [size, setSizeState] = useState<ScreenSize>(rememberedSize)
+  const [draft, setDraft] = useState(() => ({
+    width: String(size.width),
+    height: String(size.height),
+  }))
+  const setSize = (next: ScreenSize | ((current: ScreenSize) => ScreenSize)) =>
+    setSizeState((current) => {
+      const value = typeof next === 'function' ? next(current) : next
+      rememberSize(value)
+      return value
+    })
   const widthOk = parseSide(draft.width) !== null
   const heightOk = parseSide(draft.height) !== null
   const orientation = size.height >= size.width ? 'portrait' : 'landscape'
