@@ -112,7 +112,9 @@ def _mount_spa(app: FastAPI, dist: Path) -> None:
         candidate = (dist / path).resolve()
         if path and candidate.is_file() and dist_real in candidate.parents:
             return FileResponse(candidate)
-        return FileResponse(index)
+        # The page is checked with the server every time (a TV or the Admin browser never keeps
+        # showing an old version); the hashed files in /assets it points at are cached as usual.
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
 
 
 _DELIVERY_HEADERS = {

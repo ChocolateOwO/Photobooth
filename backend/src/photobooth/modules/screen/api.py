@@ -42,7 +42,8 @@ admin_router = APIRouter(
 )
 
 _NO_STORE = {"Cache-Control": "no-store"}
-PREVIEW_WIDTH = 640
+# Sharp enough for a 4K TV's live picture, small enough for Wi-Fi at about ten pictures a second.
+PREVIEW_WIDTH = 1280
 
 
 def _jpeg(data: bytes) -> Response:

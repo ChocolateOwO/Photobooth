@@ -23,8 +23,10 @@ from photobooth.modules.screen.domain import CameraUnavailableError, PcCameraInf
 
 log = logging.getLogger("photobooth.screen")
 
-CAPTURE_WIDTH = 1280
-CAPTURE_HEIGHT = 960
+# The camera's own best mode: most webcams give full HD at 30 fps only as MJPG (the raw mode
+# they fall back to is smaller or slower), which is also what the browser asks for.
+CAPTURE_WIDTH = 1920
+CAPTURE_HEIGHT = 1080
 JPEG_QUALITY = 92
 PROBE_LIMIT = 6
 IDLE_SECONDS = 20.0
@@ -97,11 +99,15 @@ class _Reader:
             self._last_used = time.monotonic()
 
     def _run(self) -> None:
-        capture = cv2.VideoCapture(self.index)
+        capture = cv2.VideoCapture(self.index, cv2.CAP_DSHOW)
+        if not capture.isOpened():
+            capture.release()
+            capture = cv2.VideoCapture(self.index)
         try:
             if not capture.isOpened():
                 self.failed = True
                 return
+            capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*"MJPG"))
             capture.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURE_WIDTH)
             capture.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURE_HEIGHT)
             misses = 0

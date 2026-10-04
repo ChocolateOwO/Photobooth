@@ -163,7 +163,7 @@ def test_the_paired_tv_gets_pictures_of_the_chosen_camera(
     assert chosen.json()["camera_index"] == 1
     assert tv_client.get("/api/booth/camera/frame.jpg").content.endswith(b"-1")
     assert tv_client.get("/api/booth/camera/frame.jpg?preview=true").status_code == 200
-    assert cameras.asked[-1] == (1, 640)
+    assert cameras.asked[-1] == (1, 1280)
 
 
 def test_a_missing_camera_answers_503(
