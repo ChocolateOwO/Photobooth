@@ -190,7 +190,9 @@ test('an expired admin session returns to sign-in without showing data', async (
 
   // The server-side session is gone (idle/absolute expiry, logout elsewhere or restart).
   await context.clearCookies({ name: 'pb_admin_dummy' })
-  await page.getByRole('checkbox', { name: 'Show deleted profiles' }).check()
+  // click, not check: the refused request replaces the page with sign-in, so the box may never be
+  // seen checked (check() then waited for it and timed out when the answer came back quickly).
+  await page.getByRole('checkbox', { name: 'Show deleted profiles' }).click()
   await expect(page.getByRole('alert')).toHaveText('Your session expired. Sign in again.')
   await expect(page.getByRole('heading', { name: 'Admin sign in' })).toBeVisible()
   await expect(profileRow(page, PERSISTED.original)).toHaveCount(0)
