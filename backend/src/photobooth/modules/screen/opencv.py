@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -29,6 +31,44 @@ IDLE_SECONDS = 20.0
 FIRST_FRAME_SECONDS = 5.0
 STALE_SECONDS = 2.0
 LIST_CACHE_SECONDS = 30.0
+
+
+# Windows lists video capture devices in the order OpenCV numbers them; asked through PowerShell
+# (WinRT), so no extra package is needed. Anything that goes wrong just leaves "Camera N".
+_NAMES_SCRIPT = (
+    "Add-Type -AssemblyName System.Runtime.WindowsRuntime;"
+    "$null=[Windows.Devices.Enumeration.DeviceInformation,Windows.Devices.Enumeration,"
+    "ContentType=WindowsRuntime];"
+    "$m=([System.WindowsRuntimeSystemExtensions].GetMethods()|Where-Object{$_.Name -eq 'AsTask'"
+    " -and $_.GetParameters().Count -eq 1 -and"
+    " $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'})[0];"
+    "$op=[Windows.Devices.Enumeration.DeviceInformation]::FindAllAsync("
+    "[Windows.Devices.Enumeration.DeviceClass]::VideoCapture);"
+    "$t=$m.MakeGenericMethod([Windows.Devices.Enumeration.DeviceInformationCollection])"
+    ".Invoke($null,@($op));$t.Wait();"
+    "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+    "$t.Result|ForEach-Object{$_.Name}"
+)
+
+
+def camera_names() -> list[str]:
+    """This PC's camera names, in OpenCV's index order (empty when Windows will not say)."""
+    if sys.platform != "win32":
+        return []
+    try:
+        done = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", _NAMES_SCRIPT],
+            capture_output=True,
+            timeout=15,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if done.returncode != 0:
+        return []
+    text = done.stdout.decode("utf-8", errors="replace").lstrip("﻿")
+    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 class _Reader:
@@ -121,6 +161,7 @@ class OpenCvCameras:
             if self._listed_at is not None and now - self._listed_at < LIST_CACHE_SECONDS:
                 return list(self._listed)
             open_now = {i for i, r in self._readers.items() if r.alive()}
+        names = camera_names()
         found: list[PcCameraInfo] = []
         for index in range(PROBE_LIMIT):
             if index not in open_now:
@@ -130,7 +171,8 @@ class OpenCvCameras:
                         continue
                 finally:
                     capture.release()
-            found.append(PcCameraInfo(index=index, label=f"Camera {index + 1}"))
+            name = names[index] if index < len(names) else f"Camera {index + 1}"
+            found.append(PcCameraInfo(index=index, label=f"{index + 1}. {name}"))
         with self._lock:
             self._listed = found
             self._listed_at = time.monotonic()
