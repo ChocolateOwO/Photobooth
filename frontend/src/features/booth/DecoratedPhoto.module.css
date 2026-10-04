@@ -29,7 +29,8 @@
   pointer-events: none;
 }
 
-/* Its handles: round, the event's colours with a white rim so they show on any frame. */
+/* Its handles: round, in the event's button colours, rimmed with the button's own text colour so
+   they stand out on any frame (the theme guarantees that pair's contrast). */
 .handle {
   cursor: pointer;
   touch-action: none;
@@ -45,12 +46,13 @@
 
 .handleDisc {
   fill: var(--ev-primary-bg);
-  stroke: #ffffff;
+  stroke: var(--ev-primary-text);
   stroke-width: 3px;
 }
 
 .handle[data-handle='remove'] .handleDisc {
   fill: var(--ev-danger-bg);
+  stroke: var(--ev-danger-text);
 }
 
 .handle[data-handle='remove'] .handleIcon {
