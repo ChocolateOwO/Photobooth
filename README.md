@@ -88,6 +88,36 @@ C:\Photobooth\Main\app\backend\.venv\Scripts\python.exe -m photobooth admin-set-
 - Admin → System shows the address the phones use. The link in each QR code works for the
   number of days the event's retention policy allows (7 by default).
 
+### TV screen (booth on a TV, photos from the PC camera)
+
+Guests can use the booth on a TV (or any big screen with a browser) on the same Wi-Fi. The TV
+shows the booth and takes the touches; the booth PC's camera takes the photos. Admin is never
+reachable from the TV.
+
+1. Switch it on: add a port to `C:\Photobooth\Main\config\photobooth.env`, then start the booth
+   again (stop, then start):
+
+   ```
+   PHOTOBOOTH_SCREEN_PORT=8125
+   ```
+
+   Without this line the TV screen is off, and Admin says so. When Windows asks, allow Python on
+   **Private** networks (same rule as the phones above).
+2. Choose the camera: Admin → **Test booth** → **TV screen** → **Camera for the TV booth**. The
+   list shows this PC's camera names from Windows; the still below shows what the chosen camera
+   sees (**Refresh** for a new one). The camera sends full HD pictures.
+3. Connect the TV: in the same panel, click **Show TV code**. A six-digit code appears; it works
+   once, for 2 minutes, with 5 tries.
+4. On the TV's browser, open the address the panel shows (`http://<this PC's address>:8125/tv`),
+   type the code, and press **Connect**. The TV opens the booth and stays paired.
+
+The code expired or the TV forgot the pairing (browser data cleared)? Click **Show a new TV code**
+and do step 4 again. Nothing appears on the TV? Check that the TV and the PC are on the same Wi-Fi
+and that the network does not isolate clients.
+
+To see how the booth looks on the TV before the event: Admin → Event Profiles → open the
+event's profile → in its preview, choose the screen size **TV portrait 4K** (2160 × 3840). The preview remembers the size you chose.
+
 ### Where the data is
 
 | What | Where |
