@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -51,6 +54,28 @@ def test_powershell_bom_on_stdin_is_not_part_of_the_password(
     monkeypatch.setattr("sys.stdin", io.StringIO("﻿" + PASSWORD + "\r\n"))
     assert main(["admin-set-password", "--env-file", str(env), "--password-stdin"]) == 0
     assert PasswordHasher().verify(_hash(thai_root), PASSWORD)
+
+
+def test_a_non_ascii_password_piped_as_utf8_signs_in(thai_root: Path) -> None:
+    # What install-main.ps1 -AdminPasswordStdin sends (Invoke-NativeWithLine): UTF-8 bytes behind
+    # the BOM Windows PowerShell 5.1 always adds, CRLF, and PYTHONIOENCODING=utf-8 so the child
+    # never decodes with the console code page.
+    from argon2 import PasswordHasher
+
+    password = "รหัสผ่านแอดมิน-ü-" + PASSWORD
+    env = _init_env(thai_root)
+    assert main(["db-upgrade", "--env-file", str(env)]) == 0
+    child_env = {k: v for k, v in os.environ.items() if not k.startswith("PHOTOBOOTH_")}
+    child_env["PYTHONIOENCODING"] = "utf-8"
+    result = subprocess.run(
+        [sys.executable, "-m", "photobooth", "admin-set-password", "--env-file", str(env),
+         "--password-stdin"],
+        input=("\ufeff" + password + "\r\n").encode("utf-8"), capture_output=True, env=child_env,
+        check=False,
+    )  # fmt: skip
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    assert password.encode("utf-8") not in result.stdout + result.stderr
+    assert PasswordHasher().verify(_hash(thai_root), password)
 
 
 def test_refuses_weak_password_and_wrong_intent(

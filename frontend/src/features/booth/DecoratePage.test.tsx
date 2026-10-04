@@ -343,6 +343,60 @@ describe('DecoratePage (decorating the finished photos)', () => {
     })
   })
 
+  it('a second finger during a resize is ignored, whichever lifts first (review R2)', async () => {
+    await withGeometry(async () => {
+      const { fetcher } = server(visit())
+      renderDecorate(fetcher)
+      const { first } = await ready()
+      await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+      const heart = within(first).getByTestId('placed-sticker')
+      const width = () => Number(heart.querySelector('image')?.getAttribute('width'))
+      const resize = within(first).getByRole('button', { name: 'Resize sticker' })
+      fireEvent.pointerDown(resize, { pointerId: 1, pointerType: 'touch', clientX: 396, clientY: 986.4 })
+      fireEvent.pointerMove(first, { pointerId: 1, pointerType: 'touch', clientX: 492, clientY: 1072.8 })
+      expect(width()).toBeCloseTo(384)
+      // Another finger lands on the sticker and moves to its centre: nothing changes.
+      fireEvent.pointerDown(heart, { pointerId: 2, pointerType: 'touch', clientX: 320, clientY: 920 })
+      fireEvent.pointerMove(first, { pointerId: 2, pointerType: 'touch', clientX: 300, clientY: 900 })
+      expect(width()).toBeCloseTo(384)
+      expect(heart).toHaveAttribute('transform', 'translate(300 900) rotate(0)')
+      // The other finger lifts first: the resize goes on with the first one.
+      fireEvent.pointerUp(first, { pointerId: 2, pointerType: 'touch' })
+      fireEvent.pointerMove(first, { pointerId: 1, pointerType: 'touch', clientX: 444, clientY: 1029.6 })
+      expect(width()).toBeCloseTo(288)
+      fireEvent.pointerUp(first, { pointerId: 1, pointerType: 'touch' })
+      // One undo step for the whole resize.
+      await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
+      expect(width()).toBeCloseTo(192)
+    })
+  })
+
+  it('when the resizing finger lifts first, the resize ends and the other finger changes nothing', async () => {
+    await withGeometry(async () => {
+      const { fetcher } = server(visit())
+      renderDecorate(fetcher)
+      const { first } = await ready()
+      await userEvent.click(screen.getByRole('button', { name: 'Add Heart' }))
+      const heart = within(first).getByTestId('placed-sticker')
+      const width = () => Number(heart.querySelector('image')?.getAttribute('width'))
+      const resize = within(first).getByRole('button', { name: 'Resize sticker' })
+      fireEvent.pointerDown(resize, { pointerId: 1, pointerType: 'pen', clientX: 396, clientY: 986.4 })
+      fireEvent.pointerMove(first, { pointerId: 1, pointerType: 'pen', clientX: 492, clientY: 1072.8 })
+      fireEvent.pointerDown(heart, { pointerId: 2, pointerType: 'touch', clientX: 320, clientY: 920 })
+      fireEvent.pointerUp(first, { pointerId: 1, pointerType: 'pen' })
+      expect(width()).toBeCloseTo(384)
+      fireEvent.pointerMove(first, { pointerId: 2, pointerType: 'touch', clientX: 100, clientY: 100 })
+      fireEvent.pointerUp(first, { pointerId: 2, pointerType: 'touch' })
+      expect(width()).toBeCloseTo(384)
+      expect(heart).toHaveAttribute('transform', 'translate(300 900) rotate(0)')
+      // A new gesture starts normally afterwards.
+      fireEvent.pointerDown(heart, { pointerId: 3, pointerType: 'mouse', clientX: 300, clientY: 900 })
+      fireEvent.pointerMove(first, { pointerId: 3, pointerType: 'mouse', clientX: 375, clientY: 1125 })
+      fireEvent.pointerUp(first, { pointerId: 3, pointerType: 'mouse' })
+      expect(heart).toHaveAttribute('transform', 'translate(375 1125) rotate(0)')
+    })
+  })
+
   it('the Remove handle also works from the keyboard', async () => {
     const { fetcher } = server(visit())
     renderDecorate(fetcher)

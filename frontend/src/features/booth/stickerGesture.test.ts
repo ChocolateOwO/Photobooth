@@ -108,3 +108,44 @@ describe('sticker handles', () => {
     }
   })
 })
+
+describe('handles never cover each other (review R1)', () => {
+  // A 600 x 1800 strip shown 200 pixels wide: a 24-pixel handle is 72 photo pixels.
+  const radius = 72
+  const spots = [0, 0.5, 1].flatMap((x) =>
+    [0, 0.5, 1].flatMap((y) =>
+      [0, 37, 90, -135].map((rotation) => ({ x, y, rotation })),
+    ),
+  )
+
+  it.each([0.05, 0.12, 0.32])('a sticker of size %s gets three separate handles, on the photo', (size) => {
+    for (const where of spots) {
+      const handles = handleSpots({ ...START, size, ...where }, 0.9, CANVAS, radius)
+      const all = Object.values(handles)
+      for (const spot of all) {
+        expect(spot.x).toBeGreaterThanOrEqual(radius - 1e-6)
+        expect(spot.x).toBeLessThanOrEqual(600 - radius + 1e-6)
+        expect(spot.y).toBeGreaterThanOrEqual(radius - 1e-6)
+        expect(spot.y).toBeLessThanOrEqual(1800 - radius + 1e-6)
+      }
+      for (let i = 0; i < all.length; i++) {
+        for (let j = i + 1; j < all.length; j++) {
+          const a = all[i] as { x: number; y: number }
+          const b = all[j] as { x: number; y: number }
+          expect(Math.hypot(a.x - b.x, a.y - b.y), JSON.stringify({ size, where })).toBeGreaterThanOrEqual(
+            2 * radius,
+          )
+        }
+      }
+    }
+  })
+
+  it('a large sticker away from the edges keeps its handles on its corners', () => {
+    const big = handleSpots({ ...START, size: 0.6, rotation: 0 }, 0.5, CANVAS, radius)
+    expect(big).toEqual({
+      move: { x: 120, y: 810 },
+      remove: { x: 480, y: 810 },
+      resize: { x: 480, y: 990 },
+    })
+  })
+})

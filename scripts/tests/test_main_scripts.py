@@ -284,44 +284,123 @@ def _probes(probe: str) -> list[int]:
 
 
 # ---- installing a published release from a fresh clone (README) ---------------------------------
-# Only refusals that happen before anything is written: in this repository a real -Release would
-# install the owner's real Main.
+# Every -Release test runs the installer from a throwaway clone laid out as <temp>\proj\Dummy\app,
+# so its "real Main" is <temp>\proj\Main: whatever the owner's machine holds, nothing outside the
+# temp folder is ever a target (P13 review R4). Only refusals are exercised here.
 
 
-def test_a_release_must_be_a_tag_in_this_clone() -> None:
-    result = _run("install-main.ps1", "-Release", "dummy-patch-999-not-published")
-    assert result.returncode != 0
-    assert "is not in this clone" in result.stdout + result.stderr
-    assert not REAL_MAIN.exists()
+def _fresh_clone(base: Path) -> tuple[Path, str]:
+    app = base / "proj" / "Dummy" / "app"
+    shutil.copytree(SCRIPTS, app / "scripts", ignore=shutil.ignore_patterns("__pycache__", "tests"))
+    git(app, "init", "-q", "-b", "main")
+    for key, value in (
+        ("user.name", "photobooth-test"),
+        ("user.email", "test@example.invalid"),
+        ("commit.gpgsign", "false"),
+        ("tag.gpgsign", "false"),
+    ):
+        git(app, "config", key, value)
+    git(app, "add", "-A")
+    git(app, "commit", "-q", "-m", "release")
+    return app, git(app, "rev-parse", "HEAD")
+
+
+def _run_in(app: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        [
+            "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", str(app / "scripts" / "install-main.ps1"), *args,
+        ],
+        input=b"", capture_output=True, check=False,
+    )  # fmt: skip
+
+
+def _said(result: subprocess.CompletedProcess[bytes]) -> str:
+    return (result.stdout + result.stderr).decode("utf-8", "replace")
+
+
+def test_a_release_must_be_an_annotated_milestone_tag_with_its_evidence(temp_base: Path) -> None:
+    app, head = _fresh_clone(temp_base)
+    git(app, "tag", "dummy-patch-001-light")
+    git(app, "tag", "-a", "dummy-patch-002-bare", "-m", "no evidence")
+    git(app, "tag", "-a", "dummy-patch-003-other", "-m",
+        f"approved-commit: {'0' * 40}\napproval: approved 2026-10-04\nmanual-test: passed\n"
+        f"verify-record-sha256: {'a' * 64}")  # fmt: skip
+    git(app, "tag", "-a", "dummy-patch-004-pending", "-m",
+        f"approved-commit: {head}\napproval: pending\nmanual-test: passed\n"
+        f"verify-record-sha256: {'a' * 64}")  # fmt: skip
+    for tag, refusal in (
+        ("dummy-patch-999-not-published", "is not in this clone"),
+        ("dummy-patch-001-light", "is not an annotated tag"),
+        ("dummy-patch-002-bare", "does not record"),
+        ("dummy-patch-003-other", "does not record"),
+        ("dummy-patch-004-pending", "records no approval"),
+        ("v1.0", "Not a milestone tag"),
+    ):
+        result = _run_in(app, "-Release", tag)
+        assert result.returncode != 0, tag
+        assert refusal in _said(result), (tag, _said(result))
+    assert not (temp_base / "proj" / "Main").exists()
 
 
 def test_a_release_is_never_mixed_with_a_rehearsal_or_another_tag(temp_base: Path) -> None:
+    app, _ = _fresh_clone(temp_base)
     for extra in (
         ["-Rehearsal", "-MainRoot", str(temp_base / "Main")],
         ["-Tag", "dummy-patch-006-x"],
     ):
-        result = _run(
-            "install-main.ps1", "-Release", "dummy-patch-006-booth-camera-capture", *extra
-        )
+        result = _run_in(app, "-Release", "dummy-patch-006-booth-camera-capture", *extra)
         assert result.returncode != 0
-        assert "not with -Rehearsal or -Tag" in result.stdout + result.stderr
+        assert "not with -Rehearsal or -Tag" in _said(result)
     assert not (temp_base / "Main").exists()
+    assert not (temp_base / "proj" / "Main").exists()
 
 
-def test_the_installer_needs_a_source() -> None:
-    result = _run("install-main.ps1")
+def test_the_installer_needs_a_source(temp_base: Path) -> None:
+    app, _ = _fresh_clone(temp_base)
+    result = _run_in(app)
     assert result.returncode != 0
-    assert "Name the source" in result.stdout + result.stderr
+    assert "Name the source" in _said(result)
 
 
-def test_a_piped_password_must_be_there() -> None:
-    result = subprocess.run(
-        [
-            "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-            "-File", str(SCRIPTS / "install-main.ps1"),
-            "-Release", "dummy-patch-999-not-published", "-AdminPasswordStdin",
-        ],
-        input="", capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+def test_a_piped_password_must_be_there(temp_base: Path) -> None:
+    app, _ = _fresh_clone(temp_base)
+    result = _run_in(app, "-Release", "dummy-patch-999-not-published", "-AdminPasswordStdin")
+    assert result.returncode != 0
+    assert "no password on the first line" in _said(result)
+    assert not (temp_base / "proj" / "Main").exists()
+
+
+def test_a_piped_password_reaches_python_as_the_same_utf8_text(temp_base: Path) -> None:
+    # Read-StdinLineUtf8 + Invoke-NativeWithLine (P13 review R3): characters outside the console
+    # code page survive the PowerShell pipe into a Python child unchanged, and nothing is left set.
+    password = "รหัสผ่านแอดมิน-ü-€-a long enough admin password"
+    # The child reads like photobooth's --password-stdin: PowerShell 5.1 adds a BOM, which it drops.
+    child = temp_base / "child.py"
+    child.write_text(
+        "import sys\n"
+        "line = sys.stdin.readline().rstrip('\\r\\n').removeprefix('\\ufeff')\n"
+        "print(ascii(line))\n",
+        encoding="utf-8",
+    )
+    probe = temp_base / "probe.ps1"
+    probe.write_text(
+        "\ufeff. '" + str(SCRIPTS / "lib" / "common.ps1") + "'\n"
+        "$line = Read-StdinLineUtf8\n"
+        "$before = [string]$OutputEncoding.WebName\n"
+        "Invoke-NativeWithLine -FilePath '" + sys.executable + "' "
+        "-Arguments @('" + str(child) + "') -Line $line\n"
+        "$same = [string]$OutputEncoding.WebName -eq $before\n"
+        "Write-Output ('after ' + $same + ' ' + ($null -eq $env:PYTHONIOENCODING))\n",
+        encoding="utf-8",
     )  # fmt: skip
-    assert result.returncode != 0
-    assert "no password on the first line" in result.stdout + result.stderr
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONIOENCODING"}
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(probe)],
+        input=b"\xef\xbb\xbf" + password.encode("utf-8") + b"\r\n", capture_output=True, env=env,
+        check=False,
+    )  # fmt: skip
+    out = result.stdout.decode("utf-8", "replace")
+    assert result.returncode == 0, _said(result)
+    assert ascii(password) in out
+    assert "after True True" in out

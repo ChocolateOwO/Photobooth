@@ -87,7 +87,57 @@ export function handleSpots(
       y: inside(cy + dx * sin + dy * cos, canvas.height),
     }
   }
-  return spots
+  if (apart(spots, radius)) return spots
+  return beside({ x: cx, y: cy }, w, h, canvas, radius) ?? spots
+}
+
+/** The least room between two handle centres: a little more than two radii (no overlap). */
+const SPACING = 2.3
+
+function apart(spots: Record<HandleKind, Point>, radius: number): boolean {
+  const all = Object.values(spots)
+  return all.every((a, i) =>
+    all.slice(i + 1).every((b) => distance(a, b) >= SPACING * radius - 1e-6),
+  )
+}
+
+/**
+ * A sticker too small for its corners, or pushed into a corner of the photo, would get its handles
+ * on top of each other. They then line up side by side next to it (above, below, then beside it),
+ * still on the photo, in the same order: Move, Resize, Remove. Null if the photo is too small for
+ * any such row.
+ */
+function beside(
+  centre: Point,
+  w: number,
+  h: number,
+  canvas: Canvas,
+  radius: number,
+): Record<HandleKind, Point> | null {
+  const step = SPACING * radius
+  const gap = 1.4 * radius
+  const fits = (value: number, low: number, high: number) => value >= low && value <= high
+  const extent = Math.max(w, h) / 2
+  const rows: { along: 'x' | 'y'; at: number }[] = [
+    { along: 'x', at: centre.y - h / 2 - gap }, // above
+    { along: 'x', at: centre.y + h / 2 + gap }, // below
+    { along: 'y', at: centre.x + w / 2 + gap }, // to the right
+    { along: 'y', at: centre.x - w / 2 - gap }, // to the left
+    { along: 'y', at: centre.x + Math.min(extent, radius) }, // last resort: over the sticker
+  ]
+  for (const row of rows) {
+    const length = row.along === 'x' ? canvas.width : canvas.height
+    const across = row.along === 'x' ? canvas.height : canvas.width
+    if (length < 2 * step + 2 * radius) continue
+    const at = Math.min(across - radius, Math.max(radius, row.at))
+    if (!fits(row.at, radius, across - radius) && row !== rows[rows.length - 1]) continue
+    const middle = row.along === 'x' ? centre.x : centre.y
+    const first = Math.min(length - radius - 2 * step, Math.max(radius, middle - step))
+    const place = (n: number): Point =>
+      row.along === 'x' ? { x: first + n * step, y: at } : { x: at, y: first + n * step }
+    return { move: place(0), resize: place(1), remove: place(2) }
+  }
+  return null
 }
 
 /**

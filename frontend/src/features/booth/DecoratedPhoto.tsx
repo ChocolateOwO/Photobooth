@@ -132,8 +132,10 @@ export function DecoratedPhoto({
     if (!interactive) return
     event.stopPropagation()
     event.preventDefault()
-    svgRef.current?.setPointerCapture?.(event.pointerId)
     const current = gesture.current
+    // A resize belongs to the one pointer on its handle: another finger meanwhile is ignored.
+    if (current?.mode === 'resize') return
+    svgRef.current?.setPointerCapture?.(event.pointerId)
     if (current && current.sticker.id === sticker.id && current.pointers.size === 1) {
       // A second finger joins: the gesture goes on from here with both fingers.
       current.pointers.set(event.pointerId, toPhoto(event))
@@ -226,7 +228,8 @@ export function DecoratedPhoto({
       aria-label={label}
       data-testid="decorated-photo"
       data-output={output.output_index}
-      onPointerDown={interactive ? () => onSelect?.(null) : undefined}
+      // A tap on the photo itself lets the sticker go, but never in the middle of a gesture.
+      onPointerDown={interactive ? () => gesture.current === null && onSelect?.(null) : undefined}
       onPointerMove={interactive ? moving : undefined}
       onPointerUp={interactive ? end : undefined}
       onPointerCancel={interactive ? end : undefined}

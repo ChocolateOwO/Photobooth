@@ -61,7 +61,7 @@ function Invoke-Git {
 if ($Release -and ($Rehearsal -or $Tag)) { throw '-Release installs a published tag for real: not with -Rehearsal or -Tag' }
 if (-not $Release -and -not $Commit) { throw 'Name the source: -Commit <sha> (with -Tag or -Rehearsal), or -Release <tag>' }
 # Read before anything else, so a piped password is never left waiting in the pipe.
-$stdinPassword = if ($AdminPasswordStdin) { [Console]::In.ReadLine() } else { $null }
+$stdinPassword = if ($AdminPasswordStdin) { Read-StdinLineUtf8 } else { $null }
 if ($AdminPasswordStdin -and -not $stdinPassword) { throw '-AdminPasswordStdin: no password on the first line of standard input' }
 
 # ---- where Main goes (checked before anything is written) ----------------------------------------
@@ -266,13 +266,8 @@ try {
     if ($Rehearsal -or $stdinPassword) {
         # A rehearsal's throwaway password (never shown or written down), or the one piped in.
         $password = if ($stdinPassword) { $stdinPassword } else { 'rehearsal-' + [guid]::NewGuid().ToString('N') }
-        $previous = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        try {
-            $password | & $python -m photobooth admin-set-password @intent --username admin --password-stdin
-            if ($LASTEXITCODE -ne 0) { throw "admin-set-password exited with $LASTEXITCODE" }
-        }
-        finally { $ErrorActionPreference = $previous }
+        # UTF-8 end to end, so a password with characters outside ASCII arrives as typed.
+        Invoke-NativeWithLine -FilePath $python -Line $password -Arguments (@('-m', 'photobooth', 'admin-set-password') + $intent + @('--username', 'admin', '--password-stdin'))
     }
     else {
         Write-Host 'Type the NEW Main admin password (12+ characters; not the Dummy one), twice:'

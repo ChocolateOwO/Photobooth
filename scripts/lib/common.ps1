@@ -47,6 +47,39 @@ function Clear-GitEnvironment {
     }
 }
 
+function Read-StdinLineUtf8 {
+    # The first line of standard input, read as UTF-8 bytes (never through the console code page,
+    # which would turn characters outside it into '?'). A UTF-8 BOM and the line end are dropped.
+    $stream = [Console]::OpenStandardInput()
+    $bytes = New-Object System.Collections.Generic.List[byte]
+    while (($b = $stream.ReadByte()) -ge 0 -and $b -ne 10) { $bytes.Add([byte]$b) }
+    $text = (New-Object System.Text.UTF8Encoding $false).GetString($bytes.ToArray())
+    return $text.TrimStart([char]0xFEFF).TrimEnd("`r")
+}
+
+function Invoke-NativeWithLine {
+    # Runs a native command with one line on its standard input, encoded as UTF-8 (and tells a Python
+    # child to read UTF-8), then restores both settings (P13 review R3). Windows PowerShell 5.1 still
+    # puts a UTF-8 BOM in front of piped native input; photobooth's --password-stdin drops it.
+    param([Parameter(Mandatory)] [string] $FilePath, [string[]] $Arguments = @(), [Parameter(Mandatory)] [string] $Line)
+    $previousEncoding = $OutputEncoding
+    $previousPythonIo = $env:PYTHONIOENCODING
+    $previousPreference = $ErrorActionPreference
+    try {
+        $global:OutputEncoding = New-Object System.Text.UTF8Encoding $false
+        $env:PYTHONIOENCODING = 'utf-8'
+        $ErrorActionPreference = 'Continue'
+        $Line | & $FilePath @Arguments
+        if ($LASTEXITCODE -ne 0) { throw "$FilePath exited with $LASTEXITCODE" }
+    }
+    finally {
+        $global:OutputEncoding = $previousEncoding
+        if ($null -eq $previousPythonIo) { Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue }
+        else { $env:PYTHONIOENCODING = $previousPythonIo }
+        $ErrorActionPreference = $previousPreference
+    }
+}
+
 function Assert-PlainPath {
     # Refuses a path that could lead somewhere else than it reads (P13-R2): a UNC or device path,
     # an 8.3 short name (a "~" in any part), or a junction or symbolic link at the path or at any
